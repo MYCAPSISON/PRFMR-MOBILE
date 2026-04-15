@@ -90,7 +90,8 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   try {
     return JSON.parse(text) as T;
   } catch {
-    console.error("[api] Non-JSON response from", `${API_BASE}${path}`, "body:", text.slice(0, 200));
-    throw new Error("Unexpected response from server. Make sure EXPO_PUBLIC_API_URL ends with /api");
+    const preview = text.slice(0, 300);
+    console.error("[api] Non-JSON response from", `${API_BASE}${path}`, "status:", response.status, "body:", preview);
+    throw new Error(`Server returned HTML (status ${response.status}) from ${API_BASE}${path} — is your API URL correct?`);
   }
 }
