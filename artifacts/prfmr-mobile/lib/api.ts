@@ -87,5 +87,10 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   const text = await response.text();
   if (!text) return {} as T;
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    console.error("[api] Non-JSON response from", `${API_BASE}${path}`, "body:", text.slice(0, 200));
+    throw new Error("Unexpected response from server. Make sure EXPO_PUBLIC_API_URL ends with /api");
+  }
 }
