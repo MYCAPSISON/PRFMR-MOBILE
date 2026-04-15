@@ -1,7 +1,11 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
+const API_BASE = (process.env.EXPO_PUBLIC_API_URL ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`).replace(/\/$/, "");
+
+if (__DEV__) {
+  console.log("[api] Base URL:", API_BASE);
+}
 
 let sessionCookie: string | null = null;
 
@@ -52,12 +56,18 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     headers["Cookie"] = sessionCookie;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    credentials: sessionCookie ? "omit" : "include",
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      credentials: sessionCookie ? "omit" : "include",
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (networkErr) {
+    console.error("[api] Network error hitting:", `${API_BASE}${path}`, networkErr);
+    throw new Error(`Cannot reach the server. Check your internet connection or contact support.`);
+  }
 
   const setCookieHeader = response.headers.get("set-cookie");
   if (setCookieHeader) {
