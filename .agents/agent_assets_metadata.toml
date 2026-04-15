@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "igD3ocexI1V1MhazZy0c1"
+uri = "file://artifacts/prfmr-mobile/assets/images/icon.png"
+type = "image"
+title = "PRFMR app icon"

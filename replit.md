@@ -25,3 +25,24 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## Artifacts
+
+### PRFMR Mobile (`artifacts/prfmr-mobile`)
+- **Type**: Expo (React Native) mobile app
+- **Preview path**: `/`
+- **Stack**: Expo SDK 54, Expo Router, React Query, expo-secure-store
+- **Design**: Dark premium UI (#0f1117 background, #ff6600 orange accent), Inter font
+- **Auth**: Session-based auth via API cookies stored in SecureStore
+- **Screens**: Dashboard, Weight Cut, Nutrition, Training, Supplements, Playbook, Profile
+- **API**: Connects to external backend via `EXPO_PUBLIC_API_URL` or `EXPO_PUBLIC_DOMAIN`
+- **Key files**:
+  - `context/AuthContext.tsx` — session auth state
+  - `lib/api.ts` — fetch wrapper with cookie session management
+  - `app/(auth)/login.tsx`, `signup.tsx` — auth screens
+  - `app/(tabs)/` — all 7 tab screens
+
+### API Server (`artifacts/api-server`)
+- **Type**: Express API server
+- **Preview path**: `/api`
+- CORS configured with `origin: true, credentials: true` for Expo web compatibility
