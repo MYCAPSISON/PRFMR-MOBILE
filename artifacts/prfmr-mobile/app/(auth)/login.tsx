@@ -78,14 +78,14 @@ export default function LoginScreen() {
           ) : null}
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>EMAIL</Text>
+            <Text style={[styles.label, { color: colors.mutedForeground }]}>EMAIL OR USERNAME</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
               value={email}
               onChangeText={setEmail}
-              placeholder="your@email.com"
+              placeholder="your@email.com or username"
               placeholderTextColor={colors.mutedForeground}
-              keyboardType="email-address"
+              keyboardType="default"
               autoCapitalize="none"
               autoComplete="email"
             />

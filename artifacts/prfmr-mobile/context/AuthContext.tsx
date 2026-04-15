@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     await apiFetch<{ user: User }>("/auth/login", {
       method: "POST",
-      body: { email, password },
+      body: { identifier: email, password },
     });
     await fetchUser();
   }, [fetchUser]);
