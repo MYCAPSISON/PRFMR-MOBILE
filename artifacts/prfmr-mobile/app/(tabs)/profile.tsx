@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
-  Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,225 +12,234 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AuthContext";
+import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout, refetchUser } = useAuth();
-  const [editModalVisible, setEditModalVisible] = useState(false);
+  const qc = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [weightModal, setWeightModal] = useState(false);
+  const [weightInput, setWeightInput] = useState("");
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
-  const [weight, setWeight] = useState(user?.weight?.toString() ?? "");
-  const [height, setHeight] = useState(user?.height?.toString() ?? "");
-  const [age, setAge] = useState(user?.age?.toString() ?? "");
-  const [sport, setSport] = useState(user?.sport ?? "");
   const [weightClass, setWeightClass] = useState(user?.weightClass ?? "");
-  const [saving, setSaving] = useState(false);
-  const [feedbackModal, setFeedbackModal] = useState(false);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [feedbackSaving, setFeedbackSaving] = useState(false);
-  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [sport, setSport] = useState(user?.sport ?? "");
 
-  const topPad = Platform.OS === "web" ? Math.max(insets.top + 67, 100) : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : 0;
+  const { data: weightCut } = useQuery<any>({
+    queryKey: ["/api/me/weight-cut"],
+    queryFn: () => apiFetch("/me/weight-cut"),
+  });
 
-  async function saveProfile() {
-    setSaving(true);
-    try {
-      await apiFetch("/user/me", {
-        method: "PATCH",
-        body: {
-          displayName: displayName || undefined,
-          weight: weight ? parseFloat(weight) : undefined,
-          height: height ? parseFloat(height) : undefined,
-          age: age ? parseInt(age) : undefined,
-          sport: sport || undefined,
-          weightClass: weightClass || undefined,
-        },
-      });
+  const { data: amqs } = useQuery<any>({
+    queryKey: ["/api/me/amqs/score", new Date().toISOString().split("T")[0]],
+    queryFn: () => apiFetch(`/me/amqs/score/${new Date().toISOString().split("T")[0]}`),
+  });
+
+  const updateWeightMutation = useMutation({
+    mutationFn: (w: number) => apiFetch("/me/body-composition", { method: "PATCH", body: { currentWeight: w } }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["/api/me/weight-cut"] });
       await refetchUser();
-      setEditModalVisible(false);
-    } catch {
-      // ignore
-    } finally {
-      setSaving(false);
-    }
-  }
+      setWeightModal(false);
+      setWeightInput("");
+    },
+    onError: (e: any) => Alert.alert("Error", e.message ?? "Failed to update weight"),
+  });
 
-  async function sendFeedback() {
-    if (!feedbackText.trim()) return;
-    setFeedbackSaving(true);
-    try {
-      await apiFetch("/me/feedback", {
-        method: "POST",
-        body: { message: feedbackText.trim() },
-      });
-      setFeedbackSent(true);
-      setTimeout(() => {
-        setFeedbackModal(false);
-        setFeedbackText("");
-        setFeedbackSent(false);
-      }, 2000);
-    } catch {
-      // ignore
-    } finally {
-      setFeedbackSaving(false);
-    }
-  }
+  const updateProfileMutation = useMutation({
+    mutationFn: (data: any) => apiFetch("/me/profile", { method: "PATCH", body: data }),
+    onSuccess: async () => {
+      await refetchUser();
+      setEditModal(false);
+    },
+    onError: () => {
+      setEditModal(false);
+      refetchUser();
+    },
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      refetchUser(),
+      qc.invalidateQueries({ queryKey: ["/api/me/weight-cut"] }),
+      qc.invalidateQueries({ queryKey: ["/api/me/amqs/score"] }),
+    ]);
+    setRefreshing(false);
+  };
+
+  const WEIGHT_CLASSES = [
+    "Flyweight (57kg)", "Bantamweight (61kg)", "Featherweight (66kg)",
+    "Lightweight (70kg)", "Welterweight (77kg)", "Middleweight (84kg)",
+    "Light Heavyweight (93kg)", "Heavyweight (120kg)", "Super Heavyweight (120kg+)"
+  ];
+  const SPORTS = ["MMA", "Boxing", "Kickboxing", "Muay Thai", "BJJ", "Wrestling", "Judo", "Karate", "Other"];
 
   const stats = [
-    { label: "Sport", value: user?.sport ?? "—", icon: "shield" as const },
-    { label: "Weight Class", value: user?.weightClass ?? "—", icon: "target" as const },
-    { label: "Weight", value: user?.weight ? `${user.weight} kg` : "—", icon: "activity" as const },
-    { label: "Height", value: user?.height ? `${user.height} cm` : "—", icon: "maximize" as const },
-    { label: "Age", value: user?.age ? `${user.age}` : "—", icon: "user" as const },
+    { label: "Current Weight", value: user?.weight ? `${user.weight} kg` : (weightCut?.currentWeight ? `${weightCut.currentWeight} kg` : "—"), icon: "trending-down" as const },
+    { label: "AMQS Score", value: amqs?.score != null ? String(amqs.score) : "—", icon: "shield" as const },
+    { label: "Weight Class", value: user?.weightClass ?? "—", icon: "award" as const },
+    { label: "Sport", value: user?.sport ?? "—", icon: "activity" as const },
   ];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: topPad + 16, paddingBottom: 100 + bottomPad, paddingHorizontal: 16 }}
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        <View style={styles.headerRow}>
-          <Text style={[styles.screenTitle, { color: colors.foreground }]}>Profile</Text>
-          <TouchableOpacity
-            onPress={() => setEditModalVisible(true)}
-            style={[styles.editBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-          >
-            <Feather name="edit-2" size={16} color={colors.foreground} />
+        <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.avatar, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
+            <Text style={{ color: colors.primary, fontSize: 36, fontWeight: "800" }}>
+              {(user?.username ?? "A")[0].toUpperCase()}
+            </Text>
+          </View>
+          <Text style={{ color: colors.foreground, fontSize: 24, fontWeight: "800", marginTop: 12 }}>
+            {user?.displayName ?? user?.username ?? "Athlete"}
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 14, marginTop: 2 }}>
+            @{user?.username}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+            <TouchableOpacity onPress={() => { setDisplayName(user?.displayName ?? ""); setWeightClass(user?.weightClass ?? ""); setSport(user?.sport ?? ""); setEditModal(true); }}
+              style={[styles.heroBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+              <Feather name="edit-2" size={15} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, fontWeight: "600", fontSize: 14 }}>Edit Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setWeightModal(true)}
+              style={[styles.heroBtn, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
+              <Feather name="trending-down" size={15} color={colors.primary} />
+              <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>Log Weight</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={[styles.statsGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 4 }}>ATHLETE STATS</Text>
+          <View style={styles.grid}>
+            {stats.map(s => (
+              <View key={s.label} style={[styles.statCard, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                <Feather name={s.icon} size={18} color={colors.primary} />
+                <Text style={{ color: colors.foreground, fontSize: 20, fontWeight: "800", marginTop: 4 }}>{s.value}</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {weightCut && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 1 }}>FIGHT CAMP</Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-around", marginTop: 8 }}>
+              <View style={{ alignItems: "center" }}>
+                <Text style={{ color: colors.foreground, fontSize: 22, fontWeight: "800" }}>{weightCut.currentWeight?.toFixed(1)}</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Current (kg)</Text>
+              </View>
+              <View style={{ alignItems: "center" }}>
+                <Text style={{ color: colors.primary, fontSize: 22, fontWeight: "800" }}>{weightCut.targetWeight?.toFixed(1)}</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Target (kg)</Text>
+              </View>
+              <View style={{ alignItems: "center" }}>
+                <Text style={{ color: colors.warning, fontSize: 22, fontWeight: "800" }}>
+                  {Math.max(0, Math.ceil((new Date(weightCut.fightDate + "T12:00:00").getTime() - Date.now()) / 86400000))}
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Days out</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 0 }]}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 4 }}>ACCOUNT</Text>
+          {user?.email && (
+            <View style={[styles.row, { borderBottomColor: colors.border }]}>
+              <Feather name="mail" size={16} color={colors.mutedForeground} />
+              <Text style={{ color: colors.foreground, flex: 1 }}>{user.email}</Text>
+            </View>
+          )}
+          <TouchableOpacity onPress={() => Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Sign Out", style: "destructive", onPress: logout },
+          ])} style={[styles.row, { borderBottomWidth: 0 }]}>
+            <Feather name="log-out" size={16} color={colors.destructive} />
+            <Text style={{ color: colors.destructive, flex: 1, fontWeight: "600" }}>Sign Out</Text>
+            <Feather name="chevron-right" size={16} color={colors.destructive} />
           </TouchableOpacity>
         </View>
-
-        <View style={[styles.avatarCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-          <View style={[styles.avatar, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
-            <Text style={[styles.avatarText, { color: colors.primary }]}>
-              {(user?.displayName ?? user?.username ?? "A").charAt(0).toUpperCase()}
-            </Text>
-          </View>
-          <View>
-            <Text style={[styles.displayName, { color: colors.foreground }]}>
-              {user?.displayName ?? user?.username ?? "Athlete"}
-            </Text>
-            <Text style={[styles.handle, { color: colors.mutedForeground }]}>@{user?.username}</Text>
-            <Text style={[styles.email, { color: colors.mutedForeground }]}>{user?.email}</Text>
-          </View>
-        </View>
-
-        <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ATHLETE PROFILE</Text>
-          {stats.map((stat) => (
-            <View key={stat.label} style={[styles.statRow, { borderBottomColor: colors.border }]}>
-              <View style={styles.statLeft}>
-                <Feather name={stat.icon} size={16} color={colors.mutedForeground} />
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{stat.label}</Text>
-              </View>
-              <Text style={[styles.statValue, { color: colors.foreground }]}>{stat.value}</Text>
-            </View>
-          ))}
-        </View>
-
-        <TouchableOpacity
-          onPress={() => setFeedbackModal(true)}
-          style={[styles.menuRow, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}
-        >
-          <Feather name="message-square" size={20} color={colors.primary} />
-          <Text style={[styles.menuText, { color: colors.foreground }]}>Send Feedback</Text>
-          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={logout}
-          style={[styles.logoutBtn, { borderColor: colors.destructive + "44", borderRadius: colors.radius }]}
-        >
-          <Feather name="log-out" size={18} color={colors.destructive} />
-          <Text style={[styles.logoutText, { color: colors.destructive }]}>Sign Out</Text>
-        </TouchableOpacity>
-
-        <Text style={[styles.version, { color: colors.mutedForeground }]}>PRFMR v1.0.0</Text>
       </ScrollView>
 
-      <Modal visible={editModalVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditModalVisible(false)}>
-        <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ padding: 24 }}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Edit Profile</Text>
-            <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+      <Modal visible={weightModal} animationType="slide" presentationStyle="formSheet">
+        <View style={{ flex: 1, backgroundColor: colors.background, padding: 24, gap: 20 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={{ color: colors.foreground, fontSize: 22, fontWeight: "700" }}>Log Weight</Text>
+            <TouchableOpacity onPress={() => { setWeightModal(false); setWeightInput(""); }}>
               <Feather name="x" size={24} color={colors.foreground} />
             </TouchableOpacity>
           </View>
-
-          {[
-            { label: "DISPLAY NAME", value: displayName, onChange: setDisplayName, placeholder: "Your name" },
-            { label: "SPORT", value: sport, onChange: setSport, placeholder: "e.g. MMA, Boxing, Wrestling" },
-            { label: "WEIGHT CLASS", value: weightClass, onChange: setWeightClass, placeholder: "e.g. Lightweight" },
-            { label: "WEIGHT (kg)", value: weight, onChange: setWeight, placeholder: "75.0", numeric: true },
-            { label: "HEIGHT (cm)", value: height, onChange: setHeight, placeholder: "175", numeric: true },
-            { label: "AGE", value: age, onChange: setAge, placeholder: "25", numeric: true },
-          ].map((field) => (
-            <View key={field.label} style={{ marginBottom: 14 }}>
-              <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>{field.label}</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
-                value={field.value}
-                onChangeText={field.onChange}
-                placeholder={field.placeholder}
-                placeholderTextColor={colors.mutedForeground}
-                keyboardType={field.numeric ? "decimal-pad" : "default"}
-              />
-            </View>
-          ))}
-
+          <Text style={{ color: colors.mutedForeground }}>Enter today's weight (kg)</Text>
+          <TextInput
+            style={{ height: 80, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.input, color: colors.foreground, fontSize: 36, textAlign: "center", fontWeight: "700" }}
+            value={weightInput} onChangeText={setWeightInput}
+            placeholder="85.0" placeholderTextColor={colors.mutedForeground}
+            keyboardType="decimal-pad" autoFocus
+          />
           <TouchableOpacity
-            onPress={saveProfile}
-            disabled={saving}
-            style={[styles.saveBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, marginTop: 8, opacity: saving ? 0.7 : 1 }]}
-          >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save Profile</Text>}
+            onPress={() => { const w = parseFloat(weightInput); if (!w) { Alert.alert("Invalid", "Please enter a valid weight"); return; } updateWeightMutation.mutate(w); }}
+            disabled={updateWeightMutation.isPending}
+            style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+            {updateWeightMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Save Weight</Text>}
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </Modal>
 
-      <Modal visible={feedbackModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setFeedbackModal(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.background, padding: 24 }}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Send Feedback</Text>
-            <TouchableOpacity onPress={() => setFeedbackModal(false)}>
-              <Feather name="x" size={24} color={colors.foreground} />
-            </TouchableOpacity>
+      <Modal visible={editModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>Edit Profile</Text>
+            <TouchableOpacity onPress={() => setEditModal(false)}><Feather name="x" size={24} color={colors.foreground} /></TouchableOpacity>
           </View>
-          {feedbackSent ? (
-            <View style={styles.feedbackSent}>
-              <Feather name="check-circle" size={48} color={colors.success} />
-              <Text style={[styles.feedbackSentText, { color: colors.foreground }]}>Thank you for your feedback!</Text>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+            <View>
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", letterSpacing: 0.8, marginBottom: 6 }}>DISPLAY NAME</Text>
+              <TextInput style={[styles.inputField, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground }]}
+                value={displayName} onChangeText={setDisplayName} placeholder="Your name" placeholderTextColor={colors.mutedForeground} />
             </View>
-          ) : (
-            <>
-              <Text style={[styles.feedbackHint, { color: colors.mutedForeground }]}>
-                Help us improve PRFMR. Share bugs, feature requests, or anything on your mind.
-              </Text>
-              <TextInput
-                style={[styles.feedbackInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
-                value={feedbackText}
-                onChangeText={setFeedbackText}
-                placeholder="Your feedback..."
-                placeholderTextColor={colors.mutedForeground}
-                multiline
-                numberOfLines={6}
-                textAlignVertical="top"
-                autoFocus
-              />
-              <TouchableOpacity
-                onPress={sendFeedback}
-                disabled={feedbackSaving || !feedbackText.trim()}
-                style={[styles.saveBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, marginTop: 16, opacity: feedbackSaving || !feedbackText.trim() ? 0.6 : 1 }]}
-              >
-                {feedbackSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Send Feedback</Text>}
-              </TouchableOpacity>
-            </>
-          )}
+            <View>
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", letterSpacing: 0.8, marginBottom: 6 }}>SPORT</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {SPORTS.map(s => (
+                    <TouchableOpacity key={s} onPress={() => setSport(s)}
+                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: sport === s ? colors.primary : colors.secondary }}>
+                      <Text style={{ color: sport === s ? "#fff" : colors.mutedForeground, fontSize: 13, fontWeight: "600" }}>{s}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+            <View>
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", letterSpacing: 0.8, marginBottom: 6 }}>WEIGHT CLASS</Text>
+              {WEIGHT_CLASSES.map(w => (
+                <TouchableOpacity key={w} onPress={() => setWeightClass(w)}
+                  style={[styles.wcRow, { borderColor: weightClass === w ? colors.primary : colors.border, backgroundColor: weightClass === w ? colors.primary + "11" : "transparent" }]}>
+                  <Text style={{ color: weightClass === w ? colors.primary : colors.foreground, fontWeight: weightClass === w ? "700" : "400" }}>{w}</Text>
+                  {weightClass === w && <Feather name="check" size={16} color={colors.primary} />}
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => updateProfileMutation.mutate({ displayName: displayName || undefined, sport: sport || undefined, weightClass: weightClass || undefined })}
+              disabled={updateProfileMutation.isPending}
+              style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+              {updateProfileMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Save Changes</Text>}
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -237,34 +247,16 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  screenTitle: { fontSize: 24, fontWeight: "800" },
-  editBtn: { padding: 10, borderWidth: 1 },
-  avatarCard: { flexDirection: "row", alignItems: "center", padding: 20, borderWidth: 1, gap: 16, marginBottom: 12 },
-  avatar: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontSize: 28, fontWeight: "800" },
-  displayName: { fontSize: 18, fontWeight: "700" },
-  handle: { fontSize: 13, marginTop: 2 },
-  email: { fontSize: 12, marginTop: 2 },
-  statsCard: { padding: 16, borderWidth: 1, marginBottom: 12 },
-  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.8, marginBottom: 12 },
-  statRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1 },
-  statLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
-  statLabel: { fontSize: 14 },
-  statValue: { fontSize: 14, fontWeight: "600" },
-  menuRow: { flexDirection: "row", alignItems: "center", padding: 16, borderWidth: 1, marginBottom: 10, gap: 12 },
-  menuText: { flex: 1, fontSize: 15, fontWeight: "500" },
-  logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 16, borderWidth: 1, gap: 10, marginTop: 8, marginBottom: 24 },
-  logoutText: { fontSize: 15, fontWeight: "700" },
-  version: { textAlign: "center", fontSize: 12 },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
-  modalTitle: { fontSize: 20, fontWeight: "700" },
-  fieldLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.8, marginBottom: 8 },
-  input: { height: 48, paddingHorizontal: 14, borderWidth: 1, fontSize: 15 },
-  saveBtn: { height: 52, alignItems: "center", justifyContent: "center" },
-  saveBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  feedbackHint: { fontSize: 14, lineHeight: 20, marginBottom: 16 },
-  feedbackInput: { padding: 14, borderWidth: 1, fontSize: 15, height: 140 },
-  feedbackSent: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
-  feedbackSentText: { fontSize: 18, fontWeight: "600", textAlign: "center" },
+  content: { paddingHorizontal: 16, gap: 12 },
+  hero: { borderRadius: 16, borderWidth: 1, padding: 24, alignItems: "center" },
+  avatar: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  heroBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  statsGrid: { borderRadius: 14, borderWidth: 1, padding: 16 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
+  statCard: { flex: 1, minWidth: "45%", padding: 14, borderRadius: 12, borderWidth: 1, gap: 2 },
+  card: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: 1 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1 },
+  inputField: { height: 48, borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, fontSize: 16 },
+  wcRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, borderWidth: 1, marginBottom: 6 },
 });

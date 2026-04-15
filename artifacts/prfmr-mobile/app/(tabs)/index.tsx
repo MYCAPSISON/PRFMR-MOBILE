@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   RefreshControl,
   ScrollView,
@@ -6,273 +6,391 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Platform } from "react-native";
-import { ReadinessCard } from "@/components/ReadinessCard";
-import { StatCard } from "@/components/StatCard";
-import { SkeletonCard } from "@/components/SkeletonCard";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
+import Svg, { Circle } from "react-native-svg";
 
-function today() {
+function todayStr() {
   return new Date().toISOString().split("T")[0];
+}
+
+function formatDate(d: string) {
+  const date = new Date(d + "T12:00:00");
+  return date.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function addDays(d: string, n: number) {
+  const date = new Date(d + "T12:00:00");
+  date.setDate(date.getDate() + n);
+  return date.toISOString().split("T")[0];
+}
+
+function MacroRing({ eaten, target, color, size = 56 }: { eaten: number; target: number; color: string; size?: number }) {
+  const pct = target > 0 ? Math.min(eaten / target, 1) : 0;
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = pct * circ;
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={size / 2} cy={size / 2} r={r} stroke="#252d3a" strokeWidth={6} fill="none" />
+      <Circle
+        cx={size / 2} cy={size / 2} r={r}
+        stroke={color} strokeWidth={6} fill="none"
+        strokeDasharray={`${dash} ${circ - dash}`}
+        strokeDashoffset={circ / 4}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
 }
 
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [selectedDate, setSelectedDate] = useState(todayStr());
   const [refreshing, setRefreshing] = useState(false);
+  const isToday = selectedDate === todayStr();
 
-  const todayStr = today();
-
-  const { data: readiness, isLoading: loadingReadiness, refetch: refetchReadiness } = useQuery({
-    queryKey: ["readiness", todayStr],
-    queryFn: () => apiFetch<{ score: number; details?: Record<string, number>; label?: string }>(`/me/readiness/${todayStr}`),
+  const { data: targets, isLoading: targetsLoading } = useQuery({
+    queryKey: ["/api/me/targets/effective", selectedDate],
+    queryFn: () => apiFetch<any>(`/me/targets/effective?date=${selectedDate}`),
   });
 
-  const { data: food, isLoading: loadingFood, refetch: refetchFood } = useQuery({
-    queryKey: ["food", todayStr],
-    queryFn: () => apiFetch<{ entries: { calories: number; protein: number; carbs: number; fat: number }[]; totals?: { calories: number; protein: number; carbs: number; fat: number } }>(`/me/food/${todayStr}`),
+  const { data: food = [] } = useQuery({
+    queryKey: ["/api/me/food", selectedDate],
+    queryFn: () => apiFetch<any[]>(`/me/food/${selectedDate}`),
   });
 
-  const { data: weightCut, isLoading: loadingWC, refetch: refetchWC } = useQuery({
-    queryKey: ["weightCut"],
-    queryFn: () => apiFetch<{ currentWeight?: number; targetWeight?: number; fightDate?: string; daysOut?: number; dailyCalorieTarget?: number }>("/me/weight-cut"),
+  const { data: trainingSummary } = useQuery({
+    queryKey: ["/api/me/training/summary", selectedDate],
+    queryFn: () => apiFetch<any>(`/me/training/summary/${selectedDate}`),
   });
 
-  const { data: training, isLoading: loadingTraining, refetch: refetchTraining } = useQuery({
-    queryKey: ["trainingLoad"],
-    queryFn: () => apiFetch<{ acwr?: number; weeklyLoad?: number; trend?: string }>("/me/training/load"),
+  const { data: readiness } = useQuery({
+    queryKey: ["/api/me/readiness", selectedDate],
+    queryFn: () => apiFetch<any>(`/me/readiness/${selectedDate}`),
   });
 
-  async function onRefresh() {
+  const { data: amqs } = useQuery({
+    queryKey: ["/api/me/amqs/score", selectedDate],
+    queryFn: () => apiFetch<any>(`/me/amqs/score/${selectedDate}`),
+  });
+
+  const { data: stacks = [] } = useQuery({
+    queryKey: ["/api/me/stacks/scheduled", selectedDate],
+    queryFn: () => apiFetch<any[]>(`/me/stacks/scheduled?date=${selectedDate}`),
+  });
+
+  const { data: intakes = [] } = useQuery({
+    queryKey: ["/api/me/supplement-intakes", selectedDate],
+    queryFn: () => apiFetch<any[]>(`/me/supplement-intakes/${selectedDate}`),
+  });
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refetchReadiness(), refetchFood(), refetchWC(), refetchTraining()]);
+    await qc.invalidateQueries();
     setRefreshing(false);
-  }
+  }, [qc]);
 
-  const totals = food?.totals ?? food?.entries?.reduce(
-    (acc, e) => ({ calories: acc.calories + (e.calories ?? 0), protein: acc.protein + (e.protein ?? 0), carbs: acc.carbs + (e.carbs ?? 0), fat: acc.fat + (e.fat ?? 0) }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
-  ) ?? { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const caloriesEaten = food.reduce((s: number, e: any) => s + (e.calories || 0), 0);
+  const proteinEaten = food.reduce((s: number, e: any) => s + (e.protein || 0), 0);
+  const carbsEaten = food.reduce((s: number, e: any) => s + (e.carbs || 0), 0);
+  const fatEaten = food.reduce((s: number, e: any) => s + (e.fat || 0), 0);
 
-  const topPad = Platform.OS === "web" ? Math.max(insets.top + 67, 100) : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : 0;
+  const targetCal = targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+  const targetProt = targets?.targetProtein ?? 150;
+  const targetCarbs = targets?.targetCarbs ?? 200;
+  const targetFat = targets?.targetFat ?? 70;
+
+  const calPct = Math.min(caloriesEaten / targetCal, 1);
+  const calRemaining = Math.max(targetCal - caloriesEaten, 0);
+
+  const readinessScore = readiness?.score ?? null;
+  const readinessLabel = readiness?.label ?? "No data";
+
+  const readinessColor =
+    readinessScore === null ? colors.mutedForeground :
+    readinessScore >= 75 ? colors.success :
+    readinessScore >= 50 ? colors.warning :
+    colors.destructive;
+
+  const takenSet = new Set(
+    intakes.filter((i: any) => i.taken).map((i: any) => `${i.stackId ?? 0}-${i.reminderId ?? 0}-${i.supplementId}`)
+  );
+
+  const uniqueSupplements = Array.from(
+    new Map(stacks.map((s: any) => [s.supplementId, s])).values()
+  ).slice(0, 4);
+
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 17) return "Good afternoon";
+    return "Good evening";
+  })();
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={{ paddingTop: topPad + 16, paddingBottom: 100 + bottomPad, paddingHorizontal: 16 }}
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-      showsVerticalScrollIndicator={false}
     >
-      <View style={styles.headerRow}>
+      <View style={styles.header}>
         <View>
-          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-            {getGreeting()}, {user?.username ?? "Athlete"}
-          </Text>
-          <Text style={[styles.dateText, { color: colors.foreground }]}>
-            {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-          </Text>
+          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{greeting},</Text>
+          <Text style={[styles.username, { color: colors.foreground }]}>{user?.username ?? "Athlete"}</Text>
         </View>
+        <View style={[styles.amqsBadge, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
+          <Text style={[styles.amqsValue, { color: colors.primary }]}>{amqs?.score ?? "--"}</Text>
+          <Text style={[styles.amqsLabel, { color: colors.primary }]}>AMQS</Text>
+        </View>
+      </View>
+
+      <View style={styles.dateNav}>
+        <TouchableOpacity onPress={() => setSelectedDate(d => addDays(d, -1))} style={styles.navBtn}>
+          <Feather name="chevron-left" size={20} color={colors.mutedForeground} />
+        </TouchableOpacity>
+        <Text style={[styles.dateText, { color: colors.foreground }]}>
+          {isToday ? "Today" : formatDate(selectedDate)}
+        </Text>
         <TouchableOpacity
-          onPress={logout}
-          style={[styles.logoutBtn, { borderColor: colors.border }]}
+          onPress={() => setSelectedDate(d => addDays(d, 1))}
+          style={[styles.navBtn, { opacity: isToday ? 0.3 : 1 }]}
+          disabled={isToday}
         >
-          <Feather name="log-out" size={18} color={colors.mutedForeground} />
+          <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
-      {loadingReadiness ? (
-        <SkeletonCard />
-      ) : readiness ? (
-        <ReadinessCard score={readiness.score} label={readiness.label} details={readiness.details} />
-      ) : (
-        <View style={[styles.noData, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radius }]}>
-          <Feather name="activity" size={20} color={colors.mutedForeground} />
-          <Text style={[styles.noDataText, { color: colors.mutedForeground }]}>Complete a morning check-in for readiness</Text>
+      {readiness && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.readinessRow}>
+            <View>
+              <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>READINESS</Text>
+              <Text style={[styles.readinessScore, { color: readinessColor }]}>
+                {readinessScore !== null ? `${readinessScore}` : "--"}
+              </Text>
+              <Text style={[styles.readinessLabel, { color: readinessColor }]}>{readinessLabel}</Text>
+            </View>
+            <View style={styles.readinessComponents}>
+              {readiness.components && Object.entries(readiness.components).slice(0, 3).map(([k, v]: [string, any]) => (
+                <View key={k} style={styles.componentRow}>
+                  <Text style={[styles.componentLabel, { color: colors.mutedForeground }]}>{k.replace(/([A-Z])/g, ' $1').trim()}</Text>
+                  <Text style={[styles.componentValue, { color: colors.foreground }]}>{typeof v === 'number' ? v : '--'}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
         </View>
       )}
 
-      <SectionHeader title="Today's Nutrition" onPress={() => router.push("/(tabs)/nutrition")} colors={colors} />
-      {loadingFood ? (
-        <SkeletonCard />
-      ) : (
-        <View style={styles.statRow}>
-          <StatCard label="Calories" value={totals.calories} unit="kcal" accent />
-          <StatCard label="Protein" value={totals.protein} unit="g" />
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>CALORIES</Text>
+        {targetsLoading ? (
+          <View style={[styles.skeleton, { backgroundColor: colors.secondary }]} />
+        ) : (
+          <View style={styles.calorieRow}>
+            <View style={styles.calorieRing}>
+              <Svg width={100} height={100}>
+                <Circle cx={50} cy={50} r={42} stroke={colors.secondary} strokeWidth={8} fill="none" />
+                <Circle
+                  cx={50} cy={50} r={42}
+                  stroke={colors.primary} strokeWidth={8} fill="none"
+                  strokeDasharray={`${calPct * 263.9} ${263.9 - calPct * 263.9}`}
+                  strokeDashoffset={65.97}
+                  strokeLinecap="round"
+                />
+              </Svg>
+              <View style={styles.ringInner}>
+                <Text style={[styles.ringValue, { color: colors.foreground }]}>{caloriesEaten}</Text>
+                <Text style={[styles.ringLabel, { color: colors.mutedForeground }]}>eaten</Text>
+              </View>
+            </View>
+            <View style={styles.calStats}>
+              <View style={styles.calStat}>
+                <Text style={[styles.calStatLabel, { color: colors.mutedForeground }]}>Target</Text>
+                <Text style={[styles.calStatValue, { color: colors.foreground }]}>{targetCal} kcal</Text>
+              </View>
+              <View style={styles.calStat}>
+                <Text style={[styles.calStatLabel, { color: colors.mutedForeground }]}>Remaining</Text>
+                <Text style={[styles.calStatValue, { color: calRemaining > 0 ? colors.success : colors.destructive }]}>{calRemaining} kcal</Text>
+              </View>
+              {trainingSummary?.totalCaloriesBurned > 0 && (
+                <View style={styles.calStat}>
+                  <Text style={[styles.calStatLabel, { color: colors.mutedForeground }]}>Training</Text>
+                  <Text style={[styles.calStatValue, { color: colors.warning }]}>+{trainingSummary.totalCaloriesBurned} kcal</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        <View style={styles.macroRow}>
+          {[
+            { label: "Protein", eaten: proteinEaten, target: targetProt, color: colors.info },
+            { label: "Carbs", eaten: carbsEaten, target: targetCarbs, color: colors.warning },
+            { label: "Fat", eaten: fatEaten, target: targetFat, color: colors.primary },
+          ].map(m => (
+            <View key={m.label} style={styles.macroItem}>
+              <MacroRing eaten={m.eaten} target={m.target} color={m.color} />
+              <Text style={[styles.macroLabel, { color: colors.mutedForeground }]}>{m.label}</Text>
+              <Text style={[styles.macroValue, { color: colors.foreground }]}>{m.eaten}g</Text>
+              <Text style={[styles.macroTarget, { color: colors.mutedForeground }]}>/{m.target}g</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {trainingSummary && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>TRAINING TODAY</Text>
+          <View style={styles.trainingRow}>
+            <View style={styles.trainingStat}>
+              <Text style={[styles.trainingValue, { color: colors.foreground }]}>{trainingSummary.sessionCount ?? 0}</Text>
+              <Text style={[styles.trainingStatLabel, { color: colors.mutedForeground }]}>Sessions</Text>
+            </View>
+            <View style={styles.trainingStat}>
+              <Text style={[styles.trainingValue, { color: colors.foreground }]}>{trainingSummary.totalCaloriesBurned ?? 0}</Text>
+              <Text style={[styles.trainingStatLabel, { color: colors.mutedForeground }]}>Calories</Text>
+            </View>
+            <View style={styles.trainingStat}>
+              <Text style={[styles.trainingValue, { color: colors.foreground }]}>{trainingSummary.totalVolume ?? 0}</Text>
+              <Text style={[styles.trainingStatLabel, { color: colors.mutedForeground }]}>Volume</Text>
+            </View>
+          </View>
+          {trainingSummary.acwr != null && (
+            <View style={[styles.acwrBadge, {
+              backgroundColor: trainingSummary.acwr > 1.3 ? colors.destructive + "22" :
+                trainingSummary.acwr < 0.8 ? colors.warning + "22" : colors.success + "22"
+            }]}>
+              <Text style={[styles.acwrText, {
+                color: trainingSummary.acwr > 1.3 ? colors.destructive :
+                  trainingSummary.acwr < 0.8 ? colors.warning : colors.success
+              }]}>
+                ACWR {trainingSummary.acwr?.toFixed(2)} — {
+                  trainingSummary.acwr > 1.3 ? "High Load" :
+                  trainingSummary.acwr < 0.8 ? "Under-training" : "Optimal"
+                }
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
-      <SectionHeader title="Weight Cut" onPress={() => router.push("/(tabs)/weightcut")} colors={colors} />
-      {loadingWC ? (
-        <SkeletonCard />
-      ) : weightCut ? (
-        <View style={styles.statRow}>
-          <StatCard label="Current" value={weightCut.currentWeight ?? "—"} unit="kg" />
-          <StatCard label="Target" value={weightCut.targetWeight ?? "—"} unit="kg" accent />
-          {weightCut.daysOut != null && <StatCard label="Days Out" value={weightCut.daysOut} />}
+      {uniqueSupplements.length > 0 && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>TODAY'S SUPPLEMENTS</Text>
+          {uniqueSupplements.map((s: any) => {
+            const key = `${s.stackId ?? 0}-${s.reminderId ?? 0}-${s.supplementId}`;
+            const taken = takenSet.has(key);
+            return (
+              <TouchableOpacity
+                key={key}
+                onPress={() => router.push("/(tabs)/supplements")}
+                style={[styles.suppRow, { borderBottomColor: colors.border }]}
+              >
+                <View style={[styles.suppCheck, {
+                  backgroundColor: taken ? colors.success + "22" : colors.secondary,
+                  borderColor: taken ? colors.success : colors.border,
+                }]}>
+                  {taken && <Feather name="check" size={12} color={colors.success} />}
+                </View>
+                <View style={styles.suppInfo}>
+                  <Text style={[styles.suppName, { color: colors.foreground }]}>{s.supplementName}</Text>
+                  {s.doseAmount && <Text style={[styles.suppDose, { color: colors.mutedForeground }]}>{s.doseAmount} {s.doseUnit}</Text>}
+                </View>
+                <Text style={[styles.suppTime, { color: colors.mutedForeground }]}>{s.time}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          {stacks.length > 4 && (
+            <TouchableOpacity onPress={() => router.push("/(tabs)/supplements")}>
+              <Text style={[styles.seeAll, { color: colors.primary }]}>See all {stacks.length} supplements →</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      ) : (
-        <EmptyCard icon="trending-down" text="Set up your weight cut plan" onPress={() => router.push("/(tabs)/weightcut")} colors={colors} />
-      )}
-
-      <SectionHeader title="Training Load" onPress={() => router.push("/(tabs)/training")} colors={colors} />
-      {loadingTraining ? (
-        <SkeletonCard />
-      ) : training ? (
-        <View style={styles.statRow}>
-          <StatCard label="ACWR" value={training.acwr?.toFixed(2) ?? "—"} accent={!!training.acwr && training.acwr > 1.3} />
-          <StatCard label="Weekly Load" value={training.weeklyLoad ?? "—"} />
-          {training.trend && <StatCard label="Trend" value={training.trend} />}
-        </View>
-      ) : (
-        <EmptyCard icon="zap" text="Log sessions to track load" onPress={() => router.push("/(tabs)/training")} colors={colors} />
       )}
 
       <View style={styles.quickActions}>
-        <QuickAction icon="plus-circle" label="Log Food" onPress={() => router.push("/(tabs)/nutrition")} colors={colors} />
-        <QuickAction icon="activity" label="Log Workout" onPress={() => router.push("/(tabs)/training")} colors={colors} />
-        <QuickAction icon="bar-chart-2" label="Log Weight" onPress={() => router.push("/(tabs)/weightcut")} colors={colors} />
-        <QuickAction icon="package" label="Supplements" onPress={() => router.push("/(tabs)/supplements")} colors={colors} />
+        {[
+          { icon: "plus-circle" as const, label: "Log Food", route: "/(tabs)/nutrition" as const },
+          { icon: "activity" as const, label: "Log Training", route: "/(tabs)/training" as const },
+          { icon: "trending-down" as const, label: "Weight Cut", route: "/(tabs)/weightcut" as const },
+          { icon: "package" as const, label: "Supplements", route: "/(tabs)/supplements" as const },
+        ].map(a => (
+          <TouchableOpacity
+            key={a.label}
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => router.push(a.route)}
+          >
+            <Feather name={a.icon} size={22} color={colors.primary} />
+            <Text style={[styles.quickLabel, { color: colors.mutedForeground }]}>{a.label}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </ScrollView>
   );
 }
 
-function SectionHeader({ title, onPress, colors }: { title: string; onPress?: () => void; colors: ReturnType<typeof import("@/hooks/useColors").useColors> }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{title}</Text>
-      {onPress && (
-        <TouchableOpacity onPress={onPress}>
-          <Text style={[styles.seeAll, { color: colors.primary }]}>See all</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
-
-function EmptyCard({ icon, text, onPress, colors }: { icon: string; text: string; onPress?: () => void; colors: ReturnType<typeof import("@/hooks/useColors").useColors> }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}
-    >
-      <Feather name={icon as never} size={18} color={colors.mutedForeground} />
-      <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>{text}</Text>
-      {onPress && <Feather name="chevron-right" size={16} color={colors.primary} />}
-    </TouchableOpacity>
-  );
-}
-
-function QuickAction({ icon, label, onPress, colors }: { icon: string; label: string; onPress: () => void; colors: ReturnType<typeof import("@/hooks/useColors").useColors> }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.quickAction, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}
-      activeOpacity={0.7}
-    >
-      <Feather name={icon as never} size={22} color={colors.primary} />
-      <Text style={[styles.quickLabel, { color: colors.foreground }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  greeting: {
-    fontSize: 13,
-    letterSpacing: 0.5,
-  },
-  dateText: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  logoutBtn: {
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  seeAll: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  statRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 4,
-  },
-  noData: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderWidth: 1,
-    gap: 10,
-    marginBottom: 4,
-  },
-  noDataText: {
-    fontSize: 13,
-    flex: 1,
-  },
-  emptyCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderWidth: 1,
-    gap: 10,
-    marginBottom: 4,
-  },
-  emptyText: {
-    flex: 1,
-    fontSize: 13,
-  },
-  quickActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 24,
-  },
-  quickAction: {
-    width: "47%",
-    padding: 16,
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-  },
-  quickLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  container: { flex: 1 },
+  content: { paddingHorizontal: 16, gap: 12 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  greeting: { fontSize: 13, letterSpacing: 0.5 },
+  username: { fontSize: 24, fontWeight: "700" },
+  amqsBadge: { alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1 },
+  amqsValue: { fontSize: 20, fontWeight: "800" },
+  amqsLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1 },
+  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 4 },
+  navBtn: { padding: 6 },
+  dateText: { fontSize: 15, fontWeight: "600", minWidth: 160, textAlign: "center" },
+  card: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 12 },
+  cardLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1.2, marginBottom: 4 },
+  skeleton: { height: 20, borderRadius: 6, width: "50%" },
+  readinessRow: { flexDirection: "row", alignItems: "flex-start", gap: 16 },
+  readinessScore: { fontSize: 48, fontWeight: "800", lineHeight: 52 },
+  readinessLabel: { fontSize: 13, fontWeight: "600", textTransform: "capitalize" },
+  readinessComponents: { flex: 1, gap: 6 },
+  componentRow: { flexDirection: "row", justifyContent: "space-between" },
+  componentLabel: { fontSize: 12, textTransform: "capitalize" },
+  componentValue: { fontSize: 12, fontWeight: "600" },
+  calorieRow: { flexDirection: "row", alignItems: "center", gap: 16 },
+  calorieRing: { alignItems: "center", justifyContent: "center" },
+  ringInner: { position: "absolute", alignItems: "center" },
+  ringValue: { fontSize: 18, fontWeight: "800" },
+  ringLabel: { fontSize: 10 },
+  calStats: { flex: 1, gap: 8 },
+  calStat: {},
+  calStatLabel: { fontSize: 11, letterSpacing: 0.5 },
+  calStatValue: { fontSize: 16, fontWeight: "700" },
+  macroRow: { flexDirection: "row", justifyContent: "space-around" },
+  macroItem: { alignItems: "center", gap: 2 },
+  macroLabel: { fontSize: 11, letterSpacing: 0.5 },
+  macroValue: { fontSize: 13, fontWeight: "700" },
+  macroTarget: { fontSize: 10 },
+  trainingRow: { flexDirection: "row", justifyContent: "space-around" },
+  trainingStat: { alignItems: "center" },
+  trainingValue: { fontSize: 24, fontWeight: "800" },
+  trainingStatLabel: { fontSize: 11, letterSpacing: 0.5 },
+  acwrBadge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  acwrText: { fontSize: 13, fontWeight: "600", textAlign: "center" },
+  suppRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1 },
+  suppCheck: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  suppInfo: { flex: 1 },
+  suppName: { fontSize: 14, fontWeight: "600" },
+  suppDose: { fontSize: 12 },
+  suppTime: { fontSize: 12 },
+  seeAll: { fontSize: 13, fontWeight: "600", marginTop: 8 },
+  quickActions: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  quickBtn: { flex: 1, minWidth: "45%", alignItems: "center", gap: 8, padding: 16, borderRadius: 14, borderWidth: 1 },
+  quickLabel: { fontSize: 12, fontWeight: "600" },
 });
