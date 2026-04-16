@@ -9,21 +9,33 @@ if (__DEV__) {
 
 let sessionCookie: string | null = null;
 
+/** Extract only the name=value pair from a Set-Cookie header (strip attributes). */
+function extractCookieValue(setCookieHeader: string): string {
+  return setCookieHeader.split(";")[0].trim();
+}
+
 export async function loadSession(): Promise<string | null> {
   if (Platform.OS === "web") {
     sessionCookie = localStorage.getItem("prfmr_session");
   } else {
     sessionCookie = await SecureStore.getItemAsync("prfmr_session");
   }
+  if (__DEV__ && sessionCookie) {
+    console.log("[api] Loaded session cookie (name only):", sessionCookie.split("=")[0]);
+  }
   return sessionCookie;
 }
 
 export async function saveSession(cookie: string): Promise<void> {
-  sessionCookie = cookie;
+  const cleaned = extractCookieValue(cookie);
+  sessionCookie = cleaned;
+  if (__DEV__) {
+    console.log("[api] Saved session cookie:", cleaned.split("=")[0]);
+  }
   if (Platform.OS === "web") {
-    localStorage.setItem("prfmr_session", cookie);
+    localStorage.setItem("prfmr_session", cleaned);
   } else {
-    await SecureStore.setItemAsync("prfmr_session", cookie);
+    await SecureStore.setItemAsync("prfmr_session", cleaned);
   }
 }
 
@@ -56,17 +68,19 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     headers["Cookie"] = sessionCookie;
   }
 
+  const url = `${API_BASE}${path}`;
+
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(url, {
       method: options.method ?? "GET",
       headers,
-      credentials: sessionCookie ? "omit" : "include",
+      credentials: "include",
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
   } catch (networkErr) {
-    console.error("[api] Network error hitting:", `${API_BASE}${path}`, networkErr);
-    throw new Error(`Cannot reach the server. Check your internet connection or contact support.`);
+    console.error("[api] Network error:", path, networkErr);
+    throw new Error(`Cannot reach the server. Check your internet connection.`);
   }
 
   const setCookieHeader = response.headers.get("set-cookie");
@@ -82,6 +96,9 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     } catch {
       // ignore
     }
+    if (__DEV__) {
+      console.error("[api] Error response:", path, response.status, errorMessage);
+    }
     throw new Error(errorMessage);
   }
 
@@ -91,7 +108,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     return JSON.parse(text) as T;
   } catch {
     const preview = text.slice(0, 300);
-    console.error("[api] Non-JSON response from", `${API_BASE}${path}`, "status:", response.status, "body:", preview);
-    throw new Error(`Server returned HTML (status ${response.status}) from ${API_BASE}${path} — is your API URL correct?`);
+    console.error("[api] Non-JSON response from", path, "status:", response.status, "body:", preview);
+    throw new Error(`Unexpected server response from ${path} (status ${response.status})`);
   }
 }
