@@ -1,0 +1,563 @@
+================================================================================
+  PRFMR MOBILE APP — COMPREHENSIVE OVERVIEW
+  For: The developer who built it, learning as they go
+  Last updated: April 2026
+================================================================================
+
+--------------------------------------------------------------------------------
+  SECTION 1 — WHAT IS THIS APP?
+--------------------------------------------------------------------------------
+
+PRFMR is a combat sports performance tracking app. The web version already
+exists at app.prfmr.link. This mobile app is a native iOS/Android version of
+the same product, built so athletes can log their data, check their stats, and
+track their weight cut from their phone — using the exact same account and data
+as the web app.
+
+The key requirement: users log in with the same credentials, and everything
+they see is their REAL data from the server. There is no fake/test data in this
+app. Every number shown comes from the backend at https://app.prfmr.link/api
+
+--------------------------------------------------------------------------------
+  SECTION 2 — THE TECHNOLOGY STACK (what tools are used)
+--------------------------------------------------------------------------------
+
+EXPO / REACT NATIVE
+  The app is built with Expo, which is a framework on top of React Native.
+  React Native lets you write JavaScript/TypeScript that runs as a real native
+  iOS or Android app (not a website in a browser). Expo adds helpful tools on
+  top: easy setup, camera access, secure storage, fonts, icons, etc.
+
+  During development, you run the app in "Expo Go" — a free app on your phone
+  that loads your code from the development server. You don't need to compile a
+  full app to test changes.
+
+EXPO ROUTER
+  This handles navigation between screens. It works like a file system — the
+  filename of each screen determines its URL/route. Files inside
+  app/(tabs)/ become the bottom tabs. Files inside app/(auth)/ are the
+  login/signup screens.
+
+TYPESCRIPT
+  All code is written in TypeScript, which is JavaScript with type checking.
+  This means the editor catches mistakes before you run the app (e.g., passing
+  a number where a string is expected). You'll see types defined everywhere
+  (like "interface User { id: number; username: string; }"). These are just
+  descriptions of what shape data has — they don't affect how the app runs,
+  only help catch bugs while writing code.
+
+REACT QUERY (@tanstack/react-query)
+  This library handles all data fetching. Instead of manually writing
+  fetch() calls everywhere, you use "useQuery" to fetch data and "useMutation"
+  to send changes (like adding food). React Query automatically:
+  - Shows loading states while data is fetching
+  - Caches results so you don't re-fetch the same thing constantly
+  - Retries failed requests
+  - Refreshes stale data when the user comes back to a screen
+
+  You'll see this pattern throughout every screen:
+    const { data: targets } = useQuery({
+      queryKey: ["targets", date],
+      queryFn: () => apiFetch(`/me/targets/effective?date=${date}`),
+    });
+
+  "queryKey" is a unique name/ID for this piece of data. If you ever need to
+  refresh data after saving something, you call:
+    queryClient.invalidateQueries({ queryKey: ["targets", date] })
+  This tells React Query "that data might be stale now, re-fetch it."
+
+EXPO SECURE STORE
+  This is how the app saves the login session between app launches. It's like
+  a secure password vault built into the phone. The session cookie from login
+  is stored here so the user stays logged in even after closing the app.
+
+DATE-FNS
+  A utility library for working with dates. Used throughout the app for
+  things like: formatting dates as "2026-04-16", adding/subtracting days,
+  getting the start of a week, etc.
+
+FEATHER ICONS & MATERIAL COMMUNITY ICONS
+  Icon libraries. Used for all the small icons (arrows, checkmarks, moon icon
+  for sleep, etc.).
+
+--------------------------------------------------------------------------------
+  SECTION 3 — FILE STRUCTURE (what each file does)
+--------------------------------------------------------------------------------
+
+artifacts/prfmr-mobile/
+│
+├── app/                          ← All screens live here
+│   ├── _layout.tsx               ← ROOT LAYOUT: sets up auth, providers, fonts
+│   ├── (auth)/                   ← Screens when NOT logged in
+│   │   ├── _layout.tsx           ← Layout wrapper for auth screens
+│   │   ├── login.tsx             ← Login screen (email + password form)
+│   │   └── signup.tsx            ← Sign up screen
+│   └── (tabs)/                   ← Screens when logged in (bottom tab bar)
+│       ├── _layout.tsx           ← Defines the 6 bottom tabs + their icons
+│       ├── index.tsx             ← DASHBOARD (the main screen, most complex)
+│       ├── training.tsx          ← Training sessions log
+│       ├── supplements.tsx       ← Supplement stacks and intake tracking
+│       ├── nutrition.tsx         ← Detailed nutrition/food log
+│       ├── weightcut.tsx         ← Weight cut plan details
+│       ├── playbook.tsx          ← Playbook/strategy notes
+│       ├── profile.tsx           ← User profile + settings
+│       └── feedback.tsx          ← Feedback/bug report form
+│
+├── context/
+│   └── AuthContext.tsx           ← ⭐ CRITICAL: manages login state for whole app
+│
+├── lib/
+│   ├── api.ts                    ← ⭐ CRITICAL: all communication with the server
+│   └── queryClient.ts            ← Sets up React Query with error logging
+│
+├── hooks/
+│   └── useColors.ts              ← Returns the right colors (dark theme)
+│
+├── constants/
+│   └── colors.ts                 ← Color palette definitions
+│
+├── components/
+│   └── ErrorBoundary.tsx         ← Catches crashes and shows a friendly error
+│
+└── .env (or set in Replit)       ← EXPO_PUBLIC_API_URL=https://app.prfmr.link/api
+
+--------------------------------------------------------------------------------
+  SECTION 4 — AUTHENTICATION (the hardest problem — READ THIS CAREFULLY)
+--------------------------------------------------------------------------------
+
+This was by far the most difficult part of building this app. Here's why, in
+plain English:
+
+HOW WEBSITES HANDLE LOGIN:
+  When you log into a website, the server creates a "session" — a record that
+  says "this browser is logged in as Denis." It gives the browser a small ID
+  called a "session cookie." The browser automatically stores this and sends it
+  back with EVERY future request. This is invisible to the website's JavaScript
+  code — the browser handles it silently.
+
+THE PROBLEM ON REACT NATIVE / IOS:
+  React Native tries to behave like a browser in many ways, including this:
+  it HIDES the session cookie from JavaScript code. This is a security feature
+  in browsers (so malicious scripts can't steal your cookies), and React
+  Native copied this behavior even though it doesn't need to on a native app.
+
+  The result: when the app logged in, the server sent back a session cookie.
+  But when our JavaScript code tried to read it (response.headers.get("set-cookie")),
+  it got null — nothing. The cookie was invisible.
+
+  Then when the app tried to fetch real data (food, targets, supplements),
+  those requests had no cookie attached, so the server said "not authenticated"
+  and refused to respond with data. This caused ALL data to show as zero/empty
+  even after a successful login.
+
+THE FIX WE IMPLEMENTED:
+  React Native's older XMLHttpRequest (XHR) API — a different way to make
+  HTTP requests — does NOT have this same restriction. When you use XHR and
+  call xhr.getResponseHeader("set-cookie"), it DOES return the cookie.
+
+  So the login call now uses XHR specifically to capture the session cookie.
+  Once captured, it's:
+    1. Stored in memory (a variable called sessionCookie in lib/api.ts)
+    2. Saved to SecureStore (so it survives app restarts)
+    3. Manually included in the "Cookie" header of EVERY subsequent request
+
+  This is why lib/api.ts has two separate functions:
+    - loginWithXhr()  ← uses old-style XHR, returns the cookie
+    - apiFetch()      ← uses modern fetch, manually includes the saved cookie
+
+⭐⭐⭐ IMPORTANT — IF LOGIN BREAKS IN THE FUTURE:
+  The #1 thing to check is whether the session cookie is being captured.
+  When Denis logs in, the Expo console should show:
+    [auth] Session captured via XHR set-cookie ✓
+
+  If you see instead:
+    [auth] No set-cookie header from login — will try credentials:include fallback
+  ...then the XHR trick stopped working and you need to find a new way to
+  capture the cookie. This could happen if Expo updates its native network
+  layer. At that point, options include:
+    a) Using a different HTTP library (like axios)
+    b) Using a dedicated React Native cookie management library
+    c) Asking the backend to also return an auth token in the response body
+       (some APIs support Bearer tokens as an alternative to cookies)
+
+--------------------------------------------------------------------------------
+  SECTION 5 — HOW DATA FETCHING WORKS
+--------------------------------------------------------------------------------
+
+Every piece of data shown in the app goes through the same pipeline:
+
+  1. COMPONENT calls useQuery() with a queryKey and a queryFn
+  2. REACT QUERY checks its cache — if fresh data exists, shows it immediately
+  3. If not cached (or stale), React Query calls the queryFn
+  4. queryFn calls apiFetch() with the API path
+  5. apiFetch() adds the session cookie to the request headers
+  6. apiFetch() calls fetch() to make the actual HTTP request to the server
+  7. The server checks the session cookie → confirms the user is logged in
+  8. The server returns JSON data
+  9. apiFetch() parses the JSON and returns it
+  10. React Query stores it in cache and passes it to the component
+  11. The component renders the data
+
+When the user WRITES data (saves food, logs weight, etc.):
+  1. Component calls useMutation()
+  2. On success, it calls queryClient.invalidateQueries() on related queryKeys
+  3. This marks the cached data as stale
+  4. React Query re-fetches the fresh data from the server
+  5. The screen updates with the new values
+
+ALL API PATHS (the endpoints the app talks to):
+  POST  /auth/login                     ← Login
+  POST  /auth/logout                    ← Logout
+  GET   /user/me                        ← Get current user info
+  GET   /me/food/:date                  ← Food log for a date
+  POST  /me/food                        ← Add a food entry
+  DELETE /me/food/:id                   ← Remove a food entry
+  GET   /me/targets/effective?date=     ← Calorie/macro targets for a date
+  GET   /me/morning-status/:date        ← Has sleep/weight been logged today?
+  PUT   /me/sleep/:date                 ← Log sleep hours + quality
+  POST  /weights                        ← Log body weight
+  POST  /me/rest-day/:date              ← Mark today as rest day
+  DELETE /me/rest-day/:date             ← Unmark rest day
+  GET   /me/readiness/:date             ← Training readiness score
+  POST  /me/provisional-checkin         ← Quick how-do-you-feel check-in
+  GET   /me/amqs/score/:date            ← AMQS readiness score
+  GET   /me/weight-cut                  ← Active weight cut plan
+  GET   /me/weights/range?start=&end=   ← Weight history for graph
+  GET   /workouts/sessions?start=&end=  ← Training session history
+  GET   /me/stacks/scheduled?date=      ← Scheduled supplement reminders
+  GET   /me/supplement-intakes/:date    ← Which supplements taken today
+  POST  /me/supplement-intakes          ← Mark supplement as taken
+  DELETE /me/supplement-intakes/:id     ← Unmark supplement intake
+
+--------------------------------------------------------------------------------
+  SECTION 6 — THE SCREENS (what each tab does)
+--------------------------------------------------------------------------------
+
+DASHBOARD (app/(tabs)/index.tsx)
+  The most complex screen. Shows everything for "today" with a date navigator.
+  Contains these sections (each is its own component):
+  - FightCampHero: Shows days until fight, current vs target weight, weekly
+    progress. Only shows if user has an active weight cut plan.
+  - MorningCheckIn: Prompts to log sleep, morning weight, and training.
+    Disappears once all 3 are done.
+  - ProvisionalCheckIn: "How do you feel today?" quick 3-question form.
+  - AmqsCard: Shows the athlete's readiness score (0-100) for today.
+  - MacroCards: Shows calories, protein, carbs, fat (consumed vs target).
+  - WeightTrend: A simple line graph of weight over the past 4 weeks.
+  - SupplementsPreview: Shows today's supplement reminders with check-off.
+  - MealsList: Lists all food logged for the day with totals.
+
+TRAINING (app/(tabs)/training.tsx)
+  Shows recent workout sessions. Tapping one expands to show exercises/sets.
+
+SUPPLEMENTS (app/(tabs)/supplements.tsx)
+  Shows all supplement stacks with their scheduled reminders. Lets user check
+  off supplements as taken.
+
+NUTRITION (app/(tabs)/nutrition.tsx)
+  Detailed food log for a selected date. Broken down by meal type (breakfast,
+  lunch, dinner, snack). Allows adding and removing food entries.
+
+WEIGHT CUT (app/(tabs)/weightcut.tsx)
+  Detailed view of the active weight cut plan with weekly targets.
+
+PROFILE (app/(tabs)/profile.tsx)
+  Shows user info (username, email, sport, weight class). Logout button.
+
+FEEDBACK (app/(tabs)/feedback.tsx)
+  Simple form to submit bug reports or feature requests.
+
+--------------------------------------------------------------------------------
+  SECTION 7 — DESIGN SYSTEM (colors and styling)
+--------------------------------------------------------------------------------
+
+The app uses a DARK THEME matching the web app exactly. All colors are defined
+in constants/colors.ts and accessed through the useColors() hook.
+
+Color palette (these are hex codes):
+  background:        #0f1117  ← Near-black background
+  card:              #13161d  ← Slightly lighter card backgrounds
+  secondary:         #181c26  ← Input fields, inner boxes
+  border:            #1a1e28  ← Dividers and outlines
+  foreground:        #f8fafc  ← Main white text
+  mutedForeground:   #6b7280  ← Grey secondary text
+  primary:           #ff7a00  ← ORANGE — brand color, buttons, highlights
+  primaryForeground: #fff     ← Text on orange buttons
+
+⭐ HOW TO USE COLORS IN A NEW SCREEN:
+  At the top of any component, add:
+    const colors = useColors();
+  Then use colors.primary, colors.card, etc. in your StyleSheet.
+  Do NOT hardcode hex values in screen files — always use useColors().
+
+--------------------------------------------------------------------------------
+  SECTION 8 — ⭐ THINGS TO PAY MOST ATTENTION TO ⭐
+--------------------------------------------------------------------------------
+
+These are the areas most likely to cause problems when you add new features
+or debug issues. Read these carefully.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  1. THE SESSION COOKIE — lib/api.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The variable "sessionCookie" in lib/api.ts is the lifeblood of the app.
+  If it's null, EVERY request will return 401 Not Authenticated and the app
+  will show empty data everywhere.
+
+  NEVER do anything that could clear this accidentally:
+  - Don't restart the module (hot reload should be fine, full reload is fine)
+  - Don't add any code that sets sessionCookie = null except on logout
+  - Don't change the XHR login flow without testing it end-to-end
+
+  To verify the cookie is working: after login, check the Expo console for:
+    [auth] Session captured via XHR set-cookie ✓
+    [api] → /user/me | cookie: YES (connect.sid)
+    [api] ← /user/me 200
+
+  If you see "cookie: NO" for requests after login, the session was not saved.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  2. REACT QUERY KEYS — must be consistent
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  React Query uses the queryKey to identify and cache data. If you fetch
+  something with queryKey: ["food", date] but then invalidate with
+  queryKey: ["food"] (without the date), the cache won't update correctly
+  and the user will see stale data.
+
+  Rule of thumb: the queryKey must match EXACTLY between useQuery and
+  invalidateQueries calls. Include all variables that affect the data
+  (especially the date).
+
+  Example of getting it right:
+    useQuery({ queryKey: ["food", date], ... })
+    ...
+    queryClient.invalidateQueries({ queryKey: ["food", date] })  ✓
+
+  Example of getting it wrong:
+    useQuery({ queryKey: ["food", date], ... })
+    ...
+    queryClient.invalidateQueries({ queryKey: ["food"] })  ✗ won't update
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  3. DATE HANDLING — always use T12:00:00 timezone trick
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  This is a subtle bug that is easy to accidentally introduce.
+
+  When you write: new Date("2026-04-16")
+  JavaScript interprets this as UTC midnight (12:00 AM in London time).
+  If you're in a timezone BEHIND UTC (like US or UK summer time), this actually
+  becomes April 15 at 8pm or 11pm local time — the wrong day!
+
+  The fix used throughout this app: new Date("2026-04-16T12:00:00")
+  Adding T12:00:00 makes it noon, which is the same calendar date in any
+  timezone from UTC-12 to UTC+12.
+
+  Always do this when you're:
+  - Converting a "yyyy-MM-dd" string into a Date object
+  - Doing date math (addDays, subWeeks, format) on dates that come from the API
+
+  Good:
+    format(new Date(date + "T12:00:00"), "yyyy-MM-dd")
+    addDays(new Date(date + "T12:00:00"), 1)
+
+  Bad:
+    format(new Date(date), "yyyy-MM-dd")  ← might shift by a day
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  4. ENVIRONMENT VARIABLES — baked in at build time
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The API URL (https://app.prfmr.link/api) is stored in an environment
+  variable called EXPO_PUBLIC_API_URL. The "EXPO_PUBLIC_" prefix is important:
+  Expo bakes this value INTO the JavaScript bundle when Metro (the bundler)
+  compiles the code. This means:
+
+  - If you change this variable, you need to RESTART the Expo server
+    (Metro) for it to take effect — a hot reload is NOT enough.
+  - The value is visible in the compiled bundle. Don't put secrets here.
+    (The session cookie is secret; the API URL is fine to expose.)
+
+  The variable is read in lib/api.ts:
+    const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? fallback
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  5. RELOADING vs. HOT RELOADING in Expo Go
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Expo Go has two ways to pick up changes:
+  
+  HOT RELOAD (automatic): Small UI changes appear instantly without losing
+  your login state. The JavaScript module is swapped in-place. The session
+  cookie variable (in-memory) survives hot reloads.
+
+  FULL RELOAD (shake phone → Reload, or shake → Reload JS Bundle):
+  This completely resets the JavaScript context. The in-memory sessionCookie
+  variable is cleared. However, the session IS saved in SecureStore, so the
+  app will automatically re-read it from storage and restore your login.
+
+  When should you do a full reload?
+  - After changing environment variables (EXPO_PUBLIC_*)
+  - After changing native configuration (app.json)
+  - When the app seems stuck in a weird state
+  - After updating packages
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  6. ADDING A NEW SCREEN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  If you want to add a new tab screen:
+  1. Create the file: app/(tabs)/myscreen.tsx
+  2. Add it to the tab bar: app/(tabs)/_layout.tsx
+     (Look at how other tabs are configured and follow the same pattern)
+  3. Add an icon from Feather or MaterialCommunityIcons
+  4. Use useColors() for all colors
+  5. Wrap the content in <SafeAreaView> and <ScrollView>
+
+  If you want to add a modal or page that's NOT a tab (e.g., a detail screen):
+  - Create it inside app/ but outside (tabs)/ and (auth)/
+  - Use expo-router's <Link> or router.push() to navigate to it
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  7. ADDING A NEW API CALL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  To fetch new data from the server, add a useQuery call in your component:
+
+    const { data, isLoading, error } = useQuery({
+      queryKey: ["my-data", someVariable],
+      queryFn: () => apiFetch(`/me/some-endpoint?param=${someVariable}`),
+    });
+
+  To send data (POST/PUT/DELETE), add a useMutation call:
+
+    const mutation = useMutation({
+      mutationFn: (value: number) =>
+        apiFetch("/me/some-endpoint", { method: "POST", body: { value } }),
+      onSuccess: () => {
+        // Refresh related data
+        queryClient.invalidateQueries({ queryKey: ["my-data", someVariable] });
+      },
+    });
+    // To trigger: mutation.mutate(42)
+
+  You NEVER need to change lib/api.ts to add new endpoints — apiFetch() is
+  generic and works with any path.
+
+--------------------------------------------------------------------------------
+  SECTION 9 — DEBUGGING TIPS
+--------------------------------------------------------------------------------
+
+THE EXPO DEV CONSOLE (shake phone → "Open Dev Menu" → look at logs):
+  The app has extensive logging in development mode. Every API request logs:
+    [api] → /path | cookie: YES/NO
+    [api] ← /path 200
+
+  If you see 401 errors, check if "cookie: YES" is in the log before the error.
+  If it says "cookie: NO", the session wasn't saved — re-login or check
+  whether the XHR cookie capture is still working.
+
+COMMON ERROR MESSAGES AND WHAT THEY MEAN:
+  "Not authenticated" (401)  ← Session cookie missing or expired. Log out
+                                and back in.
+  "Cannot reach the server"  ← No internet connection or server is down.
+                                Test at https://app.prfmr.link/api/user/me
+                                in a browser.
+  "Unexpected server response" ← Server returned HTML instead of JSON, which
+                                often means the endpoint URL is wrong or the
+                                server had an error. Check the path spelling.
+
+CHECKING IF THE API IS ONLINE:
+  Open any browser and go to: https://app.prfmr.link/api/user/me
+  You should see: {"message":"Not authenticated"} or {"error":"..."}
+  If you see a connection error, the server is down.
+
+--------------------------------------------------------------------------------
+  SECTION 10 — CURRENT STATUS AND KNOWN ISSUES
+--------------------------------------------------------------------------------
+
+WHAT IS WORKING (as of April 2026):
+  ✓ Login with real credentials
+  ✓ Session persists across app restarts (saved in SecureStore)
+  ✓ Dashboard layout with all sections
+  ✓ Macro tracking cards (calories, protein, carbs, fat)
+  ✓ Morning check-in (sleep, weight, rest day)
+  ✓ Weight cut plan display
+  ✓ Training sessions tab
+  ✓ Supplements tab
+  ✓ Profile tab with logout
+  ✓ Feedback form
+  ✓ Dark theme matching the web app
+
+WHAT WE'RE STILL TESTING:
+  ? Session cookie capture via XHR on iOS (the latest fix — needs confirmation
+    from Denis by logging in and checking for the ✓ message in console logs)
+  ? Data showing correctly for real user accounts (food, supplements, training)
+
+WHAT IS NOT YET BUILT:
+  ✗ Push notifications for supplement reminders
+  ✗ Offline support (the app requires internet)
+  ✗ Photo uploads
+  ✗ The app is not published to the App Store yet (it runs in Expo Go)
+
+--------------------------------------------------------------------------------
+  SECTION 11 — HOW TO MAKE CHANGES SAFELY
+--------------------------------------------------------------------------------
+
+BEFORE CHANGING lib/api.ts:
+  This file is the most critical. Any mistake here breaks ALL data loading.
+  Always test login → data loading after any change to this file.
+
+BEFORE CHANGING context/AuthContext.tsx:
+  This controls whether the user is logged in or not. A mistake could cause
+  infinite redirect loops (login → dashboard → login...) or break the logout
+  flow. After changing it, test: login, logout, and re-opening the app.
+
+BEFORE CHANGING app/_layout.tsx:
+  This is the root of the entire app. It wraps everything in the necessary
+  providers (auth, fonts, query client). Breaking this breaks the whole app.
+  Changes here are rare — only needed for adding new global providers.
+
+FOR MOST FEATURES (adding UI, changing screen content):
+  Changes to files in app/(tabs)/ are relatively safe. They only affect that
+  one screen. You can change freely and test just that tab.
+
+--------------------------------------------------------------------------------
+  SECTION 12 — QUICK REFERENCE: KEY PATTERNS
+--------------------------------------------------------------------------------
+
+READING DATA:
+  const { data, isLoading } = useQuery({
+    queryKey: ["unique-key", variable],
+    queryFn: () => apiFetch(`/endpoint/${variable}`),
+  });
+  Then in JSX: if (isLoading) return <ActivityIndicator />
+              data?.someField ?? 0  (the ?? 0 is a safe fallback)
+
+WRITING DATA:
+  const qc = useQueryClient();
+  const mut = useMutation({
+    mutationFn: (val) => apiFetch("/endpoint", { method: "POST", body: { val } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["unique-key", variable] }),
+  });
+  Then: <Button onPress={() => mut.mutate(someValue)} />
+
+COLORS:
+  const colors = useColors();
+  style={{ color: colors.foreground, backgroundColor: colors.card }}
+
+DATE FORMATTING:
+  import { format, addDays } from "date-fns";
+  const today = format(new Date(), "yyyy-MM-dd");
+  const tomorrow = format(addDays(new Date(date + "T12:00:00"), 1), "yyyy-MM-dd");
+
+ICONS:
+  import { Feather } from "@expo/vector-icons";
+  <Feather name="check" size={16} color={colors.primary} />
+  (See full list at: https://icons.expo.fyi)
+
+================================================================================
+  END OF OVERVIEW
+================================================================================
