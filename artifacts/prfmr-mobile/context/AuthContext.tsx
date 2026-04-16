@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { apiFetch, clearSession, loadSession } from "@/lib/api";
+import { apiFetch, clearSession, loadSession, loginWithXhr } from "@/lib/api";
 
 export interface User {
   id: number;
@@ -48,11 +48,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchUser]);
 
   const login = useCallback(async (email: string, password: string) => {
-    await apiFetch<{ user: User }>("/auth/login", {
-      method: "POST",
-      body: { identifier: email, password },
-    });
-    await fetchUser();
+    // Use XHR for login — React Native's XHR exposes the Set-Cookie response
+    // header more reliably than the Fetch API (which mimics browser HttpOnly
+    // restrictions that hide cookies from JS).
+    const result = await loginWithXhr(email, password);
+
+    // Use user from login response body if available (skips a round-trip)
+    if (result?.user) {
+      setUser(result.user);
+    } else {
+      // Fallback: fetch user with the newly captured session cookie
+      await fetchUser();
+    }
   }, [fetchUser]);
 
   const register = useCallback(async (email: string, username: string, password: string, inviteCode: string) => {
