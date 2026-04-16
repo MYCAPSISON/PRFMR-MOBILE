@@ -17,21 +17,25 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Dashboard</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="weightcut">
-        <Icon sf={{ default: "scalemass", selected: "scalemass.fill" }} />
-        <Label>Weight Cut</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="nutrition">
-        <Icon sf={{ default: "fork.knife", selected: "fork.knife" }} />
-        <Label>Nutrition</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="training">
-        <Icon sf={{ default: "figure.strengthtraining.traditional", selected: "figure.strengthtraining.traditional" }} />
+        <Icon sf={{ default: "dumbbell", selected: "dumbbell.fill" }} />
         <Label>Training</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="supplements">
+        <Icon sf={{ default: "pills", selected: "pills.fill" }} />
+        <Label>Supps</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="playbook">
+        <Icon sf={{ default: "book", selected: "book.fill" }} />
+        <Label>Playbook</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>Profile</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="feedback">
+        <Icon sf={{ default: "message", selected: "message.fill" }} />
+        <Label>Feedback</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -94,30 +98,6 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="weightcut"
-        options={{
-          title: "Weight Cut",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="scalemass.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="trending-down" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="nutrition"
-        options={{
-          title: "Nutrition",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="fork.knife" tintColor={color} size={22} />
-            ) : (
-              <Feather name="coffee" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
         name="training"
         options={{
           title: "Training",
@@ -165,6 +145,20 @@ function ClassicTabLayout() {
             ),
         }}
       />
+      <Tabs.Screen
+        name="feedback"
+        options={{
+          title: "Feedback",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="message.fill" tintColor={color} size={22} />
+            ) : (
+              <Feather name="message-square" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen name="weightcut" options={{ href: null }} />
+      <Tabs.Screen name="nutrition" options={{ href: null }} />
     </Tabs>
   );
 }

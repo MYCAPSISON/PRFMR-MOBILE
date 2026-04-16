@@ -1,364 +1,446 @@
 import React, { useState, useCallback } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  TextInput, ActivityIndicator, Modal,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { format, addDays, subDays } from "date-fns";
+import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 
-function todayStr() { return new Date().toISOString().split("T")[0]; }
-function addDays(d: string, n: number) {
-  const date = new Date(d + "T12:00:00");
-  date.setDate(date.getDate() + n);
-  return date.toISOString().split("T")[0];
-}
-function formatDate(d: string) {
-  return new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+// ─────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────
+type TimeOfDay = "morning" | "afternoon" | "evening";
+
+interface SessionActivity {
+  id: number;
+  name: string;
+  duration: number | null;
+  rpe: number | null;
+  caloriesBurned: number | null;
 }
 
-const SESSION_TYPES = ["lifting", "cardio", "sparring", "wrestling", "bjj", "muay_thai", "conditioning", "other"];
+interface WorkoutSession {
+  id: number;
+  date: string;
+  timeOfDay: TimeOfDay;
+  notes: string | null;
+  exercises: any[];
+  activities: SessionActivity[];
+}
 
-export default function TrainingScreen() {
+interface ActivityCatalogItem {
+  id: number;
+  name: string;
+  category: string;
+  metValue: number | null;
+}
+
+interface MorningStatus {
+  hasSleep: boolean;
+  hasWeight: boolean;
+  hasPlannedTraining: boolean;
+  isRestDay: boolean;
+}
+
+// ─────────────────────────────────────────
+// Time-of-day config
+// ─────────────────────────────────────────
+const TIME_SECTIONS: { key: TimeOfDay; label: string; hours: string; icon: string }[] = [
+  { key: "morning", label: "Morning", hours: "6:00 – 12:00", icon: "sunrise" },
+  { key: "afternoon", label: "Afternoon", hours: "12:00 – 18:00", icon: "sun" },
+  { key: "evening", label: "Evening", hours: "18:00 – 24:00", icon: "moon" },
+];
+
+const INTENSITY_OPTS: { label: string; value: number }[] = [
+  { label: "1 – Very light", value: 1 }, { label: "2", value: 2 },
+  { label: "3 – Light", value: 3 }, { label: "4", value: 4 },
+  { label: "5 – Moderate", value: 5 }, { label: "6", value: 6 },
+  { label: "7 – Hard", value: 7 }, { label: "8", value: 8 },
+  { label: "9 – Very hard", value: 9 }, { label: "10 – Max effort", value: 10 },
+];
+
+// ─────────────────────────────────────────
+// Shared UI
+// ─────────────────────────────────────────
+function Card({ children, style }: { children: React.ReactNode; style?: any }) {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const qc = useQueryClient();
-  const [selectedDate, setSelectedDate] = useState(todayStr());
-  const [refreshing, setRefreshing] = useState(false);
-  const [newSessionModal, setNewSessionModal] = useState(false);
-  const [addExerciseModal, setAddExerciseModal] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
-  const [sessionType, setSessionType] = useState("lifting");
-  const [sessionLabel, setSessionLabel] = useState("");
-  const [exerciseSearch, setExerciseSearch] = useState("");
-  const [selectedExercise, setSelectedExercise] = useState<any>(null);
-  const [sets, setSets] = useState("3");
-  const [reps, setReps] = useState("8");
-  const [weight, setWeight] = useState("");
-  const [rpe, setRpe] = useState("");
-  const isToday = selectedDate === todayStr();
-
-  const { data: sessions = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/workouts/sessions", selectedDate],
-    queryFn: () => apiFetch(`/workouts/sessions?start=${selectedDate}&end=${selectedDate}`),
-  });
-
-  const { data: trainingLoad } = useQuery<any>({
-    queryKey: ["/api/me/training-load", selectedDate],
-    queryFn: () => apiFetch(`/me/training-load/${selectedDate}`),
-  });
-
-  const { data: exercises = [] } = useQuery<any[]>({
-    queryKey: ["/api/exercises"],
-    queryFn: () => apiFetch("/exercises"),
-  });
-
-  const { data: activities = [] } = useQuery<any[]>({
-    queryKey: ["/api/activities"],
-    queryFn: () => apiFetch("/activities"),
-  });
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await qc.invalidateQueries({ queryKey: ["/api/workouts/sessions"] });
-    await qc.invalidateQueries({ queryKey: ["/api/me/training-load"] });
-    setRefreshing(false);
-  }, [qc]);
-
-  const createSessionMutation = useMutation({
-    mutationFn: (data: any) => apiFetch("/workouts/sessions", { method: "POST", body: data }),
-    onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/workouts/sessions"] });
-      qc.invalidateQueries({ queryKey: ["/api/me/training/summary"] });
-      qc.invalidateQueries({ queryKey: ["/api/me/targets/effective"] });
-      setNewSessionModal(false);
-      setActiveSessionId(data.id);
-      setAddExerciseModal(true);
-      setSessionLabel("");
-    },
-    onError: (e: any) => Alert.alert("Error", e.message ?? "Failed to create session"),
-  });
-
-  const deleteSessionMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/workouts/sessions/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/workouts/sessions"] });
-      qc.invalidateQueries({ queryKey: ["/api/me/training/summary"] });
-      qc.invalidateQueries({ queryKey: ["/api/me/targets/effective"] });
-    },
-  });
-
-  const addExerciseMutation = useMutation({
-    mutationFn: (data: any) => apiFetch(`/workouts/sessions/${activeSessionId}/exercises`, { method: "POST", body: data }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/workouts/sessions"] });
-      qc.invalidateQueries({ queryKey: ["/api/me/training/summary"] });
-      qc.invalidateQueries({ queryKey: ["/api/me/targets/effective"] });
-      setSelectedExercise(null);
-      setSets("3"); setReps("8"); setWeight(""); setRpe("");
-    },
-    onError: (e: any) => Alert.alert("Error", e.message ?? "Failed to add exercise"),
-  });
-
-  const deleteExerciseMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/workouts/exercises/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/workouts/sessions"] }),
-  });
-
-  function confirmAddExercise() {
-    if (!selectedExercise || !activeSessionId) return;
-    addExerciseMutation.mutate({
-      exerciseId: selectedExercise.id,
-      name: selectedExercise.name,
-      sets: parseInt(sets) || 3,
-      reps: parseInt(reps) || 8,
-      weight: parseFloat(weight) || null,
-      rpe: parseFloat(rpe) || null,
-    });
-  }
-
-  const filteredExercises = [...exercises, ...activities].filter((e: any) =>
-    !exerciseSearch || e.name?.toLowerCase().includes(exerciseSearch.toLowerCase())
-  );
-
-  const acwr = trainingLoad?.acwr;
-  const acwrColor = !acwr ? colors.mutedForeground : acwr > 1.3 ? colors.destructive : acwr < 0.8 ? colors.warning : colors.success;
-
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-      >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={[styles.title, { color: colors.foreground }]}>Training</Text>
-          <TouchableOpacity onPress={() => setNewSessionModal(true)}
-            style={[styles.addBtn, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
-            <Feather name="plus" size={18} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.dateNav}>
-          <TouchableOpacity onPress={() => setSelectedDate(d => addDays(d, -1))} style={styles.navBtn}>
-            <Feather name="chevron-left" size={20} color={colors.mutedForeground} />
-          </TouchableOpacity>
-          <Text style={[styles.dateText, { color: colors.foreground }]}>{isToday ? "Today" : formatDate(selectedDate)}</Text>
-          <TouchableOpacity onPress={() => setSelectedDate(d => addDays(d, 1))} style={[styles.navBtn, { opacity: isToday ? 0.3 : 1 }]} disabled={isToday}>
-            <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        </View>
-
-        {acwr != null && (
-          <View style={[styles.card, { backgroundColor: acwrColor + "11", borderColor: acwrColor + "33" }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 1 }}>TRAINING LOAD (ACWR)</Text>
-                <Text style={{ color: acwrColor, fontSize: 32, fontWeight: "800", marginTop: 4 }}>{acwr.toFixed(2)}</Text>
-                <Text style={{ color: acwrColor, fontSize: 13, fontWeight: "600" }}>
-                  {acwr > 1.3 ? "High Load — Risk of overtraining" : acwr < 0.8 ? "Under-training" : "Optimal Training Load"}
-                </Text>
-              </View>
-              {trainingLoad?.chronicLoad != null && (
-                <View style={{ alignItems: "flex-end", gap: 4 }}>
-                  <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Acute: {trainingLoad.acuteLoad?.toFixed(0)}</Text>
-                  <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Chronic: {trainingLoad.chronicLoad?.toFixed(0)}</Text>
-                </View>
-              )}
-            </View>
-          </View>
-        )}
-
-        {isLoading ? (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", padding: 32 }]}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        ) : sessions.length === 0 ? (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", padding: 32, gap: 12 }]}>
-            <Feather name="activity" size={36} color={colors.mutedForeground} />
-            <Text style={{ color: colors.mutedForeground, fontSize: 14, textAlign: "center" }}>No sessions logged for this day.</Text>
-            <TouchableOpacity onPress={() => setNewSessionModal(true)}
-              style={{ backgroundColor: colors.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 }}>
-              <Text style={{ color: "#fff", fontWeight: "700" }}>Log Session</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        {sessions.map((session: any) => (
-          <View key={session.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <View style={{ flex: 1 }}>
-                <View style={[styles.typeBadge, { backgroundColor: colors.primary + "22" }]}>
-                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: "700" }}>{session.type?.toUpperCase() ?? "SESSION"}</Text>
-                </View>
-                <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "700", marginTop: 4 }}>{session.label ?? session.type}</Text>
-                {session.calsBurned > 0 && (
-                  <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{session.calsBurned} kcal burned</Text>
-                )}
-              </View>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <TouchableOpacity onPress={() => { setActiveSessionId(session.id); setAddExerciseModal(true); }}
-                  style={[styles.smallBtn, { backgroundColor: colors.secondary }]}>
-                  <Feather name="plus" size={14} color={colors.primary} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Alert.alert("Delete Session", "Remove this session?", [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Delete", style: "destructive", onPress: () => deleteSessionMutation.mutate(session.id) },
-                ])} style={[styles.smallBtn, { backgroundColor: colors.secondary }]}>
-                  <Feather name="trash-2" size={14} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {(session.exercises ?? []).map((ex: any) => (
-              <View key={ex.id} style={[styles.exRow, { borderTopColor: colors.border }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.foreground, fontWeight: "600" }}>{ex.name}</Text>
-                  <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
-                    {ex.sets}×{ex.reps}{ex.weight ? ` @ ${ex.weight}kg` : ""}{ex.rpe ? ` · RPE ${ex.rpe}` : ""}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => deleteExerciseMutation.mutate(ex.id)} style={{ padding: 8 }}>
-                  <Feather name="x" size={14} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              </View>
-            ))}
-
-            {(session.exercises?.length ?? 0) === 0 && (
-              <TouchableOpacity onPress={() => { setActiveSessionId(session.id); setAddExerciseModal(true); }}>
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>+ Add exercises</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ))}
-      </ScrollView>
-
-      <Modal visible={newSessionModal} animationType="slide" presentationStyle="formSheet">
-        <View style={{ flex: 1, backgroundColor: colors.background, padding: 24, gap: 20 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ color: colors.foreground, fontSize: 22, fontWeight: "700" }}>New Session</Text>
-            <TouchableOpacity onPress={() => setNewSessionModal(false)}>
-              <Feather name="x" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", letterSpacing: 0.8 }}>SESSION TYPE</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }}>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              {SESSION_TYPES.map(t => (
-                <TouchableOpacity key={t} onPress={() => setSessionType(t)}
-                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: sessionType === t ? colors.primary : colors.secondary }}>
-                  <Text style={{ color: sessionType === t ? "#fff" : colors.mutedForeground, fontWeight: "600", fontSize: 13, textTransform: "capitalize" }}>
-                    {t.replace("_", " ")}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", letterSpacing: 0.8 }}>LABEL (OPTIONAL)</Text>
-          <TextInput
-            style={[styles.inputField, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground }]}
-            value={sessionLabel} onChangeText={setSessionLabel}
-            placeholder="e.g. Upper body strength" placeholderTextColor={colors.mutedForeground}
-          />
-          <TouchableOpacity
-            onPress={() => createSessionMutation.mutate({ type: sessionType, date: selectedDate, label: sessionLabel || undefined })}
-            disabled={createSessionMutation.isPending}
-            style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
-            {createSessionMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Create Session</Text>}
-          </TouchableOpacity>
-        </View>
-      </Modal>
-
-      <Modal visible={addExerciseModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={{ flex: 1, backgroundColor: colors.background }}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>Add Exercise</Text>
-            <TouchableOpacity onPress={() => { setAddExerciseModal(false); setSelectedExercise(null); setExerciseSearch(""); }}>
-              <Feather name="x" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-          {!selectedExercise ? (
-            <>
-              <View style={[styles.searchBar, { backgroundColor: colors.input, borderColor: colors.border }]}>
-                <Feather name="search" size={18} color={colors.mutedForeground} />
-                <TextInput style={[styles.searchInput, { color: colors.foreground }]}
-                  placeholder="Search exercises..." placeholderTextColor={colors.mutedForeground}
-                  value={exerciseSearch} onChangeText={setExerciseSearch} autoFocus />
-              </View>
-              <FlatList data={filteredExercises.slice(0, 50)} keyExtractor={(_, i) => String(i)}
-                renderItem={({ item }) => (
-                  <TouchableOpacity onPress={() => setSelectedExercise(item)}
-                    style={[styles.resultRow, { borderBottomColor: colors.border }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.foreground, fontWeight: "600" }}>{item.name}</Text>
-                      {item.category && <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{item.category}</Text>}
-                    </View>
-                    <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-                  </TouchableOpacity>
-                )}
-              />
-            </>
-          ) : (
-            <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-              <Text style={{ color: colors.foreground, fontSize: 20, fontWeight: "700" }}>{selectedExercise.name}</Text>
-              <View style={{ flexDirection: "row", gap: 12 }}>
-                {[
-                  { label: "Sets", value: sets, set: setSets },
-                  { label: "Reps", value: reps, set: setReps },
-                  { label: "Weight (kg)", value: weight, set: setWeight },
-                  { label: "RPE (1-10)", value: rpe, set: setRpe },
-                ].map(f => (
-                  <View key={f.label} style={{ flex: 1 }}>
-                    <Text style={{ color: colors.mutedForeground, fontSize: 11, marginBottom: 6 }}>{f.label.toUpperCase()}</Text>
-                    <TextInput
-                      style={[styles.numInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground }]}
-                      value={f.value} onChangeText={f.set}
-                      placeholder="-" placeholderTextColor={colors.mutedForeground}
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                ))}
-              </View>
-              <TouchableOpacity onPress={confirmAddExercise} disabled={addExerciseMutation.isPending}
-                style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
-                {addExerciseMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Exercise</Text>}
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setSelectedExercise(null)} style={{ alignItems: "center", padding: 12 }}>
-                <Text style={{ color: colors.mutedForeground }}>← Back</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          )}
-        </View>
-      </Modal>
+    <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }, style]}>
+      {children}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, gap: 12 },
-  title: { fontSize: 28, fontWeight: "800" },
-  addBtn: { padding: 10, borderRadius: 10, borderWidth: 1 },
-  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 },
-  navBtn: { padding: 6 },
-  dateText: { fontSize: 15, fontWeight: "600", minWidth: 140, textAlign: "center" },
-  card: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
-  typeBadge: { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  exRow: { flexDirection: "row", alignItems: "center", paddingTop: 10, borderTopWidth: 1 },
-  smallBtn: { padding: 8, borderRadius: 8 },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1 },
-  searchBar: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
-  searchInput: { flex: 1, fontSize: 15 },
-  resultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  inputField: { height: 48, borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, fontSize: 16 },
-  numInput: { height: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, fontSize: 18, textAlign: "center" },
+function SmallBadge({ label, color, bg }: { label: string; color: string; bg: string }) {
+  return (
+    <View style={[s.badge, { backgroundColor: bg, borderColor: color + "60" }]}>
+      <Text style={[s.xs, { color, fontWeight: "700" }]}>{label}</Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────
+// Add Activity Modal
+// ─────────────────────────────────────────
+function AddActivityModal({
+  visible, sessionId, date, onClose,
+}: { visible: boolean; sessionId: number; date: string; onClose: () => void }) {
+  const colors = useColors();
+  const qc = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [selectedActivity, setSelectedActivity] = useState<ActivityCatalogItem | null>(null);
+  const [customName, setCustomName] = useState("");
+  const [duration, setDuration] = useState("");
+  const [rpe, setRpe] = useState<number | null>(null);
+
+  const { data: catalog = [] } = useQuery<ActivityCatalogItem[]>({
+    queryKey: ["activities"],
+    queryFn: () => apiFetch("/activities"),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => apiFetch(`/workouts/sessions/${sessionId}/activities`, {
+      method: "POST",
+      body: {
+        activityId: selectedActivity?.id ?? null,
+        name: selectedActivity?.name ?? customName,
+        duration: parseFloat(duration) || null,
+        rpe: rpe ?? null,
+      },
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions", date] });
+      onClose();
+      setSearch(""); setSelectedActivity(null); setCustomName(""); setDuration(""); setRpe(null);
+    },
+  });
+
+  const filtered = catalog.filter(a => a.name.toLowerCase().includes(search.toLowerCase())).slice(0, 12);
+  const canSubmit = (selectedActivity || customName.trim().length > 0) && !addMut.isPending;
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <View style={[s.rowBetween, { padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }]}>
+          <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>Log Activity</Text>
+          <TouchableOpacity onPress={onClose}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>SEARCH ACTIVITY</Text>
+          <View style={[s.searchBar, { borderColor: "#1a1e28", backgroundColor: "#181c26" }]}>
+            <Feather name="search" size={15} color="#6b7280" />
+            <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
+              placeholder="e.g. Running, Sparring..." placeholderTextColor="#6b7280"
+              value={search} onChangeText={setSearch} />
+          </View>
+          {filtered.length > 0 && (
+            <View style={{ marginBottom: 14 }}>
+              {filtered.map(a => (
+                <TouchableOpacity key={a.id} style={[s.catalogItem, {
+                  borderColor: selectedActivity?.id === a.id ? "#ff7a00" : "#1a1e28",
+                  backgroundColor: selectedActivity?.id === a.id ? "rgba(255,122,0,0.1)" : "#181c26",
+                }]} onPress={() => { setSelectedActivity(a); setCustomName(""); }}>
+                  <Text style={{ color: selectedActivity?.id === a.id ? "#ff7a00" : "#eceef2", fontWeight: "600", fontSize: 14 }}>{a.name}</Text>
+                  {a.category ? <Text style={{ color: "#6b7280", fontSize: 12 }}>{a.category}</Text> : null}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>OR CUSTOM NAME</Text>
+          <TextInput style={[s.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 14 }]}
+            placeholder="Custom activity name" placeholderTextColor="#6b7280"
+            value={customName} onChangeText={t => { setCustomName(t); setSelectedActivity(null); }} />
+
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>DURATION (minutes)</Text>
+          <TextInput style={[s.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 14 }]}
+            placeholder="e.g. 45" placeholderTextColor="#6b7280"
+            keyboardType="decimal-pad" value={duration} onChangeText={setDuration} />
+
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>EFFORT / RPE (optional)</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(r => (
+              <TouchableOpacity key={r} style={[s.rpeBtn, {
+                borderColor: rpe === r ? "#ff7a00" : "#1a1e28",
+                backgroundColor: rpe === r ? "rgba(255,122,0,0.1)" : "#181c26",
+              }]} onPress={() => setRpe(rpe === r ? null : r)}>
+                <Text style={{ color: rpe === r ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 14 }}>{r}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {rpe && <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 14 }}>RPE {rpe} — {INTENSITY_OPTS[rpe - 1]?.label}</Text>}
+
+          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSubmit ? 1 : 0.4 }]}
+            disabled={!canSubmit} onPress={() => addMut.mutate()}>
+            {addMut.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Log Activity</Text>}
+          </TouchableOpacity>
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────
+// Session Card
+// ─────────────────────────────────────────
+function SessionCard({ session, date }: { session: WorkoutSession; date: string }) {
+  const colors = useColors();
+  const qc = useQueryClient();
+  const [addActivity, setAddActivity] = useState(false);
+
+  const deleteSessionMut = useMutation({
+    mutationFn: () => apiFetch(`/workouts/sessions/${session.id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", date] }),
+  });
+
+  const deleteActivityMut = useMutation({
+    mutationFn: (id: number) => apiFetch(`/workouts/activities/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", date] }),
+  });
+
+  const totalCal = session.activities.reduce((s, a) => s + (a.caloriesBurned || 0), 0);
+  const totalMin = session.activities.reduce((s, a) => s + (a.duration || 0), 0);
+
+  return (
+    <Card style={{ marginTop: 8 }}>
+      <View style={s.rowBetween}>
+        <View style={s.row}>
+          <Feather name="activity" size={14} color={colors.primary} />
+          <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 6 }]}>Session</Text>
+          {totalMin > 0 && <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 8 }]}>{totalMin} min</Text>}
+          {totalCal > 0 && <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 6 }]}>~{Math.round(totalCal)} kcal</Text>}
+        </View>
+        <TouchableOpacity onPress={() => deleteSessionMut.mutate()}>
+          <Feather name="trash-2" size={15} color={colors.mutedForeground} />
+        </TouchableOpacity>
+      </View>
+
+      {session.activities.length === 0 && session.exercises.length === 0 && (
+        <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 6 }]}>No activities yet. Tap + to log one.</Text>
+      )}
+
+      {session.activities.map(a => (
+        <View key={a.id} style={[s.activityRow, { borderColor: colors.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.sm, { color: colors.foreground, fontWeight: "600" }]}>{a.name}</Text>
+            <Text style={[s.xs, { color: colors.mutedForeground }]}>
+              {[a.duration ? `${a.duration} min` : null, a.rpe ? `RPE ${a.rpe}` : null].filter(Boolean).join(" · ")}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => deleteActivityMut.mutate(a.id)} style={{ padding: 4 }}>
+            <Feather name="x" size={14} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        </View>
+      ))}
+
+      <TouchableOpacity style={[s.addActivityBtn, { borderColor: colors.border }]} onPress={() => setAddActivity(true)}>
+        <Feather name="plus" size={14} color={colors.mutedForeground} />
+        <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 6 }]}>Add activity</Text>
+      </TouchableOpacity>
+
+      <AddActivityModal visible={addActivity} sessionId={session.id} date={date} onClose={() => setAddActivity(false)} />
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────
+// Time Section
+// ─────────────────────────────────────────
+function TimeSection({ section, sessions, date }: {
+  section: typeof TIME_SECTIONS[number];
+  sessions: WorkoutSession[];
+  date: string;
+}) {
+  const colors = useColors();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(true);
+
+  const createSessionMut = useMutation({
+    mutationFn: () => apiFetch("/workouts/sessions", { method: "POST", body: { date, timeOfDay: section.key } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", date] }),
+  });
+
+  return (
+    <View style={{ marginBottom: 4 }}>
+      <TouchableOpacity style={[s.timeHeader, { borderColor: colors.border, backgroundColor: colors.card }]} onPress={() => setOpen(o => !o)}>
+        <View style={s.row}>
+          <Feather name={section.icon as any} size={15} color={colors.mutedForeground} />
+          <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>{section.label}</Text>
+          <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 6 }]}>{section.hours}</Text>
+        </View>
+        <View style={s.row}>
+          {sessions.length > 0 && (
+            <SmallBadge label={`${sessions.length} session${sessions.length > 1 ? "s" : ""}`} color={colors.primary} bg={"rgba(255,122,0,0.1)"} />
+          )}
+          <Feather name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} style={{ marginLeft: 8 }} />
+        </View>
+      </TouchableOpacity>
+
+      {open && (
+        <View style={{ paddingHorizontal: 0 }}>
+          {sessions.map(s => <SessionCard key={s.id} session={s} date={date} />)}
+          <TouchableOpacity style={[s.addSessionBtn, { borderColor: colors.border }]}
+            onPress={() => createSessionMut.mutate()}
+            disabled={createSessionMut.isPending}>
+            {createSessionMut.isPending ? <ActivityIndicator size="small" color="#6b7280" /> : (
+              <>
+                <Feather name="plus" size={14} color="#6b7280" />
+                <Text style={[s.xs, { color: "#6b7280", marginLeft: 6 }]}>
+                  {sessions.length === 0 ? `No ${section.label.toLowerCase()} session yet — tap to add` : `Add another ${section.label.toLowerCase()} session`}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────
+export default function TrainingScreen() {
+  const colors = useColors();
+  const qc = useQueryClient();
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+
+  const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
+
+  const { data: sessions = [], isLoading } = useQuery<WorkoutSession[]>({
+    queryKey: ["sessions", selectedDate],
+    queryFn: () => apiFetch(`/workouts/sessions?start=${selectedDate}&end=${selectedDate}`),
+  });
+
+  const { data: morning } = useQuery<MorningStatus>({
+    queryKey: ["morning-status", selectedDate],
+    queryFn: () => apiFetch(`/me/morning-status/${selectedDate}`),
+  });
+
+  const restMut = useMutation({
+    mutationFn: (mark: boolean) =>
+      apiFetch(`/me/rest-day/${selectedDate}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["morning-status", selectedDate] }),
+  });
+
+  const sessionsByTime = (tod: TimeOfDay) => sessions.filter(s => s.timeOfDay === tod);
+  const totalCal = sessions.flatMap(s => s.activities).reduce((acc, a) => acc + (a.caloriesBurned || 0), 0);
+
+  return (
+    <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+      <View style={[s.header, { borderBottomColor: colors.border }]}>
+        <Text style={[s.pageTitle, { color: colors.foreground }]}>Training</Text>
+        <Text style={[s.xs, { color: colors.mutedForeground }]}>{format(new Date(), "EEE, d MMM")}</Text>
+      </View>
+
+      <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
+        {/* Date Navigation */}
+        <View style={[s.dateNav, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <TouchableOpacity style={s.dateNavBtn}
+            onPress={() => setSelectedDate(format(subDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
+            <Feather name="chevron-left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <Text style={[s.dateNavText, { color: colors.foreground }]}>{displayDate}</Text>
+          <TouchableOpacity style={s.dateNavBtn}
+            onPress={() => setSelectedDate(format(addDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
+            <Feather name="chevron-right" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Rest Day + Cal Burned */}
+        <Card>
+          <View style={s.rowBetween}>
+            <View style={s.row}>
+              <Feather name="zap" size={15} color={morning?.isRestDay ? "#4ade80" : colors.mutedForeground} />
+              <Text style={[s.sm, { color: colors.foreground, fontWeight: "600", marginLeft: 8 }]}>
+                {morning?.isRestDay ? "Rest Day" : "Training Day"}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[s.btnSm, {
+                backgroundColor: morning?.isRestDay ? "rgba(74,222,128,0.1)" : colors.secondary,
+                borderWidth: 1,
+                borderColor: morning?.isRestDay ? "rgba(74,222,128,0.3)" : colors.border,
+              }]}
+              onPress={() => restMut.mutate(!morning?.isRestDay)}
+              disabled={restMut.isPending}>
+              <Text style={[s.xs, { color: morning?.isRestDay ? "#4ade80" : colors.mutedForeground, fontWeight: "700" }]}>
+                {morning?.isRestDay ? "Unmark rest day" : "Mark as rest day"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {totalCal > 0 && (
+            <View style={[s.calRow, { borderColor: colors.border }]}>
+              <Feather name="flame" size={14} color={colors.primary} />
+              <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 6 }]}>
+                ~{Math.round(totalCal)} kcal
+              </Text>
+              <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>estimated burned</Text>
+            </View>
+          )}
+        </Card>
+
+        {/* Time of Day Sections */}
+        {isLoading ? (
+          <View style={{ alignItems: "center", padding: 20 }}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          TIME_SECTIONS.map(section => (
+            <TimeSection
+              key={section.key}
+              section={section}
+              sessions={sessionsByTime(section.key)}
+              date={selectedDate}
+            />
+          ))
+        )}
+
+        {/* Disclaimer */}
+        <Card style={{ borderColor: "rgba(107,114,128,0.2)" }}>
+          <View style={s.row}>
+            <Feather name="info" size={13} color={colors.mutedForeground} />
+            <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 6, flex: 1, lineHeight: 16 }]}>
+              Calorie estimates are approximate and based on MET values. Actual expenditure varies by body weight, fitness level, and effort.
+            </Text>
+          </View>
+        </Card>
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({
+  flex: { flex: 1 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  pageTitle: { fontSize: 20, fontWeight: "800" },
+  scrollPad: { padding: 12, gap: 10 },
+  card: { borderRadius: 9, borderWidth: 1, padding: 14 },
+  row: { flexDirection: "row", alignItems: "center" },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  badge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
+  xs: { fontSize: 12, fontWeight: "500" },
+  sm: { fontSize: 13 },
+  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 9, borderWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },
+  dateNavBtn: { padding: 8 },
+  dateNavText: { fontSize: 15, fontWeight: "700" },
+  timeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 9, borderWidth: 1, padding: 12 },
+  addSessionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 9, borderWidth: 1, borderStyle: "dashed", padding: 12, marginTop: 8 },
+  addActivityBtn: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, borderStyle: "dashed", padding: 10, marginTop: 8 },
+  activityRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6, gap: 8 },
+  calRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, marginTop: 10, paddingTop: 10 },
+  btnSm: { flexDirection: "row", alignItems: "center", borderRadius: 7, paddingHorizontal: 12, paddingVertical: 7 },
+  input: { borderRadius: 8, borderWidth: 1, padding: 11, fontSize: 14 },
+  fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
+  searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, padding: 10, marginBottom: 8 },
+  catalogItem: { borderRadius: 8, borderWidth: 1, padding: 10, marginBottom: 6 },
+  rpeBtn: { width: 42, height: 42, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 });

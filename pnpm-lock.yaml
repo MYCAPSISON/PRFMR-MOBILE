@@ -402,6 +402,9 @@ importers:
 
   artifacts/prfmr-mobile:
     dependencies:
+      date-fns:
+        specifier: ^3.6.0
+        version: 3.6.0
       expo-secure-store:
         specifier: ^15.0.8
         version: 15.0.8(expo@54.0.33)
