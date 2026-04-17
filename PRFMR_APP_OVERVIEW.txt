@@ -1,7 +1,7 @@
 ================================================================================
   PRFMR MOBILE APP — COMPREHENSIVE OVERVIEW
   For: The developer who built it, learning as they go
-  Last updated: April 2026 (updated after cookie jar fix)
+  Last updated: April 2026 (updated after native cookie jar fix)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -67,19 +67,17 @@ REACT QUERY (@tanstack/react-query)
   This tells React Query "that data might be stale now, re-fetch it."
 
 EXPO SECURE STORE
-  This is how the app saves the login session between app launches. It's like
-  a secure password vault built into the phone. All session cookies from login
-  are stored here (as a JSON object called "prfmr_jar") so the user stays
-  logged in even after closing the app.
+  Used to persist any non-HttpOnly cookies across app sessions (stored as JSON
+  under the key "prfmr_jar"). The main session cookie (connect.sid) cannot be
+  stored here because it's HttpOnly — it lives only in the iOS native cookie
+  store, which means the user must log in again if they force-quit the app.
 
 DATE-FNS
   A utility library for working with dates. Used throughout the app for
-  things like: formatting dates as "2026-04-16", adding/subtracting days,
-  getting the start of a week, etc.
+  things like: formatting dates as "2026-04-16", adding/subtracting days, etc.
 
 FEATHER ICONS & MATERIAL COMMUNITY ICONS
-  Icon libraries. Used for all the small icons (arrows, checkmarks, moon icon
-  for sleep, etc.).
+  Icon libraries. Used for all the small icons (arrows, checkmarks, etc.).
 
 --------------------------------------------------------------------------------
   SECTION 3 — FILE STRUCTURE (what each file does)
@@ -126,91 +124,113 @@ artifacts/prfmr-mobile/
   SECTION 4 — AUTHENTICATION — THE FULL STORY (read this carefully)
 --------------------------------------------------------------------------------
 
-This was the hardest part of building the app. Here is the complete story,
-including the bugs we had and how each was fixed.
+This was the most complex problem in building the app. Here is the complete
+history of what we discovered and how it was fixed.
 
-─── HOW WEBSITES HANDLE LOGIN ───────────────────────────────────────────────
+─── BACKGROUND: HOW SESSION COOKIES WORK ────────────────────────────────────
 
-When you log into a website, the server creates a "session" and gives the
-browser a tiny ID called a "session cookie." The browser stores this and sends
-it back with EVERY future request automatically. This is invisible — the
-browser handles it silently.
+When you log into a website, the server creates a "session" and sends back
+two pieces of identification in the HTTP response:
 
-─── PROBLEM 1: Fetch API hides Set-Cookie on iOS ────────────────────────────
+  connect.sid = the session ID (the main auth cookie)
+    - This is HttpOnly: the server marks it so browsers and native apps
+      CANNOT read it from JavaScript code. This is a security feature to
+      prevent cookie theft by malicious scripts.
+    - iOS stores it silently in NSHTTPCookieStorage (the native cookie jar).
+    - JavaScript has NO access to its value whatsoever.
 
-React Native's fetch() mimics the browser's security model, which deliberately
-HIDES the Set-Cookie response header from JavaScript code. This is a browser
-security feature (to prevent scripts from stealing HttpOnly cookies). React
-Native copied it even though it doesn't need to on a native app.
+  GAESA = a secondary token (CSRF protection or app-specific)
+    - This is NOT HttpOnly: JavaScript CAN read it.
+    - Visible from XHR's getAllResponseHeaders().
+    - Captured by our code and stored in SecureStore.
 
-Result: after login, response.headers.get("set-cookie") returned null. The
-session cookie was invisible to our code. Subsequent API calls had no cookie
-and got "401 Not Authenticated."
+─── PROBLEM 1: Fetch API hides Set-Cookie ───────────────────────────────────
 
-Fix: Use XMLHttpRequest (the older browser network API) for the login call.
-React Native's XHR implementation does NOT have this restriction.
-xhr.getAllResponseHeaders() returns all headers including Set-Cookie.
+React Native's fetch() mimics the browser's behavior: it hides the Set-Cookie
+header from JavaScript (response.headers.get("set-cookie") returns null). Even
+though we're in a native app, not a browser, this restriction applies.
 
-─── PROBLEM 2: The GAESA bug — single-cookie storage got overwritten ────────
+Fix applied: Use XMLHttpRequest (XHR) for the login call. XHR's
+getAllResponseHeaders() exposes non-HttpOnly Set-Cookie lines. So we can
+capture GAESA, even though connect.sid remains invisible.
 
-Even after switching to XHR for login, the 401 errors continued. Diagnostic
-logging revealed the actual sequence of events:
+─── PROBLEM 2: Cookie jar replacing instead of accumulating ─────────────────
 
-  1. App starts → loads "connect.sid=xxx" from storage → sends it to /user/me
-  2. /user/me SUCCEEDS (200) → but its response contains Set-Cookie: GAESA=yyy
-     (GAESA is a CSRF protection token the server sets on authenticated routes)
-  3. Our code was saving GAESA as the session, replacing connect.sid entirely
-  4. All subsequent requests sent Cookie: GAESA=yyy (without connect.sid)
-  5. Server rejected with 401 — connect.sid was missing
+After login, when /user/me was called, the server's response set a new
+Set-Cookie: GAESA=xxx header. Our code was treating this as a new session,
+discarding the old cookies and storing only GAESA. All subsequent requests
+sent Cookie: GAESA=xxx without connect.sid → 401 Not Authenticated.
 
-The server sends MULTIPLE cookies. We were storing only the LAST one, which
-overwrote the actual session cookie.
+Fix applied: Implemented a cookie jar that accumulates cookies (add/update)
+rather than replacing. New cookies are merged with existing ones.
 
-Fix: Implement a proper COOKIE JAR. The jar holds ALL cookies by name:
-  { "connect.sid": "connect.sid=s%3Axxx", "GAESA": "GAESA=yyy" }
+─── PROBLEM 3: Manual Cookie header blocked the native iOS jar ──────────────
 
-When the server sends Set-Cookie: GAESA=yyy, we ADD it to the jar without
-removing connect.sid. When making requests, we send ALL cookies:
-  Cookie: connect.sid=xxx; GAESA=yyy
+Even with the cookie jar fix, requests with Cookie: GAESA=xxx still failed.
+The diagnostic logs showed: all requests sent only GAESA (not connect.sid),
+and all got 401.
 
-─── THE CURRENT AUTH FLOW (how it works now) ────────────────────────────────
+Root cause: When we set a manual Cookie header in fetch(), the native iOS
+network layer (NSURLSession) uses ONLY that header. It does NOT add its own
+stored cookies (connect.sid from NSHTTPCookieStorage) on top of ours.
+
+Fix applied (current): We NO LONGER set a manual Cookie header in apiFetch().
+Instead we only use credentials: "include", which tells the native iOS layer
+to send ALL cookies it has stored for the domain — including the HttpOnly
+connect.sid that JavaScript cannot read. The native layer handles everything.
+
+─── HOW IT WORKS NOW ────────────────────────────────────────────────────────
 
 LOGIN:
-  1. User enters email + password → loginWithXhr() is called
-  2. XHR POST to /auth/login → server responds with session cookie(s)
-  3. getAllResponseHeaders() exposes all Set-Cookie lines
-  4. Each cookie is parsed and added to cookieJar (in memory)
-  5. cookieJar is saved as JSON to SecureStore under key "prfmr_jar"
-  6. Login response body has { user: {...} } → user is set immediately
+  1. User taps "Sign In" → loginWithXhr() is called
+  2. XHR POST to /auth/login with withCredentials: true
+  3. Server responds with Set-Cookie for BOTH connect.sid AND GAESA
+  4. iOS native layer automatically stores connect.sid in NSHTTPCookieStorage
+  5. Our XHR code captures GAESA from getAllResponseHeaders()
+  6. GAESA is saved to SecureStore under "prfmr_jar"
 
-EVERY REQUEST:
-  7. apiFetch() reads cookieJar → builds "Cookie: connect.sid=xxx; GAESA=yyy"
-  8. Sends that header with every request
-  9. If the response has a new Set-Cookie, it ADDS it to the jar (never replaces)
+EVERY REQUEST AFTER LOGIN:
+  7. apiFetch() calls fetch() with credentials: "include" — NO manual Cookie header
+  8. The iOS native layer automatically attaches ALL stored cookies for the
+     domain, including connect.sid from NSHTTPCookieStorage
+  9. Server receives both connect.sid and GAESA → returns 200 with data
 
-APP RESTART:
-  10. loadSession() reads "prfmr_jar" from SecureStore → cookieJar is restored
-  11. /user/me is called with the saved cookies → if valid, user stays logged in
+APP RESTART (closing and reopening Expo Go):
+  10. NSHTTPCookieStorage may clear session cookies (those without an expiry date)
+      when the app is force-quit — this is standard iOS behavior
+  11. If cookies were cleared, the startup /user/me call gets 401 → login screen shown
+  12. User logs in again → step 1-6 repeats
 
-LOGOUT:
-  12. POST /auth/logout → clearSession() → cookieJar cleared → SecureStore cleared
+─── KEY INSIGHT FOR FUTURE DEBUGGING ────────────────────────────────────────
 
-─── STORAGE KEY ─────────────────────────────────────────────────────────────
+⭐ If you ever see 401 Not Authenticated errors:
 
-The cookie jar is stored under the key "prfmr_jar" in SecureStore.
-(Old versions used "prfmr_session" — that key is no longer used.)
+  1. Check if the user is logged in (can they see the dashboard?)
+     - If NO: the session cookie expired or was cleared. Normal — they need to log in.
+     - If YES (dashboard shows but data doesn't load): there's a cookie issue.
 
-⭐⭐⭐ IMPORTANT — IF LOGIN BREAKS IN THE FUTURE:
-  The diagnostic logs to look for after login:
-    [auth] Session captured via XHR ✓ — cookies: connect.sid, GAESA
-    [api] → /me/targets | cookies: [connect.sid, GAESA]
-    [api] ← /me/targets 200
+  2. In the Expo console, look at the [api] log lines:
+     - "[api] → GET /me/targets | visible jar: [GAESA] | native jar: handles connect.sid"
+       This is CORRECT — GAESA is the visible cookie, connect.sid is handled natively.
+     - If requests return 200: auth is working.
+     - If requests return 401: the native cookie jar may have lost connect.sid.
 
-  If you see "cookies: []" (empty) for requests after login, the XHR cookie
-  capture stopped working. Check:
-  a) Whether getAllResponseHeaders() still returns Set-Cookie lines
-  b) Whether the cookie names changed (the server might rename GAESA)
-  c) Whether the server switched to a different auth mechanism (Bearer tokens)
+  3. If 401s appear on some requests but not others:
+     - The server may have changed its cookie names
+     - The session may have partially expired
+     - Solution: have the user log out and back in
+
+  ⚠️ NEVER set a manual Cookie header in apiFetch() — it prevents the native
+  iOS layer from adding connect.sid, breaking all authentication.
+
+─── ABOUT THE SESSION COOKIE NAME "GAESA" ───────────────────────────────────
+
+The cookie named GAESA is set by the PRFMR server on authenticated responses.
+It might be a CSRF protection token, a user preference cookie, or something
+else. Its exact purpose isn't documented. What we know:
+  - It's NOT HttpOnly → we can see and store it
+  - It appears on responses to /user/me and probably other authenticated routes
+  - connect.sid is still the main session authentication cookie
 
 --------------------------------------------------------------------------------
   SECTION 5 — HOW DATA FETCHING WORKS
@@ -222,20 +242,17 @@ Every piece of data shown in the app goes through the same pipeline:
   2. REACT QUERY checks its cache — if fresh data exists, shows it immediately
   3. If not cached (or stale), React Query calls the queryFn
   4. queryFn calls apiFetch() with the API path
-  5. apiFetch() reads cookieJar → adds "Cookie: connect.sid=xxx; GAESA=yyy"
-  6. apiFetch() calls fetch() to make the actual HTTP request to the server
-  7. The server checks the cookies → confirms the user is logged in
-  8. The server returns JSON data
-  9. apiFetch() parses the JSON and returns it
-  10. React Query stores it in cache and passes it to the component
-  11. The component renders the data
+  5. apiFetch() calls fetch() with credentials: "include"
+  6. iOS native layer attaches connect.sid and GAESA to the request
+  7. Server validates the session → returns JSON data
+  8. React Query stores it in cache and passes it to the component
+  9. The component renders the data
 
 When the user WRITES data (saves food, logs weight, etc.):
   1. Component calls useMutation()
   2. On success, it calls queryClient.invalidateQueries() on related queryKeys
-  3. This marks the cached data as stale
-  4. React Query re-fetches the fresh data from the server
-  5. The screen updates with the new values
+  3. This marks the cached data as stale → React Query re-fetches from server
+  4. The screen updates with the new values
 
 ALL API PATHS (the endpoints the app talks to):
   POST  /auth/login                     ← Login
@@ -268,16 +285,16 @@ ALL API PATHS (the endpoints the app talks to):
 DASHBOARD (app/(tabs)/index.tsx)
   The most complex screen. Shows everything for "today" with a date navigator.
   Contains these sections (each is its own component):
-  - FightCampHero: Shows days until fight, current vs target weight, weekly
-    progress. Only shows if user has an active weight cut plan.
+  - FightCampHero: Days until fight, current vs target weight. Only shows if
+    user has an active weight cut plan.
   - MorningCheckIn: Prompts to log sleep, morning weight, and training.
     Disappears once all 3 are done.
   - ProvisionalCheckIn: "How do you feel today?" quick 3-question form.
   - AmqsCard: Shows the athlete's readiness score (0-100) for today.
   - MacroCards: Shows calories, protein, carbs, fat (consumed vs target).
   - WeightTrend: A simple line graph of weight over the past 4 weeks.
-  - SupplementsPreview: Shows today's supplement reminders with check-off.
-  - MealsList: Lists all food logged for the day with totals.
+  - SupplementsPreview: Today's supplement reminders with check-off.
+  - MealsList: All food logged for the day with totals.
 
 TRAINING (app/(tabs)/training.tsx)
   Shows recent workout sessions. Tapping one expands to show exercises/sets.
@@ -287,8 +304,8 @@ SUPPLEMENTS (app/(tabs)/supplements.tsx)
   off supplements as taken.
 
 NUTRITION (app/(tabs)/nutrition.tsx)
-  Detailed food log for a selected date. Broken down by meal type (breakfast,
-  lunch, dinner, snack). Allows adding and removing food entries.
+  Detailed food log for a selected date. Broken down by meal (breakfast, lunch,
+  dinner, snack). Allows adding and removing food entries.
 
 WEIGHT CUT (app/(tabs)/weightcut.tsx)
   Detailed view of the active weight cut plan with weekly targets.
@@ -306,7 +323,7 @@ FEEDBACK (app/(tabs)/feedback.tsx)
 The app uses a DARK THEME matching the web app exactly. All colors are defined
 in constants/colors.ts and accessed through the useColors() hook.
 
-Color palette (these are hex codes):
+Color palette:
   background:        #0f1117  ← Near-black background
   card:              #13161d  ← Slightly lighter card backgrounds
   secondary:         #181c26  ← Input fields, inner boxes
@@ -317,234 +334,166 @@ Color palette (these are hex codes):
   primaryForeground: #fff     ← Text on orange buttons
 
 ⭐ HOW TO USE COLORS IN A NEW SCREEN:
-  At the top of any component, add:
-    const colors = useColors();
+  At the top of any component, add: const colors = useColors();
   Then use colors.primary, colors.card, etc. in your StyleSheet.
-  Do NOT hardcode hex values in screen files — always use useColors().
+  Do NOT hardcode hex values — always use useColors().
 
 --------------------------------------------------------------------------------
   SECTION 8 — ⭐ THINGS TO PAY MOST ATTENTION TO ⭐
 --------------------------------------------------------------------------------
 
-These are the areas most likely to cause problems when you add new features
-or debug issues. Read these carefully.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  1. THE COOKIE JAR — lib/api.ts
+  ⚠️  1. THE GOLDEN RULE: NEVER SET A MANUAL Cookie HEADER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  The cookieJar object in lib/api.ts stores ALL session cookies. It must
-  contain BOTH the session cookie ("connect.sid") AND any other cookies the
-  server sends (like "GAESA" for CSRF protection).
+  The most important rule in lib/api.ts:
 
-  The most important rule: when a new Set-Cookie arrives, ADD it to the jar.
-  NEVER replace the whole jar with just the new cookie.
+  apiFetch() uses credentials: "include" to let iOS send ALL stored cookies
+  (including the HttpOnly connect.sid) automatically. If you ever add a line
+  like reqHeaders["Cookie"] = "something", you will BREAK authentication
+  because the native iOS layer will send ONLY that manual header and ignore
+  its own stored connect.sid.
 
-  After login, the Expo console should show:
-    [auth] Session captured via XHR ✓ — cookies: connect.sid, GAESA
-    [api] → /me/targets | cookies: [connect.sid, GAESA]
-    [api] ← /me/targets 200
-
-  If any request shows "cookies: []" — the jar is empty and the session
-  was lost. The user will need to log out and log back in.
-
-  The jar is persisted in SecureStore under the key "prfmr_jar" as JSON.
-  On the next app launch, loadSession() restores it automatically.
+  Summary: credentials: "include" = good. Manual Cookie header = breaks auth.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  2. REACT QUERY KEYS — must be consistent
+  ⚠️  2. SESSION COOKIES ARE SESSION-ONLY (cleared when app is force-quit)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  React Query uses the queryKey to identify and cache data. If you fetch
-  something with queryKey: ["food", date] but then invalidate with
-  queryKey: ["food"] (without the date), the cache won't update correctly
-  and the user will see stale data.
+  The connect.sid cookie has no expiry date set by the server (it's a "session
+  cookie"). iOS clears session cookies from NSHTTPCookieStorage when the app
+  is force-quit (fully closed from the app switcher).
 
-  Rule of thumb: the queryKey must match EXACTLY between useQuery and
-  invalidateQueries calls. Include all variables that affect the data
-  (especially the date).
+  This means: if Denis force-quits Expo Go and reopens it, he will likely see
+  the login screen and need to enter his credentials again.
 
-  Good example:
-    useQuery({ queryKey: ["food", date], ... })
-    queryClient.invalidateQueries({ queryKey: ["food", date] })  ✓
+  This is expected behavior. It is NOT a bug.
 
-  Bad example:
-    useQuery({ queryKey: ["food", date], ... })
-    queryClient.invalidateQueries({ queryKey: ["food"] })  ✗ won't update
+  The only way to fix this would be:
+  a) Have the server set an expiry date on connect.sid (not in our control)
+  b) Publish as a standalone app with a native cookie module (future work)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  3. DATE HANDLING — always use T12:00:00 timezone trick
+  ⚠️  3. REACT QUERY KEYS — must be consistent
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  When you write: new Date("2026-04-16")
-  JavaScript interprets this as UTC midnight. If you're in a timezone BEHIND
-  UTC, this can become the previous day locally — the wrong date!
+  The queryKey must match EXACTLY between useQuery and invalidateQueries.
+  Always include all variables (especially the date) in the key.
 
-  Fix: always add T12:00:00 when turning a "yyyy-MM-dd" string into a Date.
+  Good: useQuery({ queryKey: ["food", date], ... })
+        queryClient.invalidateQueries({ queryKey: ["food", date] })  ✓
 
-  Good:
-    format(new Date(date + "T12:00:00"), "yyyy-MM-dd")
-    addDays(new Date(date + "T12:00:00"), 1)
-
-  Bad:
-    format(new Date(date), "yyyy-MM-dd")  ← might shift by a day
+  Bad:  useQuery({ queryKey: ["food", date], ... })
+        queryClient.invalidateQueries({ queryKey: ["food"] })  ✗ won't update
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  4. ENVIRONMENT VARIABLES — baked in at build time
+  ⚠️  4. DATE HANDLING — always use T12:00:00
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  The API URL (https://app.prfmr.link/api) is stored in EXPO_PUBLIC_API_URL.
-  The "EXPO_PUBLIC_" prefix is important: Expo bakes this INTO the JavaScript
-  bundle at compile time. If you change it, restart the Expo server (Metro)
-  — a hot reload is NOT enough.
+  new Date("2026-04-16") → JavaScript treats this as UTC midnight, which can
+  become the PREVIOUS DAY in local time. Always use T12:00:00 (noon) to keep
+  it on the correct calendar date in any timezone.
+
+  Good:  format(new Date(date + "T12:00:00"), "yyyy-MM-dd")
+  Bad:   format(new Date(date), "yyyy-MM-dd")  ← may shift by a day
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  5. RELOADING vs. HOT RELOADING in Expo Go
+  ⚠️  5. ENVIRONMENT VARIABLES — restart Metro after changing them
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  HOT RELOAD (automatic): Small UI changes appear instantly. The in-memory
-  cookieJar is preserved. Login stays active.
-
-  FULL RELOAD (shake phone → Reload):
-  This resets the JavaScript context. The in-memory cookieJar is cleared.
-  BUT: loadSession() runs on startup and restores cookieJar from SecureStore.
-  So you stay logged in even after a full reload.
-
-  When to do a full reload:
-  - After changing environment variables (EXPO_PUBLIC_*)
-  - After changing native configuration (app.json)
-  - When the app seems stuck in a weird state
-  - After updating packages
+  EXPO_PUBLIC_* variables are baked into the bundle at compile time. Changing
+  them requires restarting the Expo server (Metro), not just hot reloading.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  6. ADDING A NEW SCREEN
+  ⚠️  6. ADDING A NEW SCREEN OR API CALL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  To add a new tab screen:
-  1. Create: app/(tabs)/myscreen.tsx
-  2. Add to tab bar: app/(tabs)/_layout.tsx (follow existing tab patterns)
-  3. Add an icon from Feather or MaterialCommunityIcons
-  4. Use useColors() for all colors
-  5. Wrap content in <SafeAreaView> and <ScrollView>
+  New tab screen:
+  1. Create app/(tabs)/myscreen.tsx
+  2. Add to tab bar in app/(tabs)/_layout.tsx
+  3. Use useColors() for all colors
+  4. Wrap in <SafeAreaView> and <ScrollView>
 
-  For a modal or detail screen (not a tab):
-  - Create inside app/ but outside (tabs)/ and (auth)/
-  - Navigate with router.push() or <Link>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  7. ADDING A NEW API CALL
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  To fetch data:
-    const { data, isLoading } = useQuery({
+  New API call:
+    const { data } = useQuery({
       queryKey: ["my-key", variable],
-      queryFn: () => apiFetch(`/me/endpoint?param=${variable}`),
+      queryFn: () => apiFetch(`/endpoint/${variable}`),
     });
 
-  To send data:
-    const qc = useQueryClient();
+  New mutation:
     const mut = useMutation({
-      mutationFn: (val: number) =>
-        apiFetch("/me/endpoint", { method: "POST", body: { val } }),
-      onSuccess: () => qc.invalidateQueries({ queryKey: ["my-key", variable] }),
+      mutationFn: (val) => apiFetch("/endpoint", { method: "POST", body: { val } }),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-key"] }),
     });
-    // Trigger with: mut.mutate(42)
 
-  You NEVER need to change lib/api.ts to add a new endpoint — apiFetch()
-  is generic and works with any path automatically.
+  You never need to change lib/api.ts to add new endpoints.
 
 --------------------------------------------------------------------------------
   SECTION 9 — DEBUGGING TIPS
 --------------------------------------------------------------------------------
 
-THE EXPO DEV CONSOLE (shake phone → look at log output):
-  The app logs every API request in development mode:
-    [api] → /path | cookies: [connect.sid, GAESA]
-    [api] ← /path 200 | new cookie: NO
+UNDERSTANDING THE LOG FORMAT:
+  After the latest fix, every request logs like this:
+    [api] → GET /me/targets | visible jar: [GAESA] | native jar: handles connect.sid
+    [api] ← GET /me/targets 200
 
-  If you see 401 errors, check whether cookies are listed before the request.
-  If cookies: [] — the jar is empty. The user needs to log in again.
+  "visible jar: [GAESA]" = the cookies our JS code knows about (non-HttpOnly)
+  "native jar: handles connect.sid" = the iOS layer handles this invisibly
+  The response status "200" = auth worked correctly
 
-COMMON ERROR MESSAGES:
-  "Not authenticated" (401)  ← Cookie jar is empty or cookies are wrong.
-                                Log out and back in.
-  "Cannot reach the server"  ← No internet, or server is down.
-                                Test: https://app.prfmr.link/api/user/me
-  "Unexpected server response" ← The endpoint URL is wrong or the server
-                                 returned HTML (error page) instead of JSON.
+COMMON ERRORS AND MEANINGS:
+  "Not authenticated" (401)
+    → The session expired or was cleared. Have the user log out and back in.
+    → Common cause: user force-quit Expo Go (clears iOS session cookies).
 
-CHECKING IF THE API IS ONLINE:
-  Open any browser: https://app.prfmr.link/api/user/me
-  You should see: {"message":"Not authenticated"} (correct — server is up)
-  If you see a connection error, the server is down.
+  "Cannot reach the server"
+    → No internet connection or the server is down.
+    → Test by visiting https://app.prfmr.link/api/user/me in a browser.
+    → Expected response (server up): {"message":"Not authenticated"}
 
-CHECKING THE COOKIE JAR STATE:
-  After login, look for this in the Expo logs:
-    [auth] Session captured via XHR ✓ — cookies: connect.sid, GAESA
-  Then for subsequent requests:
-    [api] → /me/targets | cookies: [connect.sid, GAESA]
-  If the cookies list shows both names — auth is working correctly.
+  "Unexpected server response"
+    → The server returned HTML (error page) instead of JSON.
+    → Usually means the URL path is wrong or the server had an internal error.
+
+CHECKING IF AUTH IS WORKING:
+  In Expo console after login, look for:
+    [auth] Login complete. Visible cookies captured: GAESA
+    [auth] connect.sid stored in native iOS cookie jar (not accessible from JS).
+  Then for data requests:
+    [api] → GET /me/food/2026-04-17 | ... 
+    [api] ← GET /me/food/2026-04-17 200   ← 200 means auth worked!
+  If you see 401 instead of 200: session was lost, user needs to log in again.
 
 --------------------------------------------------------------------------------
-  SECTION 10 — CURRENT STATUS AND KNOWN ISSUES
+  SECTION 10 — CURRENT STATUS
 --------------------------------------------------------------------------------
 
 WHAT IS WORKING (as of April 2026):
-  ✓ Login with real credentials via XHR cookie capture
-  ✓ Cookie jar persists all session cookies (connect.sid + GAESA)
-  ✓ Session restored on app restart from SecureStore
-  ✓ Dashboard layout with all sections
-  ✓ Macro tracking cards (calories, protein, carbs, fat)
+  ✓ Login via XHR (captures GAESA; connect.sid stored natively by iOS)
+  ✓ All API requests use credentials: "include" — native iOS sends connect.sid
+  ✓ No manual Cookie header interference
+  ✓ Dashboard, Training, Supplements, Nutrition, Weight Cut, Profile tabs
   ✓ Morning check-in (sleep, weight, rest day)
-  ✓ Weight cut plan display
-  ✓ Training sessions tab
-  ✓ Supplements tab
-  ✓ Profile tab with logout
-  ✓ Feedback form
-  ✓ Dark theme matching the web app
+  ✓ Macro tracking, food logging
+  ✓ Weight trend graph
+  ✓ Supplement tracking with check-off
+  ✓ Dark theme matching web app
+  ✓ Date navigation (today, past, future dates)
 
-WHAT WE JUST FIXED:
-  ✓ Cookie jar bug: /user/me response was sending a CSRF cookie (GAESA) that
-    overwrote the session cookie (connect.sid). Fixed with proper multi-cookie
-    jar that accumulates instead of replaces.
+KNOWN LIMITATIONS:
+  ✗ Session is tied to the Expo Go app session. Force-quitting Expo Go clears
+    the session cookie and requires a fresh login. This is an iOS security
+    behavior that only a standalone App Store build can fully solve.
+  ✗ Not yet published to the App Store (running in Expo Go only)
+  ✗ No push notifications, offline support, or photo uploads
 
-WHAT IS NOT YET BUILT:
-  ✗ Push notifications for supplement reminders
-  ✗ Offline support (the app requires internet)
-  ✗ Photo uploads
-  ✗ The app is not published to the App Store yet (it runs in Expo Go)
-
---------------------------------------------------------------------------------
-  SECTION 11 — HOW TO MAKE CHANGES SAFELY
---------------------------------------------------------------------------------
-
-BEFORE CHANGING lib/api.ts:
-  This file is the most critical. Any mistake breaks ALL data loading.
-  Always test: login → data loads → logout → login again after any change.
-  The key function is apiFetch() and the cookie jar logic. Be very careful
-  not to accidentally clear cookieJar or reset it incorrectly.
-
-BEFORE CHANGING context/AuthContext.tsx:
-  This controls whether the user is logged in. A mistake could cause:
-  - Infinite redirect loops (login → dashboard → login → ...)
-  - Users being logged out unexpectedly
-  - The login button not working
-  Always test the full flow: login, use the app, logout, login again.
-
-BEFORE CHANGING app/_layout.tsx:
-  This is the root wrapper for the entire app. Breaking it breaks everything.
-  Changes here are rare — only for adding new global providers.
-
-FOR MOST FEATURES (adding UI, changing screen content):
-  Files in app/(tabs)/ are relatively safe to change. They only affect
-  one screen. You can change freely and test just that tab.
-
-KEEP THE OVERVIEW FILE UPDATED:
-  Whenever you make a significant change to how the app works (especially auth,
-  data fetching, or adding new screens), update this file to reflect it.
+WHAT TO DO IF 401 ERRORS APPEAR:
+  1. Log out from the Profile tab (or shake phone → Reload)
+  2. Log back in
+  3. The session will be refreshed and data will load
 
 --------------------------------------------------------------------------------
-  SECTION 12 — QUICK REFERENCE: KEY PATTERNS
+  SECTION 11 — QUICK REFERENCE: KEY PATTERNS
 --------------------------------------------------------------------------------
 
 READING DATA:
@@ -552,8 +501,7 @@ READING DATA:
     queryKey: ["unique-key", variable],
     queryFn: () => apiFetch(`/endpoint/${variable}`),
   });
-  In JSX: if (isLoading) return <ActivityIndicator />
-          data?.someField ?? 0  (the ?? 0 is a safe fallback if data missing)
+  Use: data?.someField ?? 0  (safe fallback if data not loaded yet)
 
 WRITING DATA:
   const qc = useQueryClient();
@@ -561,7 +509,7 @@ WRITING DATA:
     mutationFn: (val) => apiFetch("/endpoint", { method: "POST", body: { val } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["unique-key", variable] }),
   });
-  Then: <Button onPress={() => mut.mutate(someValue)} />
+  Trigger with: mut.mutate(someValue)
 
 COLORS:
   const colors = useColors();
@@ -570,12 +518,12 @@ COLORS:
 DATE FORMATTING:
   import { format, addDays } from "date-fns";
   const today = format(new Date(), "yyyy-MM-dd");
-  const tomorrow = format(addDays(new Date(date + "T12:00:00"), 1), "yyyy-MM-dd");
+  const next = format(addDays(new Date(date + "T12:00:00"), 1), "yyyy-MM-dd");
 
 ICONS:
   import { Feather } from "@expo/vector-icons";
   <Feather name="check" size={16} color={colors.primary} />
-  (Full icon list: https://icons.expo.fyi)
+  Full list: https://icons.expo.fyi
 
 ================================================================================
   END OF OVERVIEW
