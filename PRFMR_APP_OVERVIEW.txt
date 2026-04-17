@@ -1,7 +1,7 @@
 ================================================================================
   PRFMR MOBILE APP — COMPREHENSIVE OVERVIEW
   For: The developer who built it, learning as they go
-  Last updated: April 2026
+  Last updated: April 2026 (updated after cookie jar fix)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -68,8 +68,9 @@ REACT QUERY (@tanstack/react-query)
 
 EXPO SECURE STORE
   This is how the app saves the login session between app launches. It's like
-  a secure password vault built into the phone. The session cookie from login
-  is stored here so the user stays logged in even after closing the app.
+  a secure password vault built into the phone. All session cookies from login
+  are stored here (as a JSON object called "prfmr_jar") so the user stays
+  logged in even after closing the app.
 
 DATE-FNS
   A utility library for working with dates. Used throughout the app for
@@ -119,66 +120,97 @@ artifacts/prfmr-mobile/
 ├── components/
 │   └── ErrorBoundary.tsx         ← Catches crashes and shows a friendly error
 │
-└── .env (or set in Replit)       ← EXPO_PUBLIC_API_URL=https://app.prfmr.link/api
+└── .env (set in Replit secrets)  ← EXPO_PUBLIC_API_URL=https://app.prfmr.link/api
 
 --------------------------------------------------------------------------------
-  SECTION 4 — AUTHENTICATION (the hardest problem — READ THIS CAREFULLY)
+  SECTION 4 — AUTHENTICATION — THE FULL STORY (read this carefully)
 --------------------------------------------------------------------------------
 
-This was by far the most difficult part of building this app. Here's why, in
-plain English:
+This was the hardest part of building the app. Here is the complete story,
+including the bugs we had and how each was fixed.
 
-HOW WEBSITES HANDLE LOGIN:
-  When you log into a website, the server creates a "session" — a record that
-  says "this browser is logged in as Denis." It gives the browser a small ID
-  called a "session cookie." The browser automatically stores this and sends it
-  back with EVERY future request. This is invisible to the website's JavaScript
-  code — the browser handles it silently.
+─── HOW WEBSITES HANDLE LOGIN ───────────────────────────────────────────────
 
-THE PROBLEM ON REACT NATIVE / IOS:
-  React Native tries to behave like a browser in many ways, including this:
-  it HIDES the session cookie from JavaScript code. This is a security feature
-  in browsers (so malicious scripts can't steal your cookies), and React
-  Native copied this behavior even though it doesn't need to on a native app.
+When you log into a website, the server creates a "session" and gives the
+browser a tiny ID called a "session cookie." The browser stores this and sends
+it back with EVERY future request automatically. This is invisible — the
+browser handles it silently.
 
-  The result: when the app logged in, the server sent back a session cookie.
-  But when our JavaScript code tried to read it (response.headers.get("set-cookie")),
-  it got null — nothing. The cookie was invisible.
+─── PROBLEM 1: Fetch API hides Set-Cookie on iOS ────────────────────────────
 
-  Then when the app tried to fetch real data (food, targets, supplements),
-  those requests had no cookie attached, so the server said "not authenticated"
-  and refused to respond with data. This caused ALL data to show as zero/empty
-  even after a successful login.
+React Native's fetch() mimics the browser's security model, which deliberately
+HIDES the Set-Cookie response header from JavaScript code. This is a browser
+security feature (to prevent scripts from stealing HttpOnly cookies). React
+Native copied it even though it doesn't need to on a native app.
 
-THE FIX WE IMPLEMENTED:
-  React Native's older XMLHttpRequest (XHR) API — a different way to make
-  HTTP requests — does NOT have this same restriction. When you use XHR and
-  call xhr.getResponseHeader("set-cookie"), it DOES return the cookie.
+Result: after login, response.headers.get("set-cookie") returned null. The
+session cookie was invisible to our code. Subsequent API calls had no cookie
+and got "401 Not Authenticated."
 
-  So the login call now uses XHR specifically to capture the session cookie.
-  Once captured, it's:
-    1. Stored in memory (a variable called sessionCookie in lib/api.ts)
-    2. Saved to SecureStore (so it survives app restarts)
-    3. Manually included in the "Cookie" header of EVERY subsequent request
+Fix: Use XMLHttpRequest (the older browser network API) for the login call.
+React Native's XHR implementation does NOT have this restriction.
+xhr.getAllResponseHeaders() returns all headers including Set-Cookie.
 
-  This is why lib/api.ts has two separate functions:
-    - loginWithXhr()  ← uses old-style XHR, returns the cookie
-    - apiFetch()      ← uses modern fetch, manually includes the saved cookie
+─── PROBLEM 2: The GAESA bug — single-cookie storage got overwritten ────────
+
+Even after switching to XHR for login, the 401 errors continued. Diagnostic
+logging revealed the actual sequence of events:
+
+  1. App starts → loads "connect.sid=xxx" from storage → sends it to /user/me
+  2. /user/me SUCCEEDS (200) → but its response contains Set-Cookie: GAESA=yyy
+     (GAESA is a CSRF protection token the server sets on authenticated routes)
+  3. Our code was saving GAESA as the session, replacing connect.sid entirely
+  4. All subsequent requests sent Cookie: GAESA=yyy (without connect.sid)
+  5. Server rejected with 401 — connect.sid was missing
+
+The server sends MULTIPLE cookies. We were storing only the LAST one, which
+overwrote the actual session cookie.
+
+Fix: Implement a proper COOKIE JAR. The jar holds ALL cookies by name:
+  { "connect.sid": "connect.sid=s%3Axxx", "GAESA": "GAESA=yyy" }
+
+When the server sends Set-Cookie: GAESA=yyy, we ADD it to the jar without
+removing connect.sid. When making requests, we send ALL cookies:
+  Cookie: connect.sid=xxx; GAESA=yyy
+
+─── THE CURRENT AUTH FLOW (how it works now) ────────────────────────────────
+
+LOGIN:
+  1. User enters email + password → loginWithXhr() is called
+  2. XHR POST to /auth/login → server responds with session cookie(s)
+  3. getAllResponseHeaders() exposes all Set-Cookie lines
+  4. Each cookie is parsed and added to cookieJar (in memory)
+  5. cookieJar is saved as JSON to SecureStore under key "prfmr_jar"
+  6. Login response body has { user: {...} } → user is set immediately
+
+EVERY REQUEST:
+  7. apiFetch() reads cookieJar → builds "Cookie: connect.sid=xxx; GAESA=yyy"
+  8. Sends that header with every request
+  9. If the response has a new Set-Cookie, it ADDS it to the jar (never replaces)
+
+APP RESTART:
+  10. loadSession() reads "prfmr_jar" from SecureStore → cookieJar is restored
+  11. /user/me is called with the saved cookies → if valid, user stays logged in
+
+LOGOUT:
+  12. POST /auth/logout → clearSession() → cookieJar cleared → SecureStore cleared
+
+─── STORAGE KEY ─────────────────────────────────────────────────────────────
+
+The cookie jar is stored under the key "prfmr_jar" in SecureStore.
+(Old versions used "prfmr_session" — that key is no longer used.)
 
 ⭐⭐⭐ IMPORTANT — IF LOGIN BREAKS IN THE FUTURE:
-  The #1 thing to check is whether the session cookie is being captured.
-  When Denis logs in, the Expo console should show:
-    [auth] Session captured via XHR set-cookie ✓
+  The diagnostic logs to look for after login:
+    [auth] Session captured via XHR ✓ — cookies: connect.sid, GAESA
+    [api] → /me/targets | cookies: [connect.sid, GAESA]
+    [api] ← /me/targets 200
 
-  If you see instead:
-    [auth] No set-cookie header from login — will try credentials:include fallback
-  ...then the XHR trick stopped working and you need to find a new way to
-  capture the cookie. This could happen if Expo updates its native network
-  layer. At that point, options include:
-    a) Using a different HTTP library (like axios)
-    b) Using a dedicated React Native cookie management library
-    c) Asking the backend to also return an auth token in the response body
-       (some APIs support Bearer tokens as an alternative to cookies)
+  If you see "cookies: []" (empty) for requests after login, the XHR cookie
+  capture stopped working. Check:
+  a) Whether getAllResponseHeaders() still returns Set-Cookie lines
+  b) Whether the cookie names changed (the server might rename GAESA)
+  c) Whether the server switched to a different auth mechanism (Bearer tokens)
 
 --------------------------------------------------------------------------------
   SECTION 5 — HOW DATA FETCHING WORKS
@@ -190,9 +222,9 @@ Every piece of data shown in the app goes through the same pipeline:
   2. REACT QUERY checks its cache — if fresh data exists, shows it immediately
   3. If not cached (or stale), React Query calls the queryFn
   4. queryFn calls apiFetch() with the API path
-  5. apiFetch() adds the session cookie to the request headers
+  5. apiFetch() reads cookieJar → adds "Cookie: connect.sid=xxx; GAESA=yyy"
   6. apiFetch() calls fetch() to make the actual HTTP request to the server
-  7. The server checks the session cookie → confirms the user is logged in
+  7. The server checks the cookies → confirms the user is logged in
   8. The server returns JSON data
   9. apiFetch() parses the JSON and returns it
   10. React Query stores it in cache and passes it to the component
@@ -298,24 +330,26 @@ These are the areas most likely to cause problems when you add new features
 or debug issues. Read these carefully.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️  1. THE SESSION COOKIE — lib/api.ts
+  ⚠️  1. THE COOKIE JAR — lib/api.ts
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  The variable "sessionCookie" in lib/api.ts is the lifeblood of the app.
-  If it's null, EVERY request will return 401 Not Authenticated and the app
-  will show empty data everywhere.
+  The cookieJar object in lib/api.ts stores ALL session cookies. It must
+  contain BOTH the session cookie ("connect.sid") AND any other cookies the
+  server sends (like "GAESA" for CSRF protection).
 
-  NEVER do anything that could clear this accidentally:
-  - Don't restart the module (hot reload should be fine, full reload is fine)
-  - Don't add any code that sets sessionCookie = null except on logout
-  - Don't change the XHR login flow without testing it end-to-end
+  The most important rule: when a new Set-Cookie arrives, ADD it to the jar.
+  NEVER replace the whole jar with just the new cookie.
 
-  To verify the cookie is working: after login, check the Expo console for:
-    [auth] Session captured via XHR set-cookie ✓
-    [api] → /user/me | cookie: YES (connect.sid)
-    [api] ← /user/me 200
+  After login, the Expo console should show:
+    [auth] Session captured via XHR ✓ — cookies: connect.sid, GAESA
+    [api] → /me/targets | cookies: [connect.sid, GAESA]
+    [api] ← /me/targets 200
 
-  If you see "cookie: NO" for requests after login, the session was not saved.
+  If any request shows "cookies: []" — the jar is empty and the session
+  was lost. The user will need to log out and log back in.
+
+  The jar is persisted in SecureStore under the key "prfmr_jar" as JSON.
+  On the next app launch, loadSession() restores it automatically.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ⚠️  2. REACT QUERY KEYS — must be consistent
@@ -330,34 +364,23 @@ or debug issues. Read these carefully.
   invalidateQueries calls. Include all variables that affect the data
   (especially the date).
 
-  Example of getting it right:
+  Good example:
     useQuery({ queryKey: ["food", date], ... })
-    ...
     queryClient.invalidateQueries({ queryKey: ["food", date] })  ✓
 
-  Example of getting it wrong:
+  Bad example:
     useQuery({ queryKey: ["food", date], ... })
-    ...
     queryClient.invalidateQueries({ queryKey: ["food"] })  ✗ won't update
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ⚠️  3. DATE HANDLING — always use T12:00:00 timezone trick
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  This is a subtle bug that is easy to accidentally introduce.
-
   When you write: new Date("2026-04-16")
-  JavaScript interprets this as UTC midnight (12:00 AM in London time).
-  If you're in a timezone BEHIND UTC (like US or UK summer time), this actually
-  becomes April 15 at 8pm or 11pm local time — the wrong day!
+  JavaScript interprets this as UTC midnight. If you're in a timezone BEHIND
+  UTC, this can become the previous day locally — the wrong date!
 
-  The fix used throughout this app: new Date("2026-04-16T12:00:00")
-  Adding T12:00:00 makes it noon, which is the same calendar date in any
-  timezone from UTC-12 to UTC+12.
-
-  Always do this when you're:
-  - Converting a "yyyy-MM-dd" string into a Date object
-  - Doing date math (addDays, subWeeks, format) on dates that come from the API
+  Fix: always add T12:00:00 when turning a "yyyy-MM-dd" string into a Date.
 
   Good:
     format(new Date(date + "T12:00:00"), "yyyy-MM-dd")
@@ -370,35 +393,24 @@ or debug issues. Read these carefully.
   ⚠️  4. ENVIRONMENT VARIABLES — baked in at build time
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  The API URL (https://app.prfmr.link/api) is stored in an environment
-  variable called EXPO_PUBLIC_API_URL. The "EXPO_PUBLIC_" prefix is important:
-  Expo bakes this value INTO the JavaScript bundle when Metro (the bundler)
-  compiles the code. This means:
-
-  - If you change this variable, you need to RESTART the Expo server
-    (Metro) for it to take effect — a hot reload is NOT enough.
-  - The value is visible in the compiled bundle. Don't put secrets here.
-    (The session cookie is secret; the API URL is fine to expose.)
-
-  The variable is read in lib/api.ts:
-    const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? fallback
+  The API URL (https://app.prfmr.link/api) is stored in EXPO_PUBLIC_API_URL.
+  The "EXPO_PUBLIC_" prefix is important: Expo bakes this INTO the JavaScript
+  bundle at compile time. If you change it, restart the Expo server (Metro)
+  — a hot reload is NOT enough.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ⚠️  5. RELOADING vs. HOT RELOADING in Expo Go
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Expo Go has two ways to pick up changes:
-  
-  HOT RELOAD (automatic): Small UI changes appear instantly without losing
-  your login state. The JavaScript module is swapped in-place. The session
-  cookie variable (in-memory) survives hot reloads.
+  HOT RELOAD (automatic): Small UI changes appear instantly. The in-memory
+  cookieJar is preserved. Login stays active.
 
-  FULL RELOAD (shake phone → Reload, or shake → Reload JS Bundle):
-  This completely resets the JavaScript context. The in-memory sessionCookie
-  variable is cleared. However, the session IS saved in SecureStore, so the
-  app will automatically re-read it from storage and restore your login.
+  FULL RELOAD (shake phone → Reload):
+  This resets the JavaScript context. The in-memory cookieJar is cleared.
+  BUT: loadSession() runs on startup and restores cookieJar from SecureStore.
+  So you stay logged in even after a full reload.
 
-  When should you do a full reload?
+  When to do a full reload:
   - After changing environment variables (EXPO_PUBLIC_*)
   - After changing native configuration (app.json)
   - When the app seems stuck in a weird state
@@ -408,79 +420,79 @@ or debug issues. Read these carefully.
   ⚠️  6. ADDING A NEW SCREEN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  If you want to add a new tab screen:
-  1. Create the file: app/(tabs)/myscreen.tsx
-  2. Add it to the tab bar: app/(tabs)/_layout.tsx
-     (Look at how other tabs are configured and follow the same pattern)
+  To add a new tab screen:
+  1. Create: app/(tabs)/myscreen.tsx
+  2. Add to tab bar: app/(tabs)/_layout.tsx (follow existing tab patterns)
   3. Add an icon from Feather or MaterialCommunityIcons
   4. Use useColors() for all colors
-  5. Wrap the content in <SafeAreaView> and <ScrollView>
+  5. Wrap content in <SafeAreaView> and <ScrollView>
 
-  If you want to add a modal or page that's NOT a tab (e.g., a detail screen):
-  - Create it inside app/ but outside (tabs)/ and (auth)/
-  - Use expo-router's <Link> or router.push() to navigate to it
+  For a modal or detail screen (not a tab):
+  - Create inside app/ but outside (tabs)/ and (auth)/
+  - Navigate with router.push() or <Link>
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ⚠️  7. ADDING A NEW API CALL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  To fetch new data from the server, add a useQuery call in your component:
-
-    const { data, isLoading, error } = useQuery({
-      queryKey: ["my-data", someVariable],
-      queryFn: () => apiFetch(`/me/some-endpoint?param=${someVariable}`),
+  To fetch data:
+    const { data, isLoading } = useQuery({
+      queryKey: ["my-key", variable],
+      queryFn: () => apiFetch(`/me/endpoint?param=${variable}`),
     });
 
-  To send data (POST/PUT/DELETE), add a useMutation call:
-
-    const mutation = useMutation({
-      mutationFn: (value: number) =>
-        apiFetch("/me/some-endpoint", { method: "POST", body: { value } }),
-      onSuccess: () => {
-        // Refresh related data
-        queryClient.invalidateQueries({ queryKey: ["my-data", someVariable] });
-      },
+  To send data:
+    const qc = useQueryClient();
+    const mut = useMutation({
+      mutationFn: (val: number) =>
+        apiFetch("/me/endpoint", { method: "POST", body: { val } }),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["my-key", variable] }),
     });
-    // To trigger: mutation.mutate(42)
+    // Trigger with: mut.mutate(42)
 
-  You NEVER need to change lib/api.ts to add new endpoints — apiFetch() is
-  generic and works with any path.
+  You NEVER need to change lib/api.ts to add a new endpoint — apiFetch()
+  is generic and works with any path automatically.
 
 --------------------------------------------------------------------------------
   SECTION 9 — DEBUGGING TIPS
 --------------------------------------------------------------------------------
 
-THE EXPO DEV CONSOLE (shake phone → "Open Dev Menu" → look at logs):
-  The app has extensive logging in development mode. Every API request logs:
-    [api] → /path | cookie: YES/NO
-    [api] ← /path 200
+THE EXPO DEV CONSOLE (shake phone → look at log output):
+  The app logs every API request in development mode:
+    [api] → /path | cookies: [connect.sid, GAESA]
+    [api] ← /path 200 | new cookie: NO
 
-  If you see 401 errors, check if "cookie: YES" is in the log before the error.
-  If it says "cookie: NO", the session wasn't saved — re-login or check
-  whether the XHR cookie capture is still working.
+  If you see 401 errors, check whether cookies are listed before the request.
+  If cookies: [] — the jar is empty. The user needs to log in again.
 
-COMMON ERROR MESSAGES AND WHAT THEY MEAN:
-  "Not authenticated" (401)  ← Session cookie missing or expired. Log out
-                                and back in.
-  "Cannot reach the server"  ← No internet connection or server is down.
-                                Test at https://app.prfmr.link/api/user/me
-                                in a browser.
-  "Unexpected server response" ← Server returned HTML instead of JSON, which
-                                often means the endpoint URL is wrong or the
-                                server had an error. Check the path spelling.
+COMMON ERROR MESSAGES:
+  "Not authenticated" (401)  ← Cookie jar is empty or cookies are wrong.
+                                Log out and back in.
+  "Cannot reach the server"  ← No internet, or server is down.
+                                Test: https://app.prfmr.link/api/user/me
+  "Unexpected server response" ← The endpoint URL is wrong or the server
+                                 returned HTML (error page) instead of JSON.
 
 CHECKING IF THE API IS ONLINE:
-  Open any browser and go to: https://app.prfmr.link/api/user/me
-  You should see: {"message":"Not authenticated"} or {"error":"..."}
+  Open any browser: https://app.prfmr.link/api/user/me
+  You should see: {"message":"Not authenticated"} (correct — server is up)
   If you see a connection error, the server is down.
+
+CHECKING THE COOKIE JAR STATE:
+  After login, look for this in the Expo logs:
+    [auth] Session captured via XHR ✓ — cookies: connect.sid, GAESA
+  Then for subsequent requests:
+    [api] → /me/targets | cookies: [connect.sid, GAESA]
+  If the cookies list shows both names — auth is working correctly.
 
 --------------------------------------------------------------------------------
   SECTION 10 — CURRENT STATUS AND KNOWN ISSUES
 --------------------------------------------------------------------------------
 
 WHAT IS WORKING (as of April 2026):
-  ✓ Login with real credentials
-  ✓ Session persists across app restarts (saved in SecureStore)
+  ✓ Login with real credentials via XHR cookie capture
+  ✓ Cookie jar persists all session cookies (connect.sid + GAESA)
+  ✓ Session restored on app restart from SecureStore
   ✓ Dashboard layout with all sections
   ✓ Macro tracking cards (calories, protein, carbs, fat)
   ✓ Morning check-in (sleep, weight, rest day)
@@ -491,10 +503,10 @@ WHAT IS WORKING (as of April 2026):
   ✓ Feedback form
   ✓ Dark theme matching the web app
 
-WHAT WE'RE STILL TESTING:
-  ? Session cookie capture via XHR on iOS (the latest fix — needs confirmation
-    from Denis by logging in and checking for the ✓ message in console logs)
-  ? Data showing correctly for real user accounts (food, supplements, training)
+WHAT WE JUST FIXED:
+  ✓ Cookie jar bug: /user/me response was sending a CSRF cookie (GAESA) that
+    overwrote the session cookie (connect.sid). Fixed with proper multi-cookie
+    jar that accumulates instead of replaces.
 
 WHAT IS NOT YET BUILT:
   ✗ Push notifications for supplement reminders
@@ -507,22 +519,29 @@ WHAT IS NOT YET BUILT:
 --------------------------------------------------------------------------------
 
 BEFORE CHANGING lib/api.ts:
-  This file is the most critical. Any mistake here breaks ALL data loading.
-  Always test login → data loading after any change to this file.
+  This file is the most critical. Any mistake breaks ALL data loading.
+  Always test: login → data loads → logout → login again after any change.
+  The key function is apiFetch() and the cookie jar logic. Be very careful
+  not to accidentally clear cookieJar or reset it incorrectly.
 
 BEFORE CHANGING context/AuthContext.tsx:
-  This controls whether the user is logged in or not. A mistake could cause
-  infinite redirect loops (login → dashboard → login...) or break the logout
-  flow. After changing it, test: login, logout, and re-opening the app.
+  This controls whether the user is logged in. A mistake could cause:
+  - Infinite redirect loops (login → dashboard → login → ...)
+  - Users being logged out unexpectedly
+  - The login button not working
+  Always test the full flow: login, use the app, logout, login again.
 
 BEFORE CHANGING app/_layout.tsx:
-  This is the root of the entire app. It wraps everything in the necessary
-  providers (auth, fonts, query client). Breaking this breaks the whole app.
-  Changes here are rare — only needed for adding new global providers.
+  This is the root wrapper for the entire app. Breaking it breaks everything.
+  Changes here are rare — only for adding new global providers.
 
 FOR MOST FEATURES (adding UI, changing screen content):
-  Changes to files in app/(tabs)/ are relatively safe. They only affect that
+  Files in app/(tabs)/ are relatively safe to change. They only affect
   one screen. You can change freely and test just that tab.
+
+KEEP THE OVERVIEW FILE UPDATED:
+  Whenever you make a significant change to how the app works (especially auth,
+  data fetching, or adding new screens), update this file to reflect it.
 
 --------------------------------------------------------------------------------
   SECTION 12 — QUICK REFERENCE: KEY PATTERNS
@@ -533,8 +552,8 @@ READING DATA:
     queryKey: ["unique-key", variable],
     queryFn: () => apiFetch(`/endpoint/${variable}`),
   });
-  Then in JSX: if (isLoading) return <ActivityIndicator />
-              data?.someField ?? 0  (the ?? 0 is a safe fallback)
+  In JSX: if (isLoading) return <ActivityIndicator />
+          data?.someField ?? 0  (the ?? 0 is a safe fallback if data missing)
 
 WRITING DATA:
   const qc = useQueryClient();
@@ -556,7 +575,7 @@ DATE FORMATTING:
 ICONS:
   import { Feather } from "@expo/vector-icons";
   <Feather name="check" size={16} color={colors.primary} />
-  (See full list at: https://icons.expo.fyi)
+  (Full icon list: https://icons.expo.fyi)
 
 ================================================================================
   END OF OVERVIEW

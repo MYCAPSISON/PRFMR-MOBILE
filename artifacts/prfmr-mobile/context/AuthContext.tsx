@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // On app start: restore saved cookies from secure storage, then check auth
   useEffect(() => {
     (async () => {
       await loadSession();
@@ -48,16 +49,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchUser]);
 
   const login = useCallback(async (email: string, password: string) => {
-    // Use XHR for login — React Native's XHR exposes the Set-Cookie response
-    // header more reliably than the Fetch API (which mimics browser HttpOnly
-    // restrictions that hide cookies from JS).
+    // XHR is used here because React Native's Fetch API hides Set-Cookie
+    // headers from JavaScript (mimics browser security). XHR exposes them.
     const result = await loginWithXhr(email, password);
 
-    // Use user from login response body if available (skips a round-trip)
+    // If login response body includes user data, use it directly
     if (result?.user) {
       setUser(result.user);
     } else {
-      // Fallback: fetch user with the newly captured session cookie
+      // Fallback: fetch user now that we have session cookies
       await fetchUser();
     }
   }, [fetchUser]);
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await apiFetch("/auth/logout", { method: "POST" });
     } catch {
-      // ignore
+      // ignore server errors on logout
     }
     await clearSession();
     setUser(null);
