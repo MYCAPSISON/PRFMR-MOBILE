@@ -11,3 +11,9 @@ id = "yBTvvcjeTgWSKeSkVAlGj"
 uri = "file://PRFMR_APP_OVERVIEW.txt"
 type = "text"
 title = "PRFMR App — Complete Overview"
+
+[[outputs]]
+id = "663zR-aZNYpiUQGdKTKTc"
+uri = "file://PRFMR_CHANGE_LOG.txt"
+type = "text"
+title = "PRFMR Mobile App — Full Change Log"
