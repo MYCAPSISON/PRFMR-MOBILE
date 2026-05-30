@@ -1,0 +1,269 @@
+================================================================================
+  PRFMR MOBILE APP — CHANGE LOG
+  Everything done from the start of the project
+  Generated: April 2026
+================================================================================
+
+--------------------------------------------------------------------------------
+  SESSION 1 — Initial App Creation
+--------------------------------------------------------------------------------
+
+GOAL: Build a production React Native Expo mobile app for PRFMR (combat
+sports performance tracking) that mirrors the web app at app.prfmr.link.
+Users log in with the same credentials and see real data.
+
+FILES CREATED:
+  artifacts/prfmr-mobile/              ← New Expo app package
+  artifacts/prfmr-mobile/app.json      ← Expo config (name, slug, icon)
+  artifacts/prfmr-mobile/package.json  ← Dependencies (Expo SDK 54, React Query, etc.)
+  artifacts/prfmr-mobile/tsconfig.json ← TypeScript config
+  artifacts/prfmr-mobile/.env          ← EXPO_PUBLIC_API_URL=https://app.prfmr.link/api
+
+  context/AuthContext.tsx              ← Global login state management
+  lib/api.ts                           ← API fetch wrapper
+  lib/queryClient.ts                   ← React Query setup
+
+  constants/colors.ts                  ← Dark theme color palette
+  hooks/useColors.ts                   ← Hook to access colors in components
+
+  app/_layout.tsx                      ← Root app wrapper (fonts, providers, auth gate)
+  app/(auth)/_layout.tsx               ← Layout for logged-out screens
+  app/(auth)/login.tsx                 ← Login screen
+  app/(auth)/signup.tsx                ← Sign up screen
+
+  app/(tabs)/_layout.tsx               ← Bottom tab bar (6 tabs)
+  app/(tabs)/index.tsx                 ← Dashboard (main screen)
+  app/(tabs)/training.tsx              ← Training sessions
+  app/(tabs)/supplements.tsx           ← Supplement tracking
+  app/(tabs)/nutrition.tsx             ← Food / nutrition log
+  app/(tabs)/weightcut.tsx             ← Weight cut plan
+  app/(tabs)/playbook.tsx              ← Playbook notes
+  app/(tabs)/profile.tsx               ← User profile + logout
+  app/(tabs)/feedback.tsx              ← Beta feedback form
+
+  components/ErrorBoundary.tsx         ← Crash safety wrapper
+
+  PRFMR_APP_OVERVIEW.txt               ← Master documentation file (created)
+
+DESIGN SYSTEM:
+  - Background: #0f1117 (near-black)
+  - Cards: #13161d
+  - Orange accent: #ff7a00
+  - White text: #f8fafc
+  - All screens match the web app at app.prfmr.link
+
+DASHBOARD COMPONENTS BUILT (inside app/(tabs)/index.tsx):
+  - Date navigator (← today →)
+  - FightCampHero: days until fight, current vs target weight
+  - MorningCheckIn: prompts for sleep hours, body weight, rest day
+  - ProvisionalCheckIn: "how do you feel?" 3-question form
+  - AmqsCard: readiness score display
+  - MacroCards: calories / protein / carbs / fat vs targets
+  - WeightTrend: line graph of last 4 weeks of weight data
+  - SupplementsPreview: today's supplements with check-off
+  - MealsList: all food logged with totals
+
+WORKFLOW REGISTERED:
+  - Expo dev server starts on $PORT
+  - Accessible via Expo Go QR code scan
+
+--------------------------------------------------------------------------------
+  SESSION 2 — Authentication Bug Investigation & Fixes
+--------------------------------------------------------------------------------
+
+PROBLEM: After login, all API requests returned 401 Not Authenticated.
+Users could not see any data.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BUG #1: Fetch API hides Set-Cookie headers
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ROOT CAUSE:
+  React Native's fetch() copies the browser security model: it deliberately
+  hides Set-Cookie response headers from JavaScript. After login, calling
+  response.headers.get("set-cookie") returned null, even though the server
+  was sending session cookies. Our code thought no cookies were received,
+  so nothing was saved, so all subsequent requests went out with no cookies.
+
+DIAGNOSIS METHOD:
+  Added diagnostic console.log() calls to apiFetch() to print every header
+  received. Confirmed Set-Cookie was hidden from fetch but visible when
+  switching to XHR.
+
+FIX APPLIED:
+  Replaced the fetch() login call with XMLHttpRequest (XHR).
+  XHR's getAllResponseHeaders() returns ALL headers including Set-Cookie.
+  The login path changed to loginWithXhr() in lib/api.ts.
+
+FILE CHANGED: lib/api.ts
+  - Added loginWithXhr() function using XMLHttpRequest
+  - Uses xhr.withCredentials = true (equivalent of credentials: "include")
+  - Uses xhr.getAllResponseHeaders() to read Set-Cookie lines
+  - Parses cookie lines and stores them
+
+FILE CHANGED: context/AuthContext.tsx
+  - Updated login() to call loginWithXhr() instead of apiFetch("/auth/login")
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BUG #2: GAESA cookie overwrote connect.sid
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ROOT CAUSE:
+  After switching to XHR for login, the sequence became:
+
+  1. Login → captures connect.sid and saves it
+  2. App calls GET /user/me (to confirm session is valid)
+  3. /user/me SUCCEEDS (200) and sends back Set-Cookie: GAESA=xxx
+     (GAESA is a secondary token the server adds to authenticated responses)
+  4. Our code saved GAESA as the new session, replacing connect.sid entirely
+  5. All future requests sent Cookie: GAESA=xxx (without connect.sid)
+  6. Server rejected: 401 Not Authenticated
+
+  The server sends MULTIPLE cookies. We were storing only the LATEST one,
+  which overwrote the actual session cookie.
+
+DIAGNOSIS METHOD:
+  Added logging to show exactly which cookies were in the jar before each
+  request. Confirmed: initially [connect.sid], then after /user/me: [GAESA]
+  only — the jar had been replaced.
+
+FIX APPLIED:
+  Replaced single-value cookie storage with a COOKIE JAR (dictionary).
+  The jar stores cookies by name. Adding a new cookie MERGES it in
+  rather than replacing everything.
+
+  New jar structure: { "connect.sid": "connect.sid=xxx", "GAESA": "GAESA=yyy" }
+
+  When building the Cookie header for a request: join all values with "; "
+    → Cookie: connect.sid=xxx; GAESA=yyy
+
+  Cookie jar persisted to SecureStore as JSON under key "prfmr_jar"
+  (previous storage key was "prfmr_session" — deprecated)
+
+FILE CHANGED: lib/api.ts
+  - cookieJar changed from string to Record<string, string>
+  - addCookie() function: merges new cookie into jar by name
+  - buildCookieHeader(): joins all jar values with "; "
+  - saveJar() / loadJar() updated to use JSON.stringify/parse
+  - saveKey changed from "prfmr_session" to "prfmr_jar"
+
+OVERVIEW FILE UPDATED: PRFMR_APP_OVERVIEW.txt
+  - Added full explanation of cookie jar bug and fix
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BUG #3: Manual Cookie header blocked iOS native cookie jar
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ROOT CAUSE:
+  Even with the cookie jar fix, requests still returned 401.
+  Diagnostic logs showed: "cookies: [GAESA]" for all authenticated requests.
+  GAESA alone is not enough — the server also needs connect.sid.
+
+  Why was connect.sid missing?
+
+  connect.sid is an HttpOnly cookie. This means:
+  - The SERVER marks it with the HttpOnly flag when it sends it
+  - This prevents ANY JavaScript code (fetch, XHR, document.cookie) from
+    reading its value — it is completely invisible to JS
+  - iOS silently stores it in NSHTTPCookieStorage (the native cookie store)
+
+  The XHR login call could only capture GAESA (not HttpOnly), but NOT
+  connect.sid (HttpOnly). So our jar only ever had GAESA.
+
+  When apiFetch() set the header Cookie: GAESA=xxx, the iOS native network
+  layer (NSURLSession) used THAT header and ignored its own NSHTTPCookieStorage,
+  which had connect.sid. The result: connect.sid never reached the server.
+
+DIAGNOSIS METHOD:
+  User provided Expo console screenshot showing:
+    "[api] → /me/food/2026-04-18 | cookies: [GAESA]"
+    "[api] ← /me/food/2026-04-18 401"
+
+  This confirmed: for BOTH today's date and future dates, only GAESA was
+  being sent. The "future date" symptom was actually the same root cause —
+  going to a future date triggered fresh React Query fetches (no cache),
+  which revealed the 401 that was happening on all requests.
+
+  Full log analysis confirmed: all authenticated requests were failing, not
+  just future-date ones.
+
+FIX APPLIED:
+  REMOVED the manual Cookie header from apiFetch() entirely.
+  Now all requests ONLY use credentials: "include".
+
+  credentials: "include" is the fetch API instruction that says:
+  "tell the native iOS network layer to include all cookies it has stored
+  for this domain in the request."
+
+  With this in place:
+  - iOS reads NSHTTPCookieStorage for app.prfmr.link
+  - Finds connect.sid (stored there during login via xhr.withCredentials = true)
+  - Automatically adds it to the request headers at the native network level
+  - JavaScript never sees or touches connect.sid — iOS handles it silently
+
+  The GAESA jar is preserved for logging/debugging and potential future CSRF use,
+  but is NOT added as a manual Cookie header.
+
+FILE CHANGED: lib/api.ts
+  - Removed: reqHeaders["Cookie"] = buildCookieHeader()
+  - Kept: credentials: "include" in fetch() options
+  - Updated log output: now shows "visible jar: [GAESA] | native jar: handles connect.sid"
+  - Renamed functions and cleaned up comments for clarity
+
+OVERVIEW FILE UPDATED: PRFMR_APP_OVERVIEW.txt
+  - Full rewrite of Section 4 (Authentication) to explain all 3 bugs
+  - Added Section 8 warning: "NEVER SET A MANUAL Cookie HEADER"
+  - Added debugging guidance for the new log format
+
+--------------------------------------------------------------------------------
+  CURRENT STATE (April 2026)
+--------------------------------------------------------------------------------
+
+WHAT WORKS:
+  ✓ Login (XHR captures non-HttpOnly cookies; connect.sid goes to iOS native jar)
+  ✓ All API requests authenticated via credentials: "include" (iOS sends connect.sid)
+  ✓ Dashboard with all sections (macros, supplements, weight, check-ins)
+  ✓ Future date navigation
+  ✓ Past date navigation
+  ✓ Training sessions tab
+  ✓ Supplements tab with check-off
+  ✓ Profile tab with logout
+  ✓ Feedback form
+  ✓ Dark premium theme matching web app
+
+KNOWN LIMITATION:
+  Force-quitting Expo Go clears the iOS session cookie (connect.sid is a
+  session cookie with no expiry). The user needs to log in again after
+  fully closing the app. This is standard iOS behavior and cannot be
+  fixed in Expo Go — it would require publishing as a standalone app.
+
+NEXT STEPS (not yet built):
+  ✗ Publish as standalone App Store app (removes session-cookie limitation)
+  ✗ Push notifications for supplement reminders
+  ✗ Offline mode
+  ✗ Photo uploads
+
+--------------------------------------------------------------------------------
+  KEY FILES AND THEIR PURPOSE
+--------------------------------------------------------------------------------
+
+  lib/api.ts            ← Core API layer. apiFetch(), loginWithXhr(), cookie jar.
+                           DO NOT set manual Cookie headers here.
+
+  context/AuthContext.tsx  ← Login state for the whole app. Calls loginWithXhr().
+                              Calls loadSession() on startup. Calls clearSession()
+                              on logout.
+
+  app/_layout.tsx       ← Root layout. Sets up AuthContext, QueryClient, fonts.
+                           Redirects logged-out users to /login.
+
+  app/(tabs)/index.tsx  ← Dashboard. The most complex screen. Has date nav + all
+                           data sections as sub-components.
+
+  constants/colors.ts   ← All color values. Import via useColors() hook only.
+
+  PRFMR_APP_OVERVIEW.txt ← Full documentation. Keep this updated with every change.
+
+================================================================================
+  END OF CHANGE LOG
+================================================================================

@@ -1,0 +1,19 @@
+uploads = []
+
+[[generated]]
+id = "igD3ocexI1V1MhazZy0c1"
+uri = "file://artifacts/prfmr-mobile/assets/images/icon.png"
+type = "image"
+title = "PRFMR app icon"
+
+[[outputs]]
+id = "yBTvvcjeTgWSKeSkVAlGj"
+uri = "file://PRFMR_APP_OVERVIEW.txt"
+type = "text"
+title = "PRFMR App — Complete Overview"
+
+[[outputs]]
+id = "663zR-aZNYpiUQGdKTKTc"
+uri = "file://PRFMR_CHANGE_LOG.txt"
+type = "text"
+title = "PRFMR Mobile App — Full Change Log"
