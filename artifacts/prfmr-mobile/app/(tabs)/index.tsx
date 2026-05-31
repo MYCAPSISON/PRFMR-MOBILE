@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Modal,
+  TextInput, ActivityIndicator, Modal, Alert, FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -142,6 +142,59 @@ const INTENSITY_OPTIONS = [
 ] as const;
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const;
+
+type TabId = "search" | "wholefood" | "barcode" | "custom";
+
+interface NormalizedFood {
+  name: string;
+  brand?: string;
+  caloriesPer100g: number;
+  proteinPer100g: number;
+  carbsPer100g: number;
+  fatPer100g: number;
+  fibrePer100g: number;
+  sourceType: "off" | "database" | "manual";
+}
+
+const MODAL_TABS: { id: TabId; label: string; icon: string }[] = [
+  { id: "search", label: "Search", icon: "search" },
+  { id: "wholefood", label: "Whole Food", icon: "box" },
+  { id: "barcode", label: "Barcode", icon: "maximize" },
+  { id: "custom", label: "Custom", icon: "edit-2" },
+];
+
+const WHOLE_FOODS_IDX: NormalizedFood[] = [
+  { name: "Chicken Breast", caloriesPer100g: 165, proteinPer100g: 31, carbsPer100g: 0, fatPer100g: 3.6, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Oats", caloriesPer100g: 389, proteinPer100g: 16.9, carbsPer100g: 66.3, fatPer100g: 6.9, fibrePer100g: 10.6, sourceType: "manual" },
+  { name: "Eggs", caloriesPer100g: 155, proteinPer100g: 12.6, carbsPer100g: 1.1, fatPer100g: 10.6, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Salmon", caloriesPer100g: 208, proteinPer100g: 20, carbsPer100g: 0, fatPer100g: 13, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Brown Rice (cooked)", caloriesPer100g: 123, proteinPer100g: 2.6, carbsPer100g: 25.6, fatPer100g: 1, fibrePer100g: 1.8, sourceType: "manual" },
+  { name: "White Rice (cooked)", caloriesPer100g: 130, proteinPer100g: 2.7, carbsPer100g: 28.2, fatPer100g: 0.3, fibrePer100g: 0.4, sourceType: "manual" },
+  { name: "Sweet Potato (cooked)", caloriesPer100g: 86, proteinPer100g: 1.6, carbsPer100g: 20.1, fatPer100g: 0.1, fibrePer100g: 3, sourceType: "manual" },
+  { name: "Broccoli", caloriesPer100g: 34, proteinPer100g: 2.8, carbsPer100g: 6.6, fatPer100g: 0.4, fibrePer100g: 2.6, sourceType: "manual" },
+  { name: "Banana", caloriesPer100g: 89, proteinPer100g: 1.1, carbsPer100g: 23, fatPer100g: 0.3, fibrePer100g: 2.6, sourceType: "manual" },
+  { name: "Greek Yoghurt", caloriesPer100g: 97, proteinPer100g: 9, carbsPer100g: 3.6, fatPer100g: 5, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Almonds", caloriesPer100g: 579, proteinPer100g: 21, carbsPer100g: 22, fatPer100g: 50, fibrePer100g: 12.5, sourceType: "manual" },
+  { name: "Cottage Cheese", caloriesPer100g: 98, proteinPer100g: 11, carbsPer100g: 3.4, fatPer100g: 4.3, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Tuna (canned)", caloriesPer100g: 116, proteinPer100g: 25.5, carbsPer100g: 0, fatPer100g: 0.8, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Beef Mince (lean)", caloriesPer100g: 215, proteinPer100g: 26, carbsPer100g: 0, fatPer100g: 12, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Whey Protein", caloriesPer100g: 380, proteinPer100g: 75, carbsPer100g: 8, fatPer100g: 5, fibrePer100g: 0, sourceType: "manual" },
+];
+
+function normalizeFood(item: any, sourceType: "off" | "database" | "manual"): NormalizedFood {
+  return {
+    name: item.name ?? item.product_name ?? "Unknown",
+    brand: item.brand ?? item.brands ?? undefined,
+    caloriesPer100g: item.caloriesPer100g ?? item.calories ?? item.nutriments?.["energy-kcal_100g"] ?? 0,
+    proteinPer100g: item.proteinPer100g ?? item.protein ?? item.nutriments?.proteins_100g ?? 0,
+    carbsPer100g: item.carbsPer100g ?? item.carbs ?? item.nutriments?.carbohydrates_100g ?? 0,
+    fatPer100g: item.fatPer100g ?? item.fat ?? item.nutriments?.fat_100g ?? 0,
+    fibrePer100g: item.fibrePer100g ?? item.fibre ?? item.nutriments?.fiber_100g ?? item.nutriments?.fibre_100g ?? 0,
+    sourceType,
+  };
+}
+
+function rd1(n: number) { return Math.round(n * 10) / 10; }
 
 // ─────────────────────────────────────────
 // Shared UI primitives
@@ -782,6 +835,168 @@ function WeightTrend({ date }: { date: string }) {
 }
 
 // ─────────────────────────────────────────
+// Meals Section — sub-components
+// ─────────────────────────────────────────
+function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPending }: {
+  food: NormalizedFood; grams: string; onGramsChange: (g: string) => void;
+  onConfirm: () => void; onBack: () => void; isPending: boolean;
+}) {
+  const g = parseFloat(grams) || 100;
+  const r = g / 100;
+  const cal = Math.round(food.caloriesPer100g * r);
+  const prot = rd1(food.proteinPer100g * r);
+  const carbs = rd1(food.carbsPer100g * r);
+  const fat = rd1(food.fatPer100g * r);
+  const fibre = rd1(food.fibrePer100g * r);
+  return (
+    <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+      <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "700" }}>{food.name}</Text>
+      {food.brand ? <Text style={{ color: "#6b7280" }}>{food.brand}</Text> : null}
+      <Text style={{ color: "#6b7280", fontSize: 13, fontWeight: "700", marginTop: 8 }}>SERVING SIZE (grams)</Text>
+      <TextInput
+        style={{ height: 52, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+          backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 22, textAlign: "center", color: "#eceef2" }}
+        value={grams} onChangeText={onGramsChange} keyboardType="numeric" selectTextOnFocus
+      />
+      <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
+        borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", padding: 16 }}>
+        {[
+          { l: "Calories", v: cal, u: "kcal" },
+          { l: "Protein", v: prot, u: "g" },
+          { l: "Carbs", v: carbs, u: "g" },
+          { l: "Fat", v: fat, u: "g" },
+          { l: "Fibre", v: fibre, u: "g" },
+        ].map(s => (
+          <View key={s.l} style={{ alignItems: "center" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "800" }}>{s.v}</Text>
+            <Text style={{ color: "#6b7280", fontSize: 10 }}>{s.u}</Text>
+            <Text style={{ color: "#6b7280", fontSize: 9 }}>{s.l}</Text>
+          </View>
+        ))}
+      </View>
+      <TouchableOpacity onPress={onConfirm} disabled={isPending}
+        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+        {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onBack} style={{ alignItems: "center", padding: 12 }}>
+        <Text style={{ color: "#6b7280" }}>← Back</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
+  query: string; onQueryChange: (q: string) => void; results: any[];
+  searching: boolean; onSelect: (item: any) => void;
+}) {
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginVertical: 10,
+        paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1,
+        backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+        <Feather name="search" size={18} color="#6b7280" />
+        <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 15, marginLeft: 8 }}
+          placeholder="Search foods..." placeholderTextColor="#6b7280"
+          value={query} onChangeText={onQueryChange} autoFocus />
+        {searching && <ActivityIndicator size="small" color="#ff7a00" />}
+      </View>
+      <FlatList
+        data={results}
+        keyExtractor={(_, i) => String(i)}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={
+          query.length > 1 && !searching
+            ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32 }}>No results</Text>
+            : query.length < 2
+            ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32, fontSize: 13 }}>Type to search the food database</Text>
+            : null
+        }
+        renderItem={({ item }) => {
+          const name = item.name ?? item.product_name ?? "Unknown";
+          const brand = item.brand ?? item.brands ?? "";
+          const cal = Math.round(item.caloriesPer100g ?? item.calories ?? 0);
+          const prot = Math.round(item.proteinPer100g ?? item.protein ?? 0);
+          const carbs = Math.round(item.carbsPer100g ?? item.carbs ?? 0);
+          const fat = Math.round(item.fatPer100g ?? item.fat ?? 0);
+          return (
+            <TouchableOpacity onPress={() => onSelect(item)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#eceef2", fontWeight: "600" }} numberOfLines={1}>{name}</Text>
+                {brand ? <Text style={{ color: "#6b7280", fontSize: 12 }}>{brand}</Text> : null}
+                <Text style={{ color: "#6b7280", fontSize: 11 }}>P{prot} C{carbs} F{fat} per 100g</Text>
+              </View>
+              <Text style={{ color: "#ff7a00", fontWeight: "700" }}>{cal}</Text>
+            </TouchableOpacity>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, setProtein,
+  carbs, setCarbs, fat, setFat, fibre, setFibre, onAdd, isPending }: {
+  name: string; setName: (v: string) => void;
+  grams: string; setGrams: (v: string) => void;
+  cal: string; setCal: (v: string) => void;
+  protein: string; setProtein: (v: string) => void;
+  carbs: string; setCarbs: (v: string) => void;
+  fat: string; setFat: (v: string) => void;
+  fibre: string; setFibre: (v: string) => void;
+  onAdd: () => void; isPending: boolean;
+}) {
+  const canAdd = name.trim().length > 0 && (parseFloat(cal) || 0) >= 0 && (parseFloat(grams) || 0) > 0;
+  const fields = [
+    { label: "Calories (kcal) *", val: cal, set: setCal },
+    { label: "Protein (g)", val: protein, set: setProtein },
+    { label: "Carbs (g)", val: carbs, set: setCarbs },
+    { label: "Fat (g)", val: fat, set: setFat },
+    { label: "Fibre (g)", val: fibre, set: setFibre },
+  ];
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }} keyboardShouldPersistTaps="handled">
+      <View>
+        <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4, fontWeight: "600" }}>FOOD NAME *</Text>
+        <TextInput
+          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+            backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 15, color: "#eceef2" }}
+          placeholder="e.g. Chicken breast" placeholderTextColor="#6b7280"
+          value={name} onChangeText={setName}
+        />
+      </View>
+      <View>
+        <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4, fontWeight: "600" }}>GRAMS *</Text>
+        <TextInput
+          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+            backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 15, color: "#eceef2" }}
+          placeholder="100" placeholderTextColor="#6b7280"
+          value={grams} onChangeText={setGrams} keyboardType="decimal-pad"
+        />
+      </View>
+      {fields.map(f => (
+        <View key={f.label}>
+          <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4, fontWeight: "600" }}>{f.label.toUpperCase()}</Text>
+          <TextInput
+            style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+              backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 15, color: "#eceef2" }}
+            placeholder="0" placeholderTextColor="#6b7280"
+            value={f.val} onChangeText={f.set} keyboardType="decimal-pad"
+          />
+        </View>
+      ))}
+      <TouchableOpacity onPress={onAdd} disabled={!canAdd || isPending}
+        style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 4,
+          backgroundColor: canAdd ? "#ff7a00" : "#181c26" }}>
+        {isPending
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={{ color: canAdd ? "#fff" : "#6b7280", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────
 // Meals Section
 // ─────────────────────────────────────────
 function MealsSection({ date }: { date: string }) {
@@ -789,18 +1004,39 @@ function MealsSection({ date }: { date: string }) {
   const qc = useQueryClient();
   const [modal, setModal] = useState(false);
   const [mealType, setMealType] = useState<string>("breakfast");
+  const [activeTab, setActiveTab] = useState<TabId>("search");
+  const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
+  const [grams, setGrams] = useState("100");
+
   const [searchQ, setSearchQ] = useState("");
   const [results, setResults] = useState<any[]>([]);
-  const [name, setName] = useState("");
-  const [cal, setCal] = useState("");
-  const [protein, setProtein] = useState("");
-  const [carbs, setCarbs] = useState("");
-  const [fat, setFat] = useState("");
+  const [searching, setSearching] = useState(false);
+
+  const [barcodeCode, setBarcodeCode] = useState("");
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeError, setBarcodeError] = useState("");
+
+  const [customName, setCustomName] = useState("");
+  const [customGrams, setCustomGrams] = useState("100");
+  const [customCal, setCustomCal] = useState("");
+  const [customProtein, setCustomProtein] = useState("");
+  const [customCarbs, setCustomCarbs] = useState("");
+  const [customFat, setCustomFat] = useState("");
+  const [customFibre, setCustomFibre] = useState("0");
 
   const { data: entries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", date],
     queryFn: () => apiFetch(`/me/food/${date}`),
   });
+
+  function closeModal() {
+    setModal(false);
+    setSelectedFood(null);
+    setSearchQ(""); setResults([]); setGrams("100");
+    setBarcodeCode(""); setBarcodeError("");
+    setCustomName(""); setCustomGrams("100"); setCustomCal("");
+    setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
+  }
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiFetch(`/food/${id}`, { method: "DELETE" }),
@@ -812,18 +1048,78 @@ function MealsSection({ date }: { date: string }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
-      setModal(false);
-      setName(""); setCal(""); setProtein(""); setCarbs(""); setFat(""); setSearchQ(""); setResults([]);
+      closeModal();
+    },
+    onError: (err: any) => {
+      Alert.alert("Could not add food", err?.message ?? "Unknown error");
     },
   });
 
   const doSearch = useCallback(async (q: string) => {
-    if (!q || q.length < 2) { setResults([]); return; }
+    setSearchQ(q);
+    if (q.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
     try {
-      const r = await apiFetch<any[]>(`/foods/search?q=${encodeURIComponent(q)}`);
-      setResults((r || []).slice(0, 8));
+      const r = await apiFetch<any[]>(`/foods/search?q=${encodeURIComponent(q.trim())}`);
+      setResults(Array.isArray(r) ? r.slice(0, 20) : []);
     } catch { setResults([]); }
+    finally { setSearching(false); }
   }, []);
+
+  async function lookupBarcode() {
+    const code = barcodeCode.trim();
+    if (!code) return;
+    setBarcodeLoading(true); setBarcodeError("");
+    try {
+      const result = await apiFetch<any>(`/food/barcode/${code}`);
+      if (!result || (!result.name && !result.product_name)) {
+        setBarcodeError("No food found for this barcode.");
+      } else {
+        setSelectedFood(normalizeFood(result, "off"));
+        setGrams("100");
+      }
+    } catch (err: any) {
+      setBarcodeError(err?.message ?? "Barcode lookup failed");
+    } finally {
+      setBarcodeLoading(false);
+    }
+  }
+
+  function buildPayload(food: NormalizedFood, gramsStr: string) {
+    const g = parseFloat(gramsStr) || 100;
+    const r = g / 100;
+    return {
+      name: food.name,
+      calories: Math.round(food.caloriesPer100g * r),
+      protein: rd1(food.proteinPer100g * r),
+      carbs: rd1(food.carbsPer100g * r),
+      fat: rd1(food.fatPer100g * r),
+      fibre: rd1(food.fibrePer100g * r),
+      grams: Math.round(g),
+      meal: mealType,
+      date,
+      sourceType: food.sourceType === "manual" ? "manual" : "off",
+      macroSource: "manual",
+      microSource: "none",
+    };
+  }
+
+  function addCustom() {
+    addMut.mutate({
+      name: customName.trim(),
+      calories: parseFloat(customCal) || 0,
+      protein: parseFloat(customProtein) || 0,
+      carbs: parseFloat(customCarbs) || 0,
+      fat: parseFloat(customFat) || 0,
+      fibre: parseFloat(customFibre) || 0,
+      grams: Math.round(parseFloat(customGrams) || 100),
+      meal: mealType,
+      date,
+      sourceType: "manual",
+      macroSource: "manual",
+      microSource: "none",
+    });
+  }
 
   const grouped = MEAL_TYPES.map(mt => ({
     type: mt, items: entries.filter(e => e.meal === mt),
@@ -869,94 +1165,111 @@ function MealsSection({ date }: { date: string }) {
         ))
       )}
 
-      <Modal visible={modal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModal(false)}>
+      <Modal visible={modal} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeModal}>
         <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
-          <View style={[styles.rowBetween, { padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }]}>
-            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>Add Food</Text>
-            <TouchableOpacity onPress={() => setModal(false)}>
-              <Feather name="x" size={22} color="#6b7280" />
-            </TouchableOpacity>
+          {/* Header */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+            padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Add Food</Text>
+            <TouchableOpacity onPress={closeModal}><Feather name="x" size={24} color="#6b7280" /></TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16 }}>
-            {/* Meal type */}
-            <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>MEAL TYPE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-              {MEAL_TYPES.map(mt => (
-                <TouchableOpacity key={mt} style={[styles.mealTypeChip, {
-                  borderColor: mealType === mt ? "#ff7a00" : "#1a1e28",
-                  backgroundColor: mealType === mt ? "rgba(255,122,0,0.1)" : "#181c26",
-                }]} onPress={() => setMealType(mt)}>
-                  <Text style={{ color: mealType === mt ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 13, textTransform: "capitalize" }}>{mt}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
 
-            <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>SEARCH FOOD DATABASE</Text>
-            <View style={[styles.searchBar, { borderColor: "#1a1e28", backgroundColor: "#181c26" }]}>
-              <Feather name="search" size={15} color="#6b7280" />
-              <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
-                placeholder="Search..." placeholderTextColor="#6b7280"
-                value={searchQ} onChangeText={t => { setSearchQ(t); doSearch(t); }} />
-            </View>
-            {results.map(item => (
-              <TouchableOpacity key={item.id || item.name}
-                style={[styles.searchResult, { borderColor: "#1a1e28" }]}
-                onPress={() => addMut.mutate({
-                  name: item.name,
-                  calories: item.caloriesPer100g ?? item.calories ?? 0,
-                  protein: item.proteinPer100g ?? item.protein ?? 0,
-                  carbs: item.carbsPer100g ?? item.carbs ?? 0,
-                  fat: item.fatPer100g ?? item.fat ?? 0,
-                  fibre: item.fibre ?? item.fibrePer100g ?? 0,
-                  grams: 100,
-                  date,
-                  meal: mealType,
-                  sourceType: "off",
-                  macroSource: "manual",
-                  microSource: "none",
-                })}>
-                <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{item.name}</Text>
-                <Text style={{ color: "#6b7280", fontSize: 12 }}>{item.caloriesPer100g ?? item.calories ?? 0} kcal / 100g</Text>
+          {/* Meal type pills */}
+          <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
+            {MEAL_TYPES.map(mt => (
+              <TouchableOpacity key={mt} onPress={() => setMealType(mt)}
+                style={{ flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
+                  backgroundColor: mealType === mt ? "#ff7a00" : "#181c26" }}>
+                <Text style={{ color: mealType === mt ? "#fff" : "#6b7280", fontSize: 10, fontWeight: "700", textTransform: "capitalize" }}>{mt}</Text>
               </TouchableOpacity>
             ))}
+          </View>
 
-            <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginTop: 16, marginBottom: 8 }}>MANUAL ENTRY</Text>
-            {[
-              { label: "Name", val: name, set: setName, kb: "default" },
-              { label: "Calories (kcal)", val: cal, set: setCal, kb: "decimal-pad" },
-              { label: "Protein (g)", val: protein, set: setProtein, kb: "decimal-pad" },
-              { label: "Carbs (g)", val: carbs, set: setCarbs, kb: "decimal-pad" },
-              { label: "Fat (g)", val: fat, set: setFat, kb: "decimal-pad" },
-            ].map(f => (
-              <View key={f.label} style={{ marginBottom: 10 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4 }}>{f.label}</Text>
-                <TextInput style={[styles.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26" }]}
-                  placeholder={f.label} placeholderTextColor="#6b7280"
-                  keyboardType={f.kb as any} value={f.val} onChangeText={f.set} />
-              </View>
+          {/* Tab bar */}
+          <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            {MODAL_TABS.map(tab => (
+              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); }}
+                style={{ flex: 1, paddingVertical: 10, alignItems: "center", gap: 2,
+                  borderBottomWidth: 2, borderBottomColor: activeTab === tab.id ? "#ff7a00" : "transparent" }}>
+                <Feather name={tab.icon as any} size={14} color={activeTab === tab.id ? "#ff7a00" : "#6b7280"} />
+                <Text style={{ color: activeTab === tab.id ? "#ff7a00" : "#6b7280", fontSize: 10, fontWeight: "700" }}>{tab.label}</Text>
+              </TouchableOpacity>
             ))}
+          </View>
 
-            <TouchableOpacity
-              style={[styles.fullBtn, { backgroundColor: "#ff7a00", opacity: name && cal ? 1 : 0.4, marginTop: 8 }]}
-              disabled={!name || !cal || addMut.isPending}
-              onPress={() => addMut.mutate({
-                name,
-                calories: parseFloat(cal) || 0,
-                protein: parseFloat(protein) || 0,
-                carbs: parseFloat(carbs) || 0,
-                fat: parseFloat(fat) || 0,
-                fibre: 0,
-                grams: 100,
-                date,
-                meal: mealType,
-                sourceType: "manual",
-                macroSource: "manual",
-                microSource: "none",
-              })}>
-              {addMut.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Add Food</Text>}
-            </TouchableOpacity>
-            <View style={{ height: 40 }} />
-          </ScrollView>
+          {/* Tab content */}
+          {selectedFood ? (
+            <MealConfirmView
+              food={selectedFood} grams={grams} onGramsChange={setGrams}
+              onConfirm={() => addMut.mutate(buildPayload(selectedFood, grams))}
+              onBack={() => setSelectedFood(null)}
+              isPending={addMut.isPending}
+            />
+          ) : (
+            <View style={{ flex: 1 }}>
+              {activeTab === "search" && (
+                <MealSearchTab query={searchQ} onQueryChange={doSearch} results={results}
+                  searching={searching}
+                  onSelect={item => { setSelectedFood(normalizeFood(item, "off")); setGrams("100"); }} />
+              )}
+              {activeTab === "wholefood" && (
+                <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
+                  <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4, fontWeight: "600" }}>Common whole foods — tap to add with custom grams</Text>
+                  {WHOLE_FOODS_IDX.map(wf => (
+                    <TouchableOpacity key={wf.name} onPress={() => { setSelectedFood(wf); setGrams("100"); }}
+                      style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                        backgroundColor: "#13161d", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28" }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{wf.name}</Text>
+                        <Text style={{ color: "#6b7280", fontSize: 11 }}>P{wf.proteinPer100g} · C{wf.carbsPer100g} · F{wf.fatPer100g} per 100g</Text>
+                      </View>
+                      <Text style={{ color: "#ff7a00", fontWeight: "700", marginRight: 4 }}>{wf.caloriesPer100g}</Text>
+                      <Text style={{ color: "#6b7280", fontSize: 11 }}>kcal</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+              {activeTab === "barcode" && (
+                <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+                  <Text style={{ color: "#6b7280", fontSize: 13 }}>Enter the barcode number from the food packaging.</Text>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <TextInput
+                      style={{ flex: 1, height: 52, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                        backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
+                      placeholder="e.g. 5000112548167" placeholderTextColor="#6b7280"
+                      value={barcodeCode} onChangeText={setBarcodeCode} keyboardType="number-pad"
+                      returnKeyType="search" onSubmitEditing={lookupBarcode}
+                    />
+                    <TouchableOpacity onPress={lookupBarcode} disabled={barcodeLoading || !barcodeCode.trim()}
+                      style={{ height: 52, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
+                        justifyContent: "center", backgroundColor: barcodeCode.trim() ? "#ff7a00" : "#181c26" }}>
+                      {barcodeLoading
+                        ? <ActivityIndicator color="#fff" size="small" />
+                        : <Text style={{ color: barcodeCode.trim() ? "#fff" : "#6b7280", fontWeight: "700" }}>Lookup</Text>}
+                    </TouchableOpacity>
+                  </View>
+                  {!!barcodeError && (
+                    <View style={{ backgroundColor: "#f8717122", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#f8717144" }}>
+                      <Text style={{ color: "#f87171", fontSize: 14 }}>{barcodeError}</Text>
+                    </View>
+                  )}
+                  <Text style={{ color: "#6b7280", fontSize: 12, fontStyle: "italic" }}>Barcode scanner (camera) coming soon.</Text>
+                </ScrollView>
+              )}
+              {activeTab === "custom" && (
+                <MealCustomTab
+                  name={customName} setName={setCustomName}
+                  grams={customGrams} setGrams={setCustomGrams}
+                  cal={customCal} setCal={setCustomCal}
+                  protein={customProtein} setProtein={setCustomProtein}
+                  carbs={customCarbs} setCarbs={setCustomCarbs}
+                  fat={customFat} setFat={setCustomFat}
+                  fibre={customFibre} setFibre={setCustomFibre}
+                  onAdd={addCustom} isPending={addMut.isPending}
+                />
+              )}
+            </View>
+          )}
         </SafeAreaView>
       </Modal>
     </Card>
