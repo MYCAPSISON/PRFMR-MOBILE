@@ -70,7 +70,7 @@ interface FoodEntry {
   carbs: number;
   fat: number;
   fibre?: number;
-  mealType: string;
+  meal: string;
   date: string;
 }
 
@@ -826,7 +826,7 @@ function MealsSection({ date }: { date: string }) {
   }, []);
 
   const grouped = MEAL_TYPES.map(mt => ({
-    type: mt, items: entries.filter(e => e.mealType === mt),
+    type: mt, items: entries.filter(e => e.meal === mt),
   })).filter(g => g.items.length > 0);
 
   const mealIcon: Record<string, any> = {
@@ -902,9 +902,18 @@ function MealsSection({ date }: { date: string }) {
               <TouchableOpacity key={item.id || item.name}
                 style={[styles.searchResult, { borderColor: "#1a1e28" }]}
                 onPress={() => addMut.mutate({
-                  name: item.name, calories: item.caloriesPer100g ?? item.calories ?? 0,
-                  protein: item.proteinPer100g ?? item.protein ?? 0, carbs: item.carbsPer100g ?? item.carbs ?? 0,
-                  fat: item.fatPer100g ?? item.fat ?? 0, date, mealType, sourceType: "database",
+                  name: item.name,
+                  calories: item.caloriesPer100g ?? item.calories ?? 0,
+                  protein: item.proteinPer100g ?? item.protein ?? 0,
+                  carbs: item.carbsPer100g ?? item.carbs ?? 0,
+                  fat: item.fatPer100g ?? item.fat ?? 0,
+                  fibre: item.fibre ?? item.fibrePer100g ?? 0,
+                  grams: 100,
+                  date,
+                  meal: mealType,
+                  sourceType: "off",
+                  macroSource: "manual",
+                  microSource: "none",
                 })}>
                 <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{item.name}</Text>
                 <Text style={{ color: "#6b7280", fontSize: 12 }}>{item.caloriesPer100g ?? item.calories ?? 0} kcal / 100g</Text>
@@ -931,9 +940,18 @@ function MealsSection({ date }: { date: string }) {
               style={[styles.fullBtn, { backgroundColor: "#ff7a00", opacity: name && cal ? 1 : 0.4, marginTop: 8 }]}
               disabled={!name || !cal || addMut.isPending}
               onPress={() => addMut.mutate({
-                name, calories: parseFloat(cal) || 0, protein: parseFloat(protein) || 0,
-                carbs: parseFloat(carbs) || 0, fat: parseFloat(fat) || 0,
-                date, mealType, sourceType: "manual",
+                name,
+                calories: parseFloat(cal) || 0,
+                protein: parseFloat(protein) || 0,
+                carbs: parseFloat(carbs) || 0,
+                fat: parseFloat(fat) || 0,
+                fibre: 0,
+                grams: 100,
+                date,
+                meal: mealType,
+                sourceType: "manual",
+                macroSource: "manual",
+                microSource: "none",
               })}>
               {addMut.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Add Food</Text>}
             </TouchableOpacity>

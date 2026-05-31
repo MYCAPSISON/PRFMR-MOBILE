@@ -1,7 +1,7 @@
 ================================================================================
   PRFMR MOBILE APP — CHANGE LOG
   Everything done from the start of the project
-  Generated: April 2026
+  Generated: May 2026
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -85,11 +85,6 @@ ROOT CAUSE:
   was sending session cookies. Our code thought no cookies were received,
   so nothing was saved, so all subsequent requests went out with no cookies.
 
-DIAGNOSIS METHOD:
-  Added diagnostic console.log() calls to apiFetch() to print every header
-  received. Confirmed Set-Cookie was hidden from fetch but visible when
-  switching to XHR.
-
 FIX APPLIED:
   Replaced the fetch() login call with XMLHttpRequest (XHR).
   XHR's getAllResponseHeaders() returns ALL headers including Set-Cookie.
@@ -97,9 +92,6 @@ FIX APPLIED:
 
 FILE CHANGED: lib/api.ts
   - Added loginWithXhr() function using XMLHttpRequest
-  - Uses xhr.withCredentials = true (equivalent of credentials: "include")
-  - Uses xhr.getAllResponseHeaders() to read Set-Cookie lines
-  - Parses cookie lines and stores them
 
 FILE CHANGED: context/AuthContext.tsx
   - Updated login() to call loginWithXhr() instead of apiFetch("/auth/login")
@@ -109,160 +101,259 @@ FILE CHANGED: context/AuthContext.tsx
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ROOT CAUSE:
-  After switching to XHR for login, the sequence became:
-
-  1. Login → captures connect.sid and saves it
-  2. App calls GET /user/me (to confirm session is valid)
-  3. /user/me SUCCEEDS (200) and sends back Set-Cookie: GAESA=xxx
-     (GAESA is a secondary token the server adds to authenticated responses)
-  4. Our code saved GAESA as the new session, replacing connect.sid entirely
-  5. All future requests sent Cookie: GAESA=xxx (without connect.sid)
-  6. Server rejected: 401 Not Authenticated
-
-  The server sends MULTIPLE cookies. We were storing only the LATEST one,
-  which overwrote the actual session cookie.
-
-DIAGNOSIS METHOD:
-  Added logging to show exactly which cookies were in the jar before each
-  request. Confirmed: initially [connect.sid], then after /user/me: [GAESA]
-  only — the jar had been replaced.
+  After login, when /user/me was called, its response set a new cookie GAESA
+  (a secondary token). Our code saved GAESA as the new session, discarding
+  connect.sid. All future requests sent only GAESA → 401.
 
 FIX APPLIED:
-  Replaced single-value cookie storage with a COOKIE JAR (dictionary).
-  The jar stores cookies by name. Adding a new cookie MERGES it in
-  rather than replacing everything.
-
-  New jar structure: { "connect.sid": "connect.sid=xxx", "GAESA": "GAESA=yyy" }
-
-  When building the Cookie header for a request: join all values with "; "
-    → Cookie: connect.sid=xxx; GAESA=yyy
-
-  Cookie jar persisted to SecureStore as JSON under key "prfmr_jar"
-  (previous storage key was "prfmr_session" — deprecated)
+  Implemented a cookie jar (dictionary) that accumulates all cookies by name.
+  Adding a new cookie MERGES it in rather than replacing everything.
+  Jar key changed from "prfmr_session" to "prfmr_jar" in SecureStore.
 
 FILE CHANGED: lib/api.ts
   - cookieJar changed from string to Record<string, string>
-  - addCookie() function: merges new cookie into jar by name
-  - buildCookieHeader(): joins all jar values with "; "
-  - saveJar() / loadJar() updated to use JSON.stringify/parse
-  - saveKey changed from "prfmr_session" to "prfmr_jar"
-
-OVERVIEW FILE UPDATED: PRFMR_APP_OVERVIEW.txt
-  - Added full explanation of cookie jar bug and fix
+  - addCookie(), buildCookieHeader(), saveJar(), loadJar() updated
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   BUG #3: Manual Cookie header blocked iOS native cookie jar
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ROOT CAUSE:
-  Even with the cookie jar fix, requests still returned 401.
-  Diagnostic logs showed: "cookies: [GAESA]" for all authenticated requests.
-  GAESA alone is not enough — the server also needs connect.sid.
-
-  Why was connect.sid missing?
-
-  connect.sid is an HttpOnly cookie. This means:
-  - The SERVER marks it with the HttpOnly flag when it sends it
-  - This prevents ANY JavaScript code (fetch, XHR, document.cookie) from
-    reading its value — it is completely invisible to JS
-  - iOS silently stores it in NSHTTPCookieStorage (the native cookie store)
-
-  The XHR login call could only capture GAESA (not HttpOnly), but NOT
-  connect.sid (HttpOnly). So our jar only ever had GAESA.
-
-  When apiFetch() set the header Cookie: GAESA=xxx, the iOS native network
-  layer (NSURLSession) used THAT header and ignored its own NSHTTPCookieStorage,
-  which had connect.sid. The result: connect.sid never reached the server.
-
-DIAGNOSIS METHOD:
-  User provided Expo console screenshot showing:
-    "[api] → /me/food/2026-04-18 | cookies: [GAESA]"
-    "[api] ← /me/food/2026-04-18 401"
-
-  This confirmed: for BOTH today's date and future dates, only GAESA was
-  being sent. The "future date" symptom was actually the same root cause —
-  going to a future date triggered fresh React Query fetches (no cache),
-  which revealed the 401 that was happening on all requests.
-
-  Full log analysis confirmed: all authenticated requests were failing, not
-  just future-date ones.
+  connect.sid is HttpOnly — invisible to ALL JavaScript. iOS stores it in
+  NSHTTPCookieStorage. When we manually set Cookie: GAESA in fetch(), iOS
+  used ONLY that manual header, ignoring NSHTTPCookieStorage entirely, so
+  connect.sid was never sent → 401 on all requests.
 
 FIX APPLIED:
-  REMOVED the manual Cookie header from apiFetch() entirely.
-  Now all requests ONLY use credentials: "include".
-
-  credentials: "include" is the fetch API instruction that says:
-  "tell the native iOS network layer to include all cookies it has stored
-  for this domain in the request."
-
-  With this in place:
-  - iOS reads NSHTTPCookieStorage for app.prfmr.link
-  - Finds connect.sid (stored there during login via xhr.withCredentials = true)
-  - Automatically adds it to the request headers at the native network level
-  - JavaScript never sees or touches connect.sid — iOS handles it silently
-
-  The GAESA jar is preserved for logging/debugging and potential future CSRF use,
-  but is NOT added as a manual Cookie header.
+  Removed manual Cookie header from apiFetch() entirely.
+  Only use credentials: "include", which tells iOS to send ALL cookies
+  from NSHTTPCookieStorage automatically, including connect.sid.
 
 FILE CHANGED: lib/api.ts
   - Removed: reqHeaders["Cookie"] = buildCookieHeader()
-  - Kept: credentials: "include" in fetch() options
-  - Updated log output: now shows "visible jar: [GAESA] | native jar: handles connect.sid"
-  - Renamed functions and cleaned up comments for clarity
-
-OVERVIEW FILE UPDATED: PRFMR_APP_OVERVIEW.txt
-  - Full rewrite of Section 4 (Authentication) to explain all 3 bugs
-  - Added Section 8 warning: "NEVER SET A MANUAL Cookie HEADER"
-  - Added debugging guidance for the new log format
+  - Kept: credentials: "include" in all fetch() calls
+  - Updated log format to show "native jar: handles connect.sid"
 
 --------------------------------------------------------------------------------
-  CURRENT STATE (April 2026)
+  SESSION 3 — Food Logging Bug Fixes + Nutrition Modal Rebuild
+--------------------------------------------------------------------------------
+
+PROBLEMS REPORTED:
+  1. Today's food logs not showing in Dashboard (meals section always empty)
+  2. POST /food returning 400 Validation failed
+  3. Nutrition modal only had Search — needed Search, Barcode, Custom, Whole Food
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BUG #4: Food logs not showing — wrong field name
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ROOT CAUSE:
+  The server returns food entries with the field name "meal".
+  The mobile app's FoodEntry interface used "mealType".
+  The grouping code filtered on e.mealType === mt — always empty since the
+  actual field was e.meal. Every meal section showed "Nothing logged."
+
+FIX: app/(tabs)/index.tsx
+  - FoodEntry.mealType → FoodEntry.meal
+  - entries.filter(e => e.mealType === mt) → entries.filter(e => e.meal === mt)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BUG #5: POST /food 400 Validation failed — wrong payload shape
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ROOT CAUSE:
+  Mobile app was sending payloads with wrong/missing fields:
+  - Used key "mealType" — server expects "meal"
+  - Missing "grams" (required positive number)
+  - Missing "macroSource" (required: "manual")
+  - Missing "microSource" (required: "none")
+  - Missing "fibre" (defaults to 0 if absent but causes issues)
+  - sourceType was "database" — server expected "off" for Open Food Facts items
+
+  WRONG payload (what we were sending):
+    { name, calories, protein, carbs, fat, date, mealType: "lunch", sourceType: "database" }
+
+  CORRECT payload (what the server needs):
+    { name, calories, protein, carbs, fat, fibre, grams, date, meal: "lunch",
+      sourceType: "off", macroSource: "manual", microSource: "none" }
+
+FIX: app/(tabs)/index.tsx (Dashboard modal)
+  - All POST payloads: mealType → meal
+  - Added: grams: 100 (default 100g serving)
+  - Added: macroSource: "manual"
+  - Added: microSource: "none"
+  - Added: fibre: 0 (manual) or item.fibre (search)
+  - Changed sourceType: "database" → "off" for Open Food Facts items
+
+FIX: app/(tabs)/nutrition.tsx (Nutrition tab modal)
+  - Same payload fixes applied
+  - Added buildPayload() helper that always constructs the correct full payload
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FEATURE: Nutrition modal rebuilt with 4 tabs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CHANGE: app/(tabs)/nutrition.tsx — full modal rebuild
+
+  SEARCH TAB:
+  - Searches GET /foods/search?q=... (Open Food Facts via backend)
+  - Shows name, brand, macros per 100g
+  - Tap → confirm view with adjustable grams input
+  - Payload: sourceType: "off", macroSource: "manual", microSource: "none"
+
+  WHOLE FOOD TAB:
+  - 15 curated staple foods with accurate per-100g macros
+  - Tap → confirm view with adjustable grams input
+  - Foods: Chicken Breast, Oats, Eggs, Salmon, Brown/White Rice, Sweet Potato,
+    Broccoli, Banana, Greek Yoghurt, Almonds, Cottage Cheese, Tuna, Beef Mince,
+    Whey Protein
+  - Payload: sourceType: "manual", macroSource: "manual", microSource: "none"
+
+  BARCODE TAB:
+  - Enter barcode number manually → GET /food/barcode/:code
+  - Shows found food → confirm view with grams input
+  - Shows clear error if barcode not found
+  - Note: camera scanner is future work, noted in UI
+
+  CUSTOM TAB:
+  - Fields: Food Name, Grams, Calories, Protein, Carbs, Fat, Fibre
+  - Add button disabled until name + grams + calories are filled
+  - Payload: sourceType: "manual", macroSource: "manual", microSource: "none"
+  - Sends exact gram/calorie values entered (not per-100g)
+
+  CONFIRM VIEW (shared by Search, Whole Food, Barcode):
+  - Shows food name + brand
+  - Grams input (auto-selects text for quick editing)
+  - Live-calculated preview: Calories / Protein / Carbs / Fat / Fibre
+  - Orange Add button
+
+  DEBUG LOGGING:
+  - All POST /food calls log the full payload to console before sending
+  - Errors show full server error message in an Alert (not just "Validation failed")
+  - After successful fix, these logs can be removed
+
+--------------------------------------------------------------------------------
+  EXACT ENDPOINTS USED FOR FOOD
+--------------------------------------------------------------------------------
+
+  GET  /me/food/:date               ← Load daily food log
+  GET  /foods/search?q=:query       ← Search Open Food Facts / database
+  GET  /food/barcode/:code          ← Look up barcode
+  POST /food                        ← Add a food entry
+  DELETE /food/:id                  ← Remove a food entry
+
+--------------------------------------------------------------------------------
+  EXAMPLE FINAL PAYLOADS
+--------------------------------------------------------------------------------
+
+  SEARCH / OFF RESULT (per-100g values scaled to actual grams eaten):
+  {
+    "name": "Oats",
+    "calories": 195,          ← (389 * 50g) / 100
+    "protein": 8.5,
+    "carbs": 33.2,
+    "fat": 3.5,
+    "fibre": 5.3,
+    "grams": 50,
+    "meal": "breakfast",
+    "date": "2026-05-31",
+    "sourceType": "off",
+    "macroSource": "manual",
+    "microSource": "none"
+  }
+
+  WHOLE FOOD (same structure, different sourceType):
+  {
+    "name": "Chicken Breast",
+    "calories": 248,          ← (165 * 150g) / 100
+    "protein": 46.5,
+    "carbs": 0,
+    "fat": 5.4,
+    "fibre": 0,
+    "grams": 150,
+    "meal": "lunch",
+    "date": "2026-05-31",
+    "sourceType": "manual",
+    "macroSource": "manual",
+    "microSource": "none"
+  }
+
+  CUSTOM MANUAL ENTRY (values entered directly, not scaled):
+  {
+    "name": "Post-Workout Shake",
+    "calories": 300,
+    "protein": 40,
+    "carbs": 25,
+    "fat": 5,
+    "fibre": 2,
+    "grams": 400,
+    "meal": "snack",
+    "date": "2026-05-31",
+    "sourceType": "manual",
+    "macroSource": "manual",
+    "microSource": "none"
+  }
+
+  BARCODE LOOKUP (scaled same as search):
+  {
+    "name": "Protein Bar",
+    "calories": 200,
+    "protein": 20,
+    "carbs": 22,
+    "fat": 6,
+    "fibre": 3,
+    "grams": 60,              ← one bar
+    "meal": "snack",
+    "date": "2026-05-31",
+    "sourceType": "off",
+    "macroSource": "manual",
+    "microSource": "none"
+  }
+
+--------------------------------------------------------------------------------
+  CURRENT STATE (May 2026)
 --------------------------------------------------------------------------------
 
 WHAT WORKS:
-  ✓ Login (XHR captures non-HttpOnly cookies; connect.sid goes to iOS native jar)
-  ✓ All API requests authenticated via credentials: "include" (iOS sends connect.sid)
-  ✓ Dashboard with all sections (macros, supplements, weight, check-ins)
-  ✓ Future date navigation
-  ✓ Past date navigation
-  ✓ Training sessions tab
-  ✓ Supplements tab with check-off
-  ✓ Profile tab with logout
-  ✓ Feedback form
-  ✓ Dark premium theme matching web app
+  ✓ Login (XHR captures GAESA; connect.sid stored natively by iOS)
+  ✓ All API requests authenticated via credentials: "include"
+  ✓ Food logs display correctly (using "meal" field, not "mealType")
+  ✓ POST /food works with correct full payload
+  ✓ Nutrition modal: Search, Whole Food, Barcode, Custom tabs
+  ✓ Dashboard, Training, Supplements, Profile tabs
+  ✓ Morning check-in, weight logging, rest day
+  ✓ Macro tracking (calories, protein, carbs, fat)
+  ✓ Supplement tracking with check-off
+  ✓ Dark theme matching web app
 
-KNOWN LIMITATION:
-  Force-quitting Expo Go clears the iOS session cookie (connect.sid is a
-  session cookie with no expiry). The user needs to log in again after
-  fully closing the app. This is standard iOS behavior and cannot be
-  fixed in Expo Go — it would require publishing as a standalone app.
-
-NEXT STEPS (not yet built):
-  ✗ Publish as standalone App Store app (removes session-cookie limitation)
-  ✗ Push notifications for supplement reminders
-  ✗ Offline mode
-  ✗ Photo uploads
+KNOWN LIMITATIONS:
+  ✗ Barcode camera scanner not yet implemented (manual entry only)
+  ✗ Session lost when Expo Go is force-quit (requires re-login)
+  ✗ Not published to App Store yet (running in Expo Go only)
 
 --------------------------------------------------------------------------------
   KEY FILES AND THEIR PURPOSE
 --------------------------------------------------------------------------------
 
-  lib/api.ts            ← Core API layer. apiFetch(), loginWithXhr(), cookie jar.
-                           DO NOT set manual Cookie headers here.
+  lib/api.ts              ← Core API layer. apiFetch(), loginWithXhr(), cookie jar.
+                             DO NOT set manual Cookie headers here.
 
-  context/AuthContext.tsx  ← Login state for the whole app. Calls loginWithXhr().
-                              Calls loadSession() on startup. Calls clearSession()
-                              on logout.
+  context/AuthContext.tsx ← Login state for the whole app. Calls loginWithXhr().
+                             Calls loadSession() on startup. Calls clearSession() on logout.
 
-  app/_layout.tsx       ← Root layout. Sets up AuthContext, QueryClient, fonts.
-                           Redirects logged-out users to /login.
+  app/_layout.tsx         ← Root layout. Sets up AuthContext, QueryClient, fonts.
 
-  app/(tabs)/index.tsx  ← Dashboard. The most complex screen. Has date nav + all
-                           data sections as sub-components.
+  app/(tabs)/index.tsx    ← Dashboard. Has date nav + all data sections.
+                             FoodEntry uses "meal" field (not "mealType").
+                             All POST /food payloads include grams, macroSource, microSource.
 
-  constants/colors.ts   ← All color values. Import via useColors() hook only.
+  app/(tabs)/nutrition.tsx ← Full nutrition screen with 4-tab Add Food modal.
+                              All POST payloads use buildPayload() helper.
 
-  PRFMR_APP_OVERVIEW.txt ← Full documentation. Keep this updated with every change.
+  constants/colors.ts     ← All color values. Import via useColors() hook only.
+
+  PRFMR_APP_OVERVIEW.txt  ← Full documentation. Keep this updated with every change.
+  PRFMR_CHANGE_LOG.txt    ← This file. Add a new section for every session.
 
 ================================================================================
   END OF CHANGE LOG

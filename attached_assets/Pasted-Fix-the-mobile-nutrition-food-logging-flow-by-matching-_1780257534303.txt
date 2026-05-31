@@ -1,0 +1,63 @@
+Fix the mobile nutrition/food logging flow by matching the existing web app behavior and API contract.
+
+Context:
+The backend/web app already works. Do NOT change backend assumptions. The mobile app currently:
+1. Does not show today’s food logs even though the web app and backend have them.
+2. Fails when adding food with POST /food 400 Validation failed.
+3. Needs to replicate the web app Add Food modal functionality:
+   - Search Open Food Facts/database foods
+   - Whole Food / Core Foods list
+   - Barcode lookup/scanner
+   - Custom/manual food entry
+
+Tasks:
+1. Inspect the web app implementation for the dashboard food logs and Add Food modal.
+2. Find exactly which API endpoints the web app uses for:
+   - loading daily food logs
+   - adding custom/manual food
+   - adding Open Food Facts/search food
+   - adding whole/core foods
+   - barcode lookup
+3. Update the mobile app to use the exact same endpoints and payload shapes as the web app.
+4. Fix today’s food logs not showing:
+   - Confirm the date format matches web app: YYYY-MM-DD
+   - Confirm the correct route is used, likely /me/food/:date
+   - Confirm mobile displays entries using the backend field names, especially meal, not only mealType.
+5. Fix POST /food validation:
+   - Compare the successful web request payload to the mobile payload.
+   - Update mobile manual/custom payload to match the web payload exactly.
+   - Include required fields such as grams, fibre, meal, sourceType, macroSource, microSource, enteredBasis, ingredientIndex, offBarcode, normalizedGrams, yieldFactorUsed, or any other fields the backend expects.
+   - Do not send userId from the mobile client unless the web app also sends it. Server-side user identity should come from the session.
+6. Rebuild the mobile Add Food modal with tabs matching the web app:
+   - Search
+   - Whole Food
+   - Barcode
+   - Custom
+7. For Search:
+   - Use the same search endpoint as web.
+   - Display result name, kcal, protein/carbs/fat if available.
+   - On tap/add, send the same payload shape as web.
+8. For Whole Food/Core Foods:
+   - Use the same data source/list as web where possible.
+   - Allow tapping a core food to log it.
+   - Match the web payload shape.
+9. For Barcode:
+   - Keep manual barcode lookup working first.
+   - If Expo camera/scanner is available, add scanner support.
+   - If scanner needs extra package/config, explain exactly what is needed before adding risky changes.
+10. For Custom:
+   - Fields: food name, grams, calories, protein, carbs, fat, fibre.
+   - Add button should only enable when required fields are present.
+   - Submit using the exact same request body as the web app.
+11. Add temporary debugging:
+   - Log the endpoint and payload before every food POST.
+   - Log the full backend error response body, not just “Validation failed”.
+12. After successful fix, remove noisy logs except useful error logs.
+13. Run TypeScript check and fix any type errors.
+14. Do not rewrite unrelated dashboard features.
+15. Summarize:
+   - Root cause of food logs not showing
+   - Root cause of add food validation failure
+   - Files changed
+   - Exact endpoints used
+   - Example final payloads for each add method
