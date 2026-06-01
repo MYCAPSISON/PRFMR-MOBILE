@@ -275,6 +275,7 @@ function FightCampHero({ date }: { date: string }) {
   const qc = useQueryClient();
   const [showWeight, setShowWeight] = useState(false);
   const [weightVal, setWeightVal] = useState("");
+  const [showPlan, setShowPlan] = useState(false);
 
   const { data: plan } = useQuery<WeightCutData | null>({
     queryKey: ["weight-cut"],
@@ -296,7 +297,6 @@ function FightCampHero({ date }: { date: string }) {
 
   const pace = getPaceInfo(plan.weeklyRatePct);
   const thisWeekTarget = plan.weeklyTargets?.[0];
-  const [showPlan, setShowPlan] = useState(false);
 
   return (
     <Card>
