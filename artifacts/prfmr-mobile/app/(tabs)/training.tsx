@@ -46,6 +46,21 @@ interface MorningStatus {
   isRestDay: boolean;
 }
 
+interface TrainingLoad {
+  acwr: number | null;
+  acute7day: number | null;
+  chronic28day: number | null;
+  classification: string | null;
+  warnings: string[];
+}
+
+interface LoadHistoryEntry {
+  date: string;
+  load: number;
+  acwr?: number;
+  classification?: string;
+}
+
 // ─────────────────────────────────────────
 // Time-of-day config
 // ─────────────────────────────────────────
@@ -328,6 +343,12 @@ export default function TrainingScreen() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["morning-status", selectedDate] }),
   });
 
+  const { data: loadData } = useQuery<TrainingLoad>({
+    queryKey: ["training-load", selectedDate],
+    queryFn: () => apiFetch(`/me/training-load/${selectedDate}`),
+    retry: false,
+  });
+
   const sessionsByTime = (tod: TimeOfDay) => sessions.filter(s => s.timeOfDay === tod);
   const totalCal = sessions.flatMap(s => s.activities).reduce((acc, a) => acc + (a.caloriesBurned || 0), 0);
 
@@ -385,6 +406,74 @@ export default function TrainingScreen() {
             </View>
           )}
         </Card>
+
+        {/* 28-Day Training Load */}
+        {loadData && (loadData.acwr !== null || loadData.classification) && (
+          <Card style={{ borderColor: "rgba(255,122,0,0.15)", backgroundColor: "rgba(255,122,0,0.04)" }}>
+            <View style={s.rowBetween}>
+              <View style={s.row}>
+                <Feather name="trending-up" size={14} color={colors.primary} />
+                <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>Training Load</Text>
+              </View>
+              {loadData.classification && (() => {
+                const cls = loadData.classification!.toLowerCase();
+                const bc = cls.includes("hard") || cls.includes("very") ? "#f87171"
+                  : cls.includes("moderate") ? "#facc15"
+                  : "#4ade80";
+                return (
+                  <View style={{ backgroundColor: bc + "22", borderRadius: 6, borderWidth: 1,
+                    borderColor: bc + "55", paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ color: bc, fontSize: 11, fontWeight: "700" }}>
+                      {loadData.classification}
+                    </Text>
+                  </View>
+                );
+              })()}
+            </View>
+
+            <View style={[s.row, { marginTop: 10, gap: 16 }]}>
+              {loadData.acwr !== null && (
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ color: colors.primary, fontSize: 24, fontWeight: "900" }}>
+                    {loadData.acwr.toFixed(2)}
+                  </Text>
+                  <Text style={[s.xs, { color: colors.mutedForeground }]}>ACWR</Text>
+                </View>
+              )}
+              {loadData.acute7day !== null && (
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
+                    {Math.round(loadData.acute7day)}
+                  </Text>
+                  <Text style={[s.xs, { color: colors.mutedForeground }]}>7-day load</Text>
+                </View>
+              )}
+              {loadData.chronic28day !== null && (
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
+                    {Math.round(loadData.chronic28day)}
+                  </Text>
+                  <Text style={[s.xs, { color: colors.mutedForeground }]}>28-day load</Text>
+                </View>
+              )}
+            </View>
+
+            {loadData.warnings?.length > 0 && (
+              <View style={{ marginTop: 10, gap: 4 }}>
+                {loadData.warnings.map((w, i) => (
+                  <View key={i} style={s.row}>
+                    <Feather name="alert-triangle" size={12} color="#fb923c" />
+                    <Text style={[s.xs, { color: "#fb923c", marginLeft: 6, flex: 1 }]}>{w}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 8, fontStyle: "italic" }]}>
+              Acute:Chronic Workload Ratio — optimal range 0.8–1.3
+            </Text>
+          </Card>
+        )}
 
         {/* Time of Day Sections */}
         {isLoading ? (

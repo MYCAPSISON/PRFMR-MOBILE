@@ -1,0 +1,1 @@
+- [PRFMR Mobile API rules](prfmr-api-rules.md) — critical POST /food field requirements and auth cookie rules for PRFMR mobile app

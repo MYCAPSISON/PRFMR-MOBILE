@@ -230,6 +230,8 @@ export default function NutritionScreen() {
       sourceType: food.sourceType === "manual" ? "manual" : "off",
       macroSource: "manual",
       microSource: "none",
+      enteredBasis: "cooked",
+      isRawWeight: false,
     };
   }
 
@@ -253,6 +255,8 @@ export default function NutritionScreen() {
       sourceType: "manual",
       macroSource: "manual",
       microSource: "none",
+      enteredBasis: "cooked",
+      isRawWeight: false,
     });
   }
 

@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Modal, Alert, FlatList,
+  TextInput, ActivityIndicator, Modal, Alert, FlatList, Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,8 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AuthContext";
 import { apiFetch } from "@/lib/api";
+import { useRouter } from "expo-router";
+import Svg, { Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText } from "react-native-svg";
 
 // ─────────────────────────────────────────
 // Types
@@ -154,6 +156,8 @@ interface NormalizedFood {
   fatPer100g: number;
   fibrePer100g: number;
   sourceType: "off" | "database" | "manual";
+  defaultGrams?: number;
+  imageUrl?: string;
 }
 
 const MODAL_TABS: { id: TabId; label: string; icon: string }[] = [
@@ -163,23 +167,41 @@ const MODAL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "custom", label: "Custom", icon: "edit-2" },
 ];
 
-const WHOLE_FOODS_IDX: NormalizedFood[] = [
-  { name: "Chicken Breast", caloriesPer100g: 165, proteinPer100g: 31, carbsPer100g: 0, fatPer100g: 3.6, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Oats", caloriesPer100g: 389, proteinPer100g: 16.9, carbsPer100g: 66.3, fatPer100g: 6.9, fibrePer100g: 10.6, sourceType: "manual" },
-  { name: "Eggs", caloriesPer100g: 155, proteinPer100g: 12.6, carbsPer100g: 1.1, fatPer100g: 10.6, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Salmon", caloriesPer100g: 208, proteinPer100g: 20, carbsPer100g: 0, fatPer100g: 13, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Brown Rice (cooked)", caloriesPer100g: 123, proteinPer100g: 2.6, carbsPer100g: 25.6, fatPer100g: 1, fibrePer100g: 1.8, sourceType: "manual" },
-  { name: "White Rice (cooked)", caloriesPer100g: 130, proteinPer100g: 2.7, carbsPer100g: 28.2, fatPer100g: 0.3, fibrePer100g: 0.4, sourceType: "manual" },
-  { name: "Sweet Potato (cooked)", caloriesPer100g: 86, proteinPer100g: 1.6, carbsPer100g: 20.1, fatPer100g: 0.1, fibrePer100g: 3, sourceType: "manual" },
-  { name: "Broccoli", caloriesPer100g: 34, proteinPer100g: 2.8, carbsPer100g: 6.6, fatPer100g: 0.4, fibrePer100g: 2.6, sourceType: "manual" },
-  { name: "Banana", caloriesPer100g: 89, proteinPer100g: 1.1, carbsPer100g: 23, fatPer100g: 0.3, fibrePer100g: 2.6, sourceType: "manual" },
-  { name: "Greek Yoghurt", caloriesPer100g: 97, proteinPer100g: 9, carbsPer100g: 3.6, fatPer100g: 5, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Almonds", caloriesPer100g: 579, proteinPer100g: 21, carbsPer100g: 22, fatPer100g: 50, fibrePer100g: 12.5, sourceType: "manual" },
-  { name: "Cottage Cheese", caloriesPer100g: 98, proteinPer100g: 11, carbsPer100g: 3.4, fatPer100g: 4.3, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Tuna (canned)", caloriesPer100g: 116, proteinPer100g: 25.5, carbsPer100g: 0, fatPer100g: 0.8, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Beef Mince (lean)", caloriesPer100g: 215, proteinPer100g: 26, carbsPer100g: 0, fatPer100g: 12, fibrePer100g: 0, sourceType: "manual" },
-  { name: "Whey Protein", caloriesPer100g: 380, proteinPer100g: 75, carbsPer100g: 8, fatPer100g: 5, fibrePer100g: 0, sourceType: "manual" },
+// CORE_FOODS — pre-computed per-100g values with default serving sizes from PRFMR guide §12
+const CORE_FOODS: NormalizedFood[] = [
+  { name: "Porridge (oats + milk)",        defaultGrams: 250, caloriesPer100g: 74,    proteinPer100g: 2.8,  carbsPer100g: 10.8, fatPer100g: 2.0,  fibrePer100g: 1.2, sourceType: "manual" },
+  { name: "Porridge (oats + water)",       defaultGrams: 250, caloriesPer100g: 52,    proteinPer100g: 2.0,  carbsPer100g: 9.2,  fatPer100g: 0.8,  fibrePer100g: 1.2, sourceType: "manual" },
+  { name: "Cappuccino (whole milk)",       defaultGrams: 240, caloriesPer100g: 50,    proteinPer100g: 2.5,  carbsPer100g: 4.2,  fatPer100g: 2.5,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Latte (whole milk)",            defaultGrams: 350, caloriesPer100g: 51,    proteinPer100g: 2.6,  carbsPer100g: 4.0,  fatPer100g: 2.6,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Flat White",                    defaultGrams: 200, caloriesPer100g: 60,    proteinPer100g: 3.0,  carbsPer100g: 5.0,  fatPer100g: 3.0,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Cappuccino (oat milk)",         defaultGrams: 240, caloriesPer100g: 42,    proteinPer100g: 1.25, carbsPer100g: 6.7,  fatPer100g: 1.25, fibrePer100g: 0.4, sourceType: "manual" },
+  { name: "Toast with Butter (white)",     defaultGrams: 45,  caloriesPer100g: 344,   proteinPer100g: 6.7,  carbsPer100g: 37.8, fatPer100g: 17.8, fibrePer100g: 2.2, sourceType: "manual" },
+  { name: "Toast without Butter (white)",  defaultGrams: 30,  caloriesPer100g: 267,   proteinPer100g: 10,   carbsPer100g: 50,   fatPer100g: 3.3,  fibrePer100g: 3.3, sourceType: "manual" },
+  { name: "Toast with Butter (wholemeal)", defaultGrams: 50,  caloriesPer100g: 330,   proteinPer100g: 10,   carbsPer100g: 36,   fatPer100g: 16,   fibrePer100g: 6,   sourceType: "manual" },
+  { name: "Mashed Potato",                 defaultGrams: 200, caloriesPer100g: 90,    proteinPer100g: 2.0,  carbsPer100g: 15,   fatPer100g: 2.5,  fibrePer100g: 1,   sourceType: "manual" },
+  { name: "Scrambled Eggs (2 eggs+butter)",defaultGrams: 130, caloriesPer100g: 169,   proteinPer100g: 10.8, carbsPer100g: 1.5,  fatPer100g: 13.1, fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Protein Shake (whey + water)",  defaultGrams: 350, caloriesPer100g: 37,    proteinPer100g: 7.1,  carbsPer100g: 0.9,  fatPer100g: 0.6,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Protein Shake (whey + milk)",   defaultGrams: 350, caloriesPer100g: 80,    proteinPer100g: 10,   carbsPer100g: 5.1,  fatPer100g: 2.3,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Overnight Oats",               defaultGrams: 300, caloriesPer100g: 107,   proteinPer100g: 4.0,  carbsPer100g: 15,   fatPer100g: 3.3,  fibrePer100g: 1.7, sourceType: "manual" },
+  { name: "Beans on Toast",               defaultGrams: 260, caloriesPer100g: 108,   proteinPer100g: 5.4,  carbsPer100g: 16.2, fatPer100g: 1.9,  fibrePer100g: 3.1, sourceType: "manual" },
+  { name: "Tuna Mayo Sandwich",            defaultGrams: 200, caloriesPer100g: 175,   proteinPer100g: 11,   carbsPer100g: 15,   fatPer100g: 7,    fibrePer100g: 1,   sourceType: "manual" },
+  { name: "Chicken Wrap",                  defaultGrams: 250, caloriesPer100g: 152,   proteinPer100g: 11.2, carbsPer100g: 14,   fatPer100g: 4.8,  fibrePer100g: 0.8, sourceType: "manual" },
+  { name: "Greek Yoghurt with Honey",      defaultGrams: 170, caloriesPer100g: 106,   proteinPer100g: 8.2,  carbsPer100g: 12.9, fatPer100g: 2.9,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "PB&J Sandwich",                defaultGrams: 130, caloriesPer100g: 292,   proteinPer100g: 9.2,  carbsPer100g: 34.6, fatPer100g: 12.3, fibrePer100g: 2.3, sourceType: "manual" },
+  { name: "Cereal with Milk",              defaultGrams: 270, caloriesPer100g: 93,    proteinPer100g: 3.0,  carbsPer100g: 15.6, fatPer100g: 1.9,  fibrePer100g: 1.1, sourceType: "manual" },
+  // Whole-food ingredients
+  { name: "Chicken Breast (cooked)",       defaultGrams: 150, caloriesPer100g: 165,   proteinPer100g: 31,   carbsPer100g: 0,    fatPer100g: 3.6,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Salmon (cooked)",               defaultGrams: 150, caloriesPer100g: 208,   proteinPer100g: 20,   carbsPer100g: 0,    fatPer100g: 13,   fibrePer100g: 0,   sourceType: "manual" },
+  { name: "White Rice (cooked)",           defaultGrams: 180, caloriesPer100g: 130,   proteinPer100g: 2.7,  carbsPer100g: 28.2, fatPer100g: 0.3,  fibrePer100g: 0.4, sourceType: "manual" },
+  { name: "Brown Rice (cooked)",           defaultGrams: 180, caloriesPer100g: 123,   proteinPer100g: 2.6,  carbsPer100g: 25.6, fatPer100g: 1.0,  fibrePer100g: 1.8, sourceType: "manual" },
+  { name: "Sweet Potato (cooked)",         defaultGrams: 200, caloriesPer100g: 86,    proteinPer100g: 1.6,  carbsPer100g: 20.1, fatPer100g: 0.1,  fibrePer100g: 3,   sourceType: "manual" },
+  { name: "Tuna (canned in water)",        defaultGrams: 120, caloriesPer100g: 116,   proteinPer100g: 25.5, carbsPer100g: 0,    fatPer100g: 0.8,  fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Beef Mince (lean, cooked)",     defaultGrams: 150, caloriesPer100g: 215,   proteinPer100g: 26,   carbsPer100g: 0,    fatPer100g: 12,   fibrePer100g: 0,   sourceType: "manual" },
+  { name: "Banana",                        defaultGrams: 120, caloriesPer100g: 89,    proteinPer100g: 1.1,  carbsPer100g: 23,   fatPer100g: 0.3,  fibrePer100g: 2.6, sourceType: "manual" },
 ];
+
+// Keep legacy name for any refs
+const WHOLE_FOODS_IDX = CORE_FOODS;
 
 function normalizeFood(item: any, sourceType: "off" | "database" | "manual"): NormalizedFood {
   return {
@@ -274,15 +296,71 @@ function FightCampHero({ date }: { date: string }) {
 
   const pace = getPaceInfo(plan.weeklyRatePct);
   const thisWeekTarget = plan.weeklyTargets?.[0];
+  const [showPlan, setShowPlan] = useState(false);
 
   return (
     <Card>
+      {/* Plan Breakdown Modal */}
+      <Modal visible={showPlan} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowPlan(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+            padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Fight Camp Plan</Text>
+            <TouchableOpacity onPress={() => setShowPlan(false)}><Feather name="x" size={24} color="#6b7280" /></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+            <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#1a1e28" }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ color: "#6b7280", fontSize: 12 }}>Current</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700" }}>{plan.currentWeight} kg</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ color: "#6b7280", fontSize: 12 }}>Target</Text>
+                <Text style={{ color: "#ff7a00", fontWeight: "700" }}>{plan.targetWeight} kg</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ color: "#6b7280", fontSize: 12 }}>To lose</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700" }}>{plan.totalToLose.toFixed(1)} kg</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ color: "#6b7280", fontSize: 12 }}>Weekly fat-loss rate</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700" }}>{plan.weeklyRate.toFixed(2)} kg/wk ({(plan.weeklyRatePct).toFixed(1)}%)</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ color: "#6b7280", fontSize: 12 }}>Pace</Text>
+                <Text style={{ color: pace.color, fontWeight: "700" }}>{pace.label}</Text>
+              </View>
+              {plan.suggestedDeficitKcal > 0 && (
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ color: "#6b7280", fontSize: 12 }}>Daily deficit</Text>
+                  <Text style={{ color: "#eceef2", fontWeight: "700" }}>~{Math.round(plan.suggestedDeficitKcal)} kcal</Text>
+                </View>
+              )}
+            </View>
+            {plan.weeklyTargets?.length > 0 && (
+              <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#1a1e28" }}>
+                <Text style={{ color: "#6b7280", fontWeight: "700", fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }}>WEEKLY WEIGHT TARGETS</Text>
+                {plan.weeklyTargets.map((wt: { week: number; targetWeight: number }) => (
+                  <View key={wt.week} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ color: "#6b7280", fontSize: 13 }}>Week {wt.week}</Text>
+                    <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 13 }}>{wt.targetWeight.toFixed(1)} kg</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
       <View style={styles.rowBetween}>
         <View style={styles.row}>
           <Feather name="target" size={13} color={colors.primary} />
           <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>Fight Camp</Text>
         </View>
-        <SmallBadge label={pace.label} color={pace.color} bg={pace.color + "1a"} />
+        <TouchableOpacity onPress={() => setShowPlan(true)} activeOpacity={0.7}>
+          <SmallBadge label={pace.label + " ›"} color={pace.color} bg={pace.color + "1a"} />
+        </TouchableOpacity>
       </View>
 
       <Text style={[styles.heroNum, { color: colors.foreground }]}>
@@ -356,6 +434,7 @@ function FightCampHero({ date }: { date: string }) {
 // ─────────────────────────────────────────
 function MorningCheckIn({ date }: { date: string }) {
   const colors = useColors();
+  const router = useRouter();
   const qc = useQueryClient();
   const [showSleep, setShowSleep] = useState(false);
   const [sleepH, setSleepH] = useState("");
@@ -505,12 +584,18 @@ function MorningCheckIn({ date }: { date: string }) {
             <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]}>Training today?</Text>
             <Text style={[styles.xs, { color: colors.mutedForeground }]}>Log a session or mark rest</Text>
           </View>
-          <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border }]}
-            onPress={() => restMut.mutate(!status.isRestDay)}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "700" }}>
-              {status.isRestDay ? "Unmark rest" : "Mark rest"}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary }]}
+              onPress={() => router.push("/(tabs)/training" as any)}>
+              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>Log</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border }]}
+              onPress={() => restMut.mutate(!status.isRestDay)}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "700" }}>
+                {status.isRestDay ? "Unmark" : "Rest"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </Card>
@@ -723,6 +808,7 @@ function SupplementsToday({ date }: { date: string }) {
 // ─────────────────────────────────────────
 function TrainingToday({ date }: { date: string }) {
   const colors = useColors();
+  const router = useRouter();
   const displayDate = format(new Date(date + "T12:00:00"), "MMM d");
   const { data: sessions = [] } = useQuery<WorkoutSession[]>({
     queryKey: ["sessions", date],
@@ -733,11 +819,12 @@ function TrainingToday({ date }: { date: string }) {
     <Card>
       <View style={styles.rowBetween}>
         <Text style={[styles.cardTitle, { color: colors.foreground }]}>Training — {displayDate}</Text>
-        <View style={styles.row}>
-          <SmallBadge label="Manual" color={colors.mutedForeground} bg={colors.secondary} />
-          <View style={{ width: 4 }} />
-          <SmallBadge label="Log" color={colors.mutedForeground} bg={colors.secondary} />
-        </View>
+        <TouchableOpacity
+          style={[styles.btnSm, { backgroundColor: colors.primary, flexDirection: "row", alignItems: "center" }]}
+          onPress={() => router.push("/(tabs)/training" as any)}>
+          <Feather name="plus" size={12} color="#fff" />
+          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700", marginLeft: 3 }}>Log Session</Text>
+        </TouchableOpacity>
       </View>
       {sessions.length === 0 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground }]}>No workouts logged for this date.</Text>
@@ -758,8 +845,86 @@ function TrainingToday({ date }: { date: string }) {
 // ─────────────────────────────────────────
 // AMQS Score Card
 // ─────────────────────────────────────────
+function AmqsBreakdownModal({ date, score, maxScore, label, gaps, visible, onClose }: {
+  date: string; score: number; maxScore: number; label: string; gaps: string[];
+  visible: boolean; onClose: () => void;
+}) {
+  const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+  const scoreColor = pct >= 70 ? "#4ade80" : pct >= 40 ? "#facc15" : "#f87171";
+  const { data: micros, isLoading } = useQuery<any>({
+    queryKey: ["amqs-micros", date],
+    queryFn: () => apiFetch(`/me/amqs/micros/${date}`),
+    enabled: visible,
+    retry: false,
+  });
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Micronutrient Score</Text>
+          <TouchableOpacity onPress={onClose}><Feather name="x" size={24} color="#6b7280" /></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+          <View style={{ alignItems: "center", padding: 24, backgroundColor: "#13161d",
+            borderRadius: 16, borderWidth: 1, borderColor: "#1a1e28" }}>
+            <Text style={{ color: scoreColor, fontSize: 56, fontWeight: "900" }}>{score}</Text>
+            <Text style={{ color: "#6b7280", fontSize: 13 }}>of {maxScore} points · {pct}%</Text>
+            <View style={{ height: 8, backgroundColor: "#1a1e28", borderRadius: 4, width: "100%", marginTop: 12 }}>
+              <View style={{ width: `${pct}%` as any, height: 8, backgroundColor: scoreColor, borderRadius: 4 }} />
+            </View>
+            <Text style={{ color: scoreColor, fontWeight: "700", fontSize: 14, marginTop: 8 }}>{label}</Text>
+          </View>
+          {gaps?.length > 0 && (
+            <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14,
+              borderWidth: 1, borderColor: "rgba(251,146,60,0.25)" }}>
+              <Text style={{ color: "#fb923c", fontWeight: "700", fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }}>NUTRIENT GAPS</Text>
+              {gaps.map(g => (
+                <View key={g} style={{ flexDirection: "row", alignItems: "center", marginBottom: 5 }}>
+                  <Feather name="alert-circle" size={13} color="#fb923c" />
+                  <Text style={{ color: "#eceef2", fontSize: 13, marginLeft: 8 }}>{g}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {isLoading ? (
+            <ActivityIndicator color="#ff7a00" style={{ padding: 16 }} />
+          ) : micros?.nutrients ? (
+            <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14,
+              borderWidth: 1, borderColor: "#1a1e28" }}>
+              <Text style={{ color: "#6b7280", fontWeight: "700", fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }}>NUTRIENT COVERAGE</Text>
+              {Object.entries(micros.nutrients as Record<string, { coverage: number; label?: string }>).map(([key, val]) => {
+                const p = Math.min(Math.round((val.coverage ?? 0) * 100), 100);
+                const c = val.coverage ?? 0;
+                const bc = c >= 0.8 ? "#4ade80" : c >= 0.4 ? "#facc15" : "#f87171";
+                return (
+                  <View key={key} style={{ marginBottom: 8 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 3 }}>
+                      <Text style={{ color: "#eceef2", fontSize: 12 }}>{val.label ?? key}</Text>
+                      <Text style={{ color: bc, fontSize: 12, fontWeight: "700" }}>{p}%</Text>
+                    </View>
+                    <View style={{ height: 4, backgroundColor: "#1a1e28", borderRadius: 2 }}>
+                      <View style={{ width: `${p}%` as any, height: 4, backgroundColor: bc, borderRadius: 2 }} />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={{ color: "#6b7280", textAlign: "center", fontSize: 13, padding: 16 }}>
+              Log food and supplements to see your full nutrient breakdown.
+            </Text>
+          )}
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 function AmqsCard({ date }: { date: string }) {
   const colors = useColors();
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const { data: amqs } = useQuery<AmqsScore>({
     queryKey: ["amqs-score", date],
     queryFn: () => apiFetch(`/me/amqs/score/${date}`),
@@ -769,19 +934,29 @@ function AmqsCard({ date }: { date: string }) {
   const scoreColor = pct >= 70 ? "#4ade80" : pct >= 40 ? "#facc15" : "#f87171";
 
   return (
-    <Card>
-      <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Micronutrient Score</Text>
-        <Text style={{ fontSize: 22, fontWeight: "800", color: scoreColor }}>{amqs.score}</Text>
-      </View>
-      <ProgressBar value={amqs.score} max={amqs.maxScore} color={scoreColor} />
-      <View style={[styles.rowBetween, { marginTop: 4 }]}>
-        <Text style={[styles.xs, { color: colors.mutedForeground }]}>{amqs.label}</Text>
-        {amqs.gaps?.length > 0 && (
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>{amqs.gaps[0]} gap</Text>
-        )}
-      </View>
-    </Card>
+    <>
+      <AmqsBreakdownModal date={date} score={amqs.score} maxScore={amqs.maxScore}
+        label={amqs.label} gaps={amqs.gaps ?? []}
+        visible={showBreakdown} onClose={() => setShowBreakdown(false)} />
+      <TouchableOpacity onPress={() => setShowBreakdown(true)} activeOpacity={0.8}>
+        <Card>
+          <View style={styles.rowBetween}>
+            <Text style={[styles.cardTitle, { color: colors.foreground }]}>Micronutrient Score</Text>
+            <View style={styles.row}>
+              <Text style={{ fontSize: 22, fontWeight: "800", color: scoreColor }}>{amqs.score}</Text>
+              <Feather name="chevron-right" size={16} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
+            </View>
+          </View>
+          <ProgressBar value={amqs.score} max={amqs.maxScore} color={scoreColor} />
+          <View style={[styles.rowBetween, { marginTop: 4 }]}>
+            <Text style={[styles.xs, { color: colors.mutedForeground }]}>{amqs.label}</Text>
+            {amqs.gaps?.length > 0 && (
+              <Text style={[styles.xs, { color: "#fb923c" }]}>{amqs.gaps[0]} gap</Text>
+            )}
+          </View>
+        </Card>
+      </TouchableOpacity>
+    </>
   );
 }
 
@@ -800,35 +975,66 @@ function WeightTrend({ date }: { date: string }) {
   const last7 = [...weights].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7).reverse();
   const minW = last7.length ? Math.min(...last7.map(w => w.weight)) : 0;
   const maxW = last7.length ? Math.max(...last7.map(w => w.weight)) : 1;
-  const range = maxW - minW || 1;
+  const rng = (maxW - minW) || 1;
+
+  const SVG_W = 300, SVG_H = 130;
+  const PAD = { t: 10, r: 10, b: 28, l: 42 };
+  const cW = SVG_W - PAD.l - PAD.r;
+  const cH = SVG_H - PAD.t - PAD.b;
+
+  function xOf(i: number) {
+    return PAD.l + (last7.length < 2 ? cW / 2 : (i / (last7.length - 1)) * cW);
+  }
+  function yOf(w: number) {
+    return PAD.t + cH - ((w - minW) / rng) * cH;
+  }
+
+  const pts = last7.map((e, i) => `${xOf(i)},${yOf(e.weight)}`).join(" ");
 
   return (
     <Card>
-      <Text style={[styles.cardTitle, { color: colors.foreground }]}>Weight Trend</Text>
-      <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 2 }]}>Last 7 recorded entries</Text>
+      <View style={styles.rowBetween}>
+        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Weight Trend</Text>
+        <Text style={[styles.xs, { color: colors.mutedForeground }]}>Last 7 recorded</Text>
+      </View>
       {last7.length < 2 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground }]}>
           Record more weight data to see trends.
         </Text>
       ) : (
-        <View style={{ marginTop: 10, gap: 6 }}>
-          {last7.map(entry => {
-            const barPct = ((entry.weight - minW) / range) * 0.7 + 0.1;
+        <Svg width="100%" height={SVG_H} viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ marginTop: 8 }}>
+          {[0, 0.5, 1].map(pct => {
+            const y = PAD.t + pct * cH;
+            const val = (maxW - pct * rng).toFixed(1);
             return (
-              <View key={entry.date} style={styles.wEntry}>
-                <Text style={[styles.xs, { color: colors.mutedForeground, width: 46 }]}>
-                  {format(new Date(entry.date + "T12:00:00"), "MMM d")}
-                </Text>
-                <View style={{ flex: 1, paddingHorizontal: 8 }}>
-                  <View style={[styles.wBar, { width: `${barPct * 100}%` as any, backgroundColor: colors.primary + "60" }]} />
-                </View>
-                <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", width: 52, textAlign: "right" }]}>
-                  {entry.weight} kg
-                </Text>
-              </View>
+              <React.Fragment key={String(pct)}>
+                <SvgLine x1={PAD.l} y1={y} x2={SVG_W - PAD.r} y2={y}
+                  stroke="#1a1e28" strokeWidth={1} strokeDasharray="3,3" />
+                <SvgText x={PAD.l - 5} y={y + 4} fontSize={9} fill="#6b7280" textAnchor="end">{val}</SvgText>
+              </React.Fragment>
             );
           })}
-        </View>
+          {last7.map((e, i) => (
+            (i === 0 || i === Math.floor(last7.length / 2) || i === last7.length - 1) ? (
+              <SvgText key={e.date} x={xOf(i)} y={SVG_H - 4} fontSize={9} fill="#6b7280" textAnchor="middle">
+                {format(new Date(e.date + "T12:00:00"), "dd/M")}
+              </SvgText>
+            ) : null
+          ))}
+          <Polyline points={pts} fill="none" stroke="#ff7a00" strokeWidth={2.5}
+            strokeLinejoin="round" strokeLinecap="round" />
+          {last7.map((e, i) => (
+            <SvgCircle key={e.date} cx={xOf(i)} cy={yOf(e.weight)} r={3.5}
+              fill="#ff7a00" stroke="#0f1117" strokeWidth={1.5} />
+          ))}
+          <SvgCircle cx={xOf(last7.length - 1)} cy={yOf(last7[last7.length - 1].weight)} r={5}
+            fill="#ff7a00" stroke="#0f1117" strokeWidth={2} />
+        </Svg>
+      )}
+      {last7.length >= 2 && (
+        <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 4, textAlign: "right" }]}>
+          {last7[last7.length - 1].weight} kg today
+        </Text>
       )}
     </Card>
   );
@@ -918,9 +1124,17 @@ function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
           const prot = Math.round(item.proteinPer100g ?? item.protein ?? 0);
           const carbs = Math.round(item.carbsPer100g ?? item.carbs ?? 0);
           const fat = Math.round(item.fatPer100g ?? item.fat ?? 0);
+          const img = item.imageUrl ?? item.image_url ?? item.image_front_thumb_url ?? null;
           return (
             <TouchableOpacity onPress={() => onSelect(item)}
               style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+              {img ? (
+                <Image source={{ uri: img }} style={{ width: 44, height: 44, borderRadius: 8, backgroundColor: "#1a1e28" }} />
+              ) : (
+                <View style={{ width: 44, height: 44, borderRadius: 8, backgroundColor: "#1a1e28", alignItems: "center", justifyContent: "center" }}>
+                  <Feather name="package" size={18} color="#6b7280" />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={{ color: "#eceef2", fontWeight: "600" }} numberOfLines={1}>{name}</Text>
                 {brand ? <Text style={{ color: "#6b7280", fontSize: 12 }}>{brand}</Text> : null}
@@ -1023,6 +1237,7 @@ function MealsSection({ date }: { date: string }) {
   const [customCarbs, setCustomCarbs] = useState("");
   const [customFat, setCustomFat] = useState("");
   const [customFibre, setCustomFibre] = useState("0");
+  const [wholeSearch, setWholeSearch] = useState("");
 
   const { data: entries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", date],
@@ -1036,6 +1251,7 @@ function MealsSection({ date }: { date: string }) {
     setBarcodeCode(""); setBarcodeError("");
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
+    setWholeSearch("");
   }
 
   const deleteMut = useMutation({
@@ -1101,6 +1317,8 @@ function MealsSection({ date }: { date: string }) {
       sourceType: food.sourceType === "manual" ? "manual" : "off",
       macroSource: "manual",
       microSource: "none",
+      enteredBasis: "cooked",
+      isRawWeight: false,
     };
   }
 
@@ -1118,6 +1336,8 @@ function MealsSection({ date }: { date: string }) {
       sourceType: "manual",
       macroSource: "manual",
       microSource: "none",
+      enteredBasis: "cooked",
+      isRawWeight: false,
     });
   }
 
@@ -1213,21 +1433,52 @@ function MealsSection({ date }: { date: string }) {
                   onSelect={item => { setSelectedFood(normalizeFood(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
-                <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
-                  <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4, fontWeight: "600" }}>Common whole foods — tap to add with custom grams</Text>
-                  {WHOLE_FOODS_IDX.map(wf => (
-                    <TouchableOpacity key={wf.name} onPress={() => { setSelectedFood(wf); setGrams("100"); }}
-                      style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
-                        backgroundColor: "#13161d", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28" }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{wf.name}</Text>
-                        <Text style={{ color: "#6b7280", fontSize: 11 }}>P{wf.proteinPer100g} · C{wf.carbsPer100g} · F{wf.fatPer100g} per 100g</Text>
-                      </View>
-                      <Text style={{ color: "#ff7a00", fontWeight: "700", marginRight: 4 }}>{wf.caloriesPer100g}</Text>
-                      <Text style={{ color: "#6b7280", fontSize: 11 }}>kcal</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", margin: 12, marginBottom: 6,
+                    paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1,
+                    backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+                    <Feather name="search" size={15} color="#6b7280" />
+                    <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
+                      placeholder="Filter foods…" placeholderTextColor="#6b7280"
+                      value={wholeSearch} onChangeText={setWholeSearch} />
+                    {wholeSearch.length > 0 && (
+                      <TouchableOpacity onPress={() => setWholeSearch("")}>
+                        <Feather name="x" size={14} color="#6b7280" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <FlatList
+                    data={CORE_FOODS.filter(f =>
+                      wholeSearch.length < 1 || f.name.toLowerCase().includes(wholeSearch.toLowerCase())
+                    )}
+                    keyExtractor={item => item.name}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{ padding: 12, paddingTop: 4, gap: 6 }}
+                    ListEmptyComponent={
+                      <Text style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>No match found</Text>
+                    }
+                    renderItem={({ item: wf }) => {
+                      const serving = wf.defaultGrams ?? 100;
+                      const r = serving / 100;
+                      const servingCal = Math.round(wf.caloriesPer100g * r);
+                      return (
+                        <TouchableOpacity key={wf.name}
+                          onPress={() => { setSelectedFood(wf); setGrams(String(serving)); }}
+                          style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                            backgroundColor: "#13161d", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28" }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{wf.name}</Text>
+                            <Text style={{ color: "#6b7280", fontSize: 11 }}>
+                              P{rd1(wf.proteinPer100g * r)}g · C{rd1(wf.carbsPer100g * r)}g · F{rd1(wf.fatPer100g * r)}g per {serving}g serving
+                            </Text>
+                          </View>
+                          <Text style={{ color: "#ff7a00", fontWeight: "700", marginRight: 4 }}>{servingCal}</Text>
+                          <Text style={{ color: "#6b7280", fontSize: 11 }}>kcal</Text>
+                        </TouchableOpacity>
+                      );
+                    }}
+                  />
+                </View>
               )}
               {activeTab === "barcode" && (
                 <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
