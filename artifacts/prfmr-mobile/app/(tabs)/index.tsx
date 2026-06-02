@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Modal, Alert, FlatList, Image,
+  TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
 } from "react-native";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, subDays, subWeeks } from "date-fns";
@@ -1229,6 +1230,8 @@ function MealsSection({ date }: { date: string }) {
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState("");
+  const [cameraScanned, setCameraScanned] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const [customName, setCustomName] = useState("");
   const [customGrams, setCustomGrams] = useState("100");
@@ -1248,7 +1251,7 @@ function MealsSection({ date }: { date: string }) {
     setModal(false);
     setSelectedFood(null);
     setSearchQ(""); setResults([]); setGrams("100");
-    setBarcodeCode(""); setBarcodeError("");
+    setBarcodeCode(""); setBarcodeError(""); setCameraScanned(false);
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
     setWholeSearch("");
@@ -1282,23 +1285,32 @@ function MealsSection({ date }: { date: string }) {
     finally { setSearching(false); }
   }, []);
 
-  async function lookupBarcode() {
-    const code = barcodeCode.trim();
+  async function lookupBarcode(overrideCode?: string) {
+    const code = (overrideCode ?? barcodeCode).trim();
     if (!code) return;
     setBarcodeLoading(true); setBarcodeError("");
     try {
       const result = await apiFetch<any>(`/food/barcode/${code}`);
       if (!result || (!result.name && !result.product_name)) {
         setBarcodeError("No food found for this barcode.");
+        setCameraScanned(false);
       } else {
         setSelectedFood(normalizeFood(result, "off"));
         setGrams("100");
       }
     } catch (err: any) {
       setBarcodeError(err?.message ?? "Barcode lookup failed");
+      setCameraScanned(false);
     } finally {
       setBarcodeLoading(false);
     }
+  }
+
+  function handleBarcodeScanned({ data }: { data: string }) {
+    if (cameraScanned || barcodeLoading) return;
+    setCameraScanned(true);
+    setBarcodeCode(data);
+    lookupBarcode(data);
   }
 
   function buildPayload(food: NormalizedFood, gramsStr: string) {
@@ -1481,31 +1493,89 @@ function MealsSection({ date }: { date: string }) {
                 </View>
               )}
               {activeTab === "barcode" && (
-                <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
-                  <Text style={{ color: "#6b7280", fontSize: 13 }}>Enter the barcode number from the food packaging.</Text>
-                  <View style={{ flexDirection: "row", gap: 10 }}>
-                    <TextInput
-                      style={{ flex: 1, height: 52, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-                        backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
-                      placeholder="e.g. 5000112548167" placeholderTextColor="#6b7280"
-                      value={barcodeCode} onChangeText={setBarcodeCode} keyboardType="number-pad"
-                      returnKeyType="search" onSubmitEditing={lookupBarcode}
-                    />
-                    <TouchableOpacity onPress={lookupBarcode} disabled={barcodeLoading || !barcodeCode.trim()}
-                      style={{ height: 52, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
-                        justifyContent: "center", backgroundColor: barcodeCode.trim() ? "#ff7a00" : "#181c26" }}>
-                      {barcodeLoading
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={{ color: barcodeCode.trim() ? "#fff" : "#6b7280", fontWeight: "700" }}>Lookup</Text>}
-                    </TouchableOpacity>
-                  </View>
-                  {!!barcodeError && (
-                    <View style={{ backgroundColor: "#f8717122", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#f8717144" }}>
-                      <Text style={{ color: "#f87171", fontSize: 14 }}>{barcodeError}</Text>
+                <View style={{ flex: 1 }}>
+                  {!cameraPermission ? (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 16 }}>
+                      <ActivityIndicator color="#ff7a00" />
+                    </View>
+                  ) : !cameraPermission.granted ? (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 20 }}>
+                      <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: "#ff7a0022", alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="camera" size={32} color="#ff7a00" />
+                      </View>
+                      <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17, textAlign: "center" }}>Camera Access Required</Text>
+                      <Text style={{ color: "#9ca3af", fontSize: 14, textAlign: "center", lineHeight: 20 }}>
+                        Allow PRFMR to use your camera to scan product barcodes.
+                      </Text>
+                      <TouchableOpacity onPress={requestCameraPermission}
+                        style={{ backgroundColor: "#ff7a00", paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 }}>
+                        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Allow Camera</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={{ flex: 1 }}>
+                      <View style={{ position: "relative", height: 280, backgroundColor: "#000", overflow: "hidden" }}>
+                        <CameraView
+                          style={StyleSheet.absoluteFillObject}
+                          facing="back"
+                          barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "qr"] }}
+                          onBarcodeScanned={cameraScanned ? undefined : handleBarcodeScanned}
+                        />
+                        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
+                          <View style={{ flexDirection: "row", height: 160 }}>
+                            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
+                            <View style={{ width: 240, borderWidth: 2, borderColor: "#ff7a00", borderRadius: 4 }}>
+                              <View style={{ position: "absolute", top: -2, left: -2, width: 20, height: 20, borderTopWidth: 3, borderLeftWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                              <View style={{ position: "absolute", top: -2, right: -2, width: 20, height: 20, borderTopWidth: 3, borderRightWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                              <View style={{ position: "absolute", bottom: -2, left: -2, width: 20, height: 20, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                              <View style={{ position: "absolute", bottom: -2, right: -2, width: 20, height: 20, borderBottomWidth: 3, borderRightWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                            </View>
+                            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
+                          </View>
+                          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
+                        </View>
+                        {(cameraScanned || barcodeLoading) && (
+                          <View style={{ position: "absolute", bottom: 16, left: 0, right: 0, alignItems: "center" }}>
+                            <View style={{ backgroundColor: "rgba(0,0,0,0.8)", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <ActivityIndicator size="small" color="#ff7a00" />
+                              <Text style={{ color: "#eceef2", fontSize: 13 }}>Looking up barcode…</Text>
+                            </View>
+                          </View>
+                        )}
+                        {!cameraScanned && !barcodeLoading && (
+                          <View style={{ position: "absolute", bottom: 16, left: 0, right: 0, alignItems: "center" }}>
+                            <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>Point at any food barcode</Text>
+                          </View>
+                        )}
+                      </View>
+                      <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
+                        <Text style={{ color: "#6b7280", fontSize: 12, textAlign: "center" }}>— or enter barcode manually —</Text>
+                        <View style={{ flexDirection: "row", gap: 10 }}>
+                          <TextInput
+                            style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                              backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 16, color: "#eceef2" }}
+                            placeholder="e.g. 5000112548167" placeholderTextColor="#6b7280"
+                            value={barcodeCode} onChangeText={t => { setBarcodeCode(t); setCameraScanned(false); setBarcodeError(""); }}
+                            keyboardType="number-pad" returnKeyType="search" onSubmitEditing={() => lookupBarcode()}
+                          />
+                          <TouchableOpacity onPress={() => lookupBarcode()} disabled={barcodeLoading || !barcodeCode.trim()}
+                            style={{ height: 48, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
+                              justifyContent: "center", backgroundColor: barcodeCode.trim() ? "#ff7a00" : "#181c26" }}>
+                            {barcodeLoading
+                              ? <ActivityIndicator color="#fff" size="small" />
+                              : <Text style={{ color: barcodeCode.trim() ? "#fff" : "#6b7280", fontWeight: "700" }}>Lookup</Text>}
+                          </TouchableOpacity>
+                        </View>
+                        {!!barcodeError && (
+                          <View style={{ backgroundColor: "#f8717122", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#f8717144" }}>
+                            <Text style={{ color: "#f87171", fontSize: 14 }}>{barcodeError}</Text>
+                          </View>
+                        )}
+                      </ScrollView>
                     </View>
                   )}
-                  <Text style={{ color: "#6b7280", fontSize: 12, fontStyle: "italic" }}>Barcode scanner (camera) coming soon.</Text>
-                </ScrollView>
+                </View>
               )}
               {activeTab === "custom" && (
                 <MealCustomTab
