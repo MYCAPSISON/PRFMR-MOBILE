@@ -48,9 +48,12 @@ interface MorningStatus {
 
 interface TrainingLoad {
   acwr: number | null;
-  acute7day: number | null;
-  chronic28day: number | null;
-  classification: string | null;
+  acute?: number | null;
+  chronic?: number | null;
+  acute7day?: number | null;
+  chronic28day?: number | null;
+  classification?: string | null;
+  riskLevel?: string | null;
   warnings: string[];
 }
 
@@ -408,23 +411,25 @@ export default function TrainingScreen() {
         </Card>
 
         {/* 28-Day Training Load */}
-        {loadData && (loadData.acwr !== null || loadData.classification) && (
+        {loadData && (loadData.acwr !== null || loadData.classification || loadData.riskLevel) && (
           <Card style={{ borderColor: "rgba(255,122,0,0.15)", backgroundColor: "rgba(255,122,0,0.04)" }}>
             <View style={s.rowBetween}>
               <View style={s.row}>
                 <Feather name="trending-up" size={14} color={colors.primary} />
                 <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>Training Load</Text>
               </View>
-              {loadData.classification && (() => {
-                const cls = loadData.classification!.toLowerCase();
-                const bc = cls.includes("hard") || cls.includes("very") ? "#f87171"
+              {(() => {
+                const cls = (loadData.classification ?? loadData.riskLevel ?? "").toLowerCase();
+                if (!cls) return null;
+                const bc = cls.includes("very") ? "#f87171"
+                  : cls.includes("hard") ? "#f87171"
                   : cls.includes("moderate") ? "#facc15"
                   : "#4ade80";
                 return (
                   <View style={{ backgroundColor: bc + "22", borderRadius: 6, borderWidth: 1,
                     borderColor: bc + "55", paddingHorizontal: 8, paddingVertical: 2 }}>
                     <Text style={{ color: bc, fontSize: 11, fontWeight: "700" }}>
-                      {loadData.classification}
+                      {loadData.classification ?? loadData.riskLevel}
                     </Text>
                   </View>
                 );
@@ -432,7 +437,7 @@ export default function TrainingScreen() {
             </View>
 
             <View style={[s.row, { marginTop: 10, gap: 16 }]}>
-              {loadData.acwr !== null && (
+              {loadData.acwr != null && (
                 <View style={{ alignItems: "center" }}>
                   <Text style={{ color: colors.primary, fontSize: 24, fontWeight: "900" }}>
                     {loadData.acwr.toFixed(2)}
@@ -440,22 +445,30 @@ export default function TrainingScreen() {
                   <Text style={[s.xs, { color: colors.mutedForeground }]}>ACWR</Text>
                 </View>
               )}
-              {loadData.acute7day !== null && (
-                <View style={{ alignItems: "center" }}>
-                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
-                    {Math.round(loadData.acute7day)}
-                  </Text>
-                  <Text style={[s.xs, { color: colors.mutedForeground }]}>7-day load</Text>
-                </View>
-              )}
-              {loadData.chronic28day !== null && (
-                <View style={{ alignItems: "center" }}>
-                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
-                    {Math.round(loadData.chronic28day)}
-                  </Text>
-                  <Text style={[s.xs, { color: colors.mutedForeground }]}>28-day load</Text>
-                </View>
-              )}
+              {(() => {
+                const val = loadData.acute ?? loadData.acute7day;
+                if (val == null) return null;
+                return (
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
+                      {Math.round(val)}
+                    </Text>
+                    <Text style={[s.xs, { color: colors.mutedForeground }]}>7-day load</Text>
+                  </View>
+                );
+              })()}
+              {(() => {
+                const val = loadData.chronic ?? loadData.chronic28day;
+                if (val == null) return null;
+                return (
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
+                      {Math.round(val)}
+                    </Text>
+                    <Text style={[s.xs, { color: colors.mutedForeground }]}>28-day load</Text>
+                  </View>
+                );
+              })()}
             </View>
 
             {loadData.warnings?.length > 0 && (
