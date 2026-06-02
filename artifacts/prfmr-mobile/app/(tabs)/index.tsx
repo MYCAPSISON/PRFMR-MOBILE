@@ -1124,7 +1124,7 @@ function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
           const prot = Math.round(item.proteinPer100g ?? item.protein ?? 0);
           const carbs = Math.round(item.carbsPer100g ?? item.carbs ?? 0);
           const fat = Math.round(item.fatPer100g ?? item.fat ?? 0);
-          const img = item.imageUrl ?? item.image_url ?? item.image_front_thumb_url ?? null;
+          const img = item.image ?? item.imageUrl ?? item.image_url ?? item.image_front_thumb_url ?? null;
           return (
             <TouchableOpacity onPress={() => onSelect(item)}
               style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
