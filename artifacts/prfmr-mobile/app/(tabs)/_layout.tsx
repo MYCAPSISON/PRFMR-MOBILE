@@ -159,6 +159,7 @@ function ClassicTabLayout() {
       />
       <Tabs.Screen name="weightcut" options={{ href: null }} />
       <Tabs.Screen name="nutrition" options={{ href: null }} />
+      <Tabs.Screen name="load-trend" options={{ href: null }} />
     </Tabs>
   );
 }

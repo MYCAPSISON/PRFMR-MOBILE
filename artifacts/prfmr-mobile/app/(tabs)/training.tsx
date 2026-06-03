@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, subDays } from "date-fns";
 import { Feather } from "@expo/vector-icons";
@@ -327,6 +328,7 @@ function TimeSection({ section, sessions, date }: {
 export default function TrainingScreen() {
   const colors = useColors();
   const qc = useQueryClient();
+  const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
@@ -469,9 +471,18 @@ export default function TrainingScreen() {
               </View>
             )}
 
-            <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 8, fontStyle: "italic" }]}>
-              Acute:Chronic Workload Ratio — optimal range 0.8–1.3
-            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+              <Text style={[s.xs, { color: colors.mutedForeground, fontStyle: "italic", flex: 1 }]}>
+                Classification is personalised to your baseline.
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.push("/(tabs)/load-trend")}
+                style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 8 }}
+              >
+                <Feather name="bar-chart-2" size={12} color={colors.primary} />
+                <Text style={[s.xs, { color: colors.primary, fontWeight: "600" }]}>28-day trend</Text>
+              </TouchableOpacity>
+            </View>
           </Card>
         )}
 
