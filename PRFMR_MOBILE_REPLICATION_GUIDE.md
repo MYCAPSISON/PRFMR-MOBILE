@@ -894,15 +894,51 @@ Defined in `server/lib/training-load.ts`.
 
 **Acute:Chronic Workload Ratio (ACWR)**
 ```
-acute  = average daily load over last 7 days
-chronic = average daily load over last 28 days
-ACWR = acute / chronic (if chronic > 0, else = acute / 1)
+acuteLoad    = sum of totalLoad across the last 7 days
+acuteDaily   = acuteLoad / 7  (daily average)
+baselineLoad = avg daily load over baseline window (28 → 14 → 7 day fallback chain)
+acwr         = acuteDaily / baselineLoad  (null if insufficient history)
 ```
+
+**`GET /api/me/training-load/:date` — response shape**
+```json
+{
+  "acuteLoad":        420,        // 7-day sum of session load scores
+  "acuteDaily":       60.0,       // acuteLoad / 7 (rounded to 1 dp)
+  "baselineLoad":     55.3,       // avg daily load over baseline window (null if < 7 active training days)
+  "baselineDaysUsed": 28,         // which window was used: 28 → 14 → 7 (fallback chain)
+  "acwr":             1.09,       // acuteDaily / baselineLoad  (null if insufficient history)
+  "date":             "2026-06-01",
+  "history": [                    // 28-day chronological array
+    {
+      "date":         "2026-05-05",
+      "totalLoad":    80,
+      "classification": "hard",
+      "relativeLoad": 1.12,       // todayLoad / baselineLoad (per-day ratio, not the 7-day ACWR)
+      "sessionCount": 2
+    }
+  ]
+}
+```
+
+**Terminology mapping**
+| Concept | Field name | Formula |
+|---|---|---|
+| Acute load (7-day sum) | `acuteLoad` | Σ totalLoad last 7 days |
+| Acute load (daily avg) | `acuteDaily` | acuteLoad / 7 |
+| Chronic load (baseline) | `baselineLoad` | avg daily load over 28→14→7 day window |
+| ACWR ratio | `acwr` | acuteDaily / baselineLoad |
+| Legacy alias | `chronicLoad` | same value as acwr (on `LoadWarningResult` only, not the HTTP response) |
+
+**Notes:**
+- `acwr` and `baselineLoad` are both `null` when fewer than 7 days have actual training activity (`activeDaysInWindow < 7`). No ACWR warnings are generated until there is enough history.
+- The baseline uses a fallback chain: tries 28 days first, then 14, then 7. `baselineDaysUsed` tells you which was used.
+- Do **not** use field names `acute7day`, `chronic28day`, `acute`, or `chronic` — those are internal calculation variables, not HTTP response fields.
 
 **Load score per session:**  
 Based on `sessionRpe × durationMinutes` (per activity), normalised to a 0–100 scale.
 
-**Day classifications:**
+**Day classifications** (in `history[].classification`)
 | Classification | Meaning |
 |---|---|
 | rest | No sessions logged |
@@ -911,7 +947,7 @@ Based on `sessionRpe × durationMinutes` (per activity), normalised to a 0–100
 | hard | High load, RPE ≥ 7 |
 | very_hard | Extreme load |
 
-**ACWR risk bands:**
+**ACWR risk bands** (derive from `acwr` field — no separate classification field in response)
 - < 0.8 → undertraining
 - 0.8–1.3 → optimal (sweet spot)
 - 1.3–1.5 → caution
