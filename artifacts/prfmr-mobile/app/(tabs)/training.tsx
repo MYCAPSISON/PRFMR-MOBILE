@@ -476,7 +476,7 @@ export default function TrainingScreen() {
                 Classification is personalised to your baseline.
               </Text>
               <TouchableOpacity
-                onPress={() => router.push("/(tabs)/load-trend")}
+                onPress={() => router.push("/load-trend" as any)}
                 style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 8 }}
               >
                 <Feather name="bar-chart-2" size={12} color={colors.primary} />
