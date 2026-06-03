@@ -406,7 +406,24 @@ export default function LoadTrendScreen() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const history = data?.history ?? [];
+  const { data: historyRaw, isLoading: historyLoading } = useQuery<any>({
+    queryKey: ["training-load-history", today],
+    queryFn: async () => {
+      const res = await apiFetch(`/me/training/load-history/${today}`);
+      if (__DEV__) console.log("[load-trend] load-history keys:", Object.keys(res ?? {}), "full:", JSON.stringify(res).slice(0, 500));
+      return res;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // API may return { history: [...] } or a bare array
+  const history: LoadHistoryEntry[] = Array.isArray(historyRaw)
+    ? historyRaw
+    : Array.isArray(historyRaw?.history)
+      ? historyRaw.history
+      : Array.isArray(historyRaw?.days)
+        ? historyRaw.days
+        : [];
 
   const trainingDays = history.filter(d => d.sessionCount > 0).length;
   const highStressDays = history.filter(
@@ -430,7 +447,7 @@ export default function LoadTrendScreen() {
         <Feather name="bar-chart-2" size={20} color={colors.mutedForeground} />
       </View>
 
-      {isLoading ? (
+      {(isLoading || historyLoading) ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={colors.primary} size="large" />
         </View>
