@@ -133,6 +133,10 @@ export default function NutritionScreen() {
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [wholeFoodQ, setWholeFoodQ] = useState("");
+  const wholeFoodTerm = wholeFoodQ.trim().toLowerCase();
+  const wholeFoodFiltered: NormalizedFood[] = wholeFoodTerm
+    ? WHOLE_FOODS.filter((wf) => wf.name.toLowerCase().indexOf(wholeFoodTerm) !== -1)
+    : WHOLE_FOODS;
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
@@ -439,7 +443,7 @@ export default function NutritionScreen() {
                   searching={searching} colors={colors} onSelect={item => { setSelectedFood(normalize(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
-                <WholeFoodTab colors={colors} q={wholeFoodQ} setQ={setWholeFoodQ} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
+                <WholeFoodTab colors={colors} q={wholeFoodQ} setQ={setWholeFoodQ} filtered={wholeFoodFiltered} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
               )}
               {activeTab === "barcode" && (
                 <BarcodeTab code={barcodeCode} onCodeChange={setBarcodeCode} onLookup={lookupBarcode}
@@ -567,14 +571,9 @@ function SearchTab({ query, onQueryChange, results, searching, colors, onSelect 
   );
 }
 
-function WholeFoodTab({ colors, q, setQ, onSelect }: { colors: any; q: string; setQ: (v: string) => void; onSelect: (food: NormalizedFood) => void }) {
-  const term = q.trim().toLowerCase();
-  const filtered = term ? WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(term)) : WHOLE_FOODS;
+function WholeFoodTab({ colors, q, setQ, filtered, onSelect }: { colors: any; q: string; setQ: (v: string) => void; filtered: NormalizedFood[]; onSelect: (food: NormalizedFood) => void }) {
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
-      <Text style={{ color: "red", fontSize: 11, marginBottom: 4 }}>
-        DEBUG: q="{q}" term="{term}" filtered={filtered.length}/{WHOLE_FOODS.length}
-      </Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
         backgroundColor: colors.secondary, borderRadius: 10, borderWidth: 1,
         borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 }}>
