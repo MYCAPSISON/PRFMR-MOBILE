@@ -132,6 +132,7 @@ export default function NutritionScreen() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [wholeFoodQ, setWholeFoodQ] = useState("");
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
@@ -200,6 +201,7 @@ export default function NutritionScreen() {
     setBarcodeCode(""); setBarcodeError("");
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
+    setWholeFoodQ("");
   }
 
   function openModal(meal: Meal) {
@@ -437,7 +439,7 @@ export default function NutritionScreen() {
                   searching={searching} colors={colors} onSelect={item => { setSelectedFood(normalize(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
-                <WholeFoodTab colors={colors} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
+                <WholeFoodTab colors={colors} q={wholeFoodQ} setQ={setWholeFoodQ} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
               )}
               {activeTab === "barcode" && (
                 <BarcodeTab code={barcodeCode} onCodeChange={setBarcodeCode} onLookup={lookupBarcode}
@@ -565,9 +567,7 @@ function SearchTab({ query, onQueryChange, results, searching, colors, onSelect 
   );
 }
 
-function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: NormalizedFood) => void }) {
-  "use no memo";
-  const [q, setQ] = useState("");
+function WholeFoodTab({ colors, q, setQ, onSelect }: { colors: any; q: string; setQ: (v: string) => void; onSelect: (food: NormalizedFood) => void }) {
   const term = q.trim().toLowerCase();
   const filtered = term ? WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(term)) : WHOLE_FOODS;
   return (
