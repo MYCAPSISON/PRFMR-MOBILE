@@ -84,6 +84,9 @@ const WHOLE_FOODS: NormalizedFood[] = [
   { name: "Whey Protein", caloriesPer100g: 380, proteinPer100g: 75, carbsPer100g: 8, fatPer100g: 5, fibrePer100g: 0, sourceType: "manual" },
   { name: "Kidney Beans (cooked)", caloriesPer100g: 127, proteinPer100g: 8.7, carbsPer100g: 22.8, fatPer100g: 0.5, fibrePer100g: 6.4, sourceType: "manual" },
   { name: "Lentils (cooked)", caloriesPer100g: 116, proteinPer100g: 9, carbsPer100g: 20, fatPer100g: 0.4, fibrePer100g: 7.9, sourceType: "manual" },
+  { name: "Baked Beans (canned)", caloriesPer100g: 94, proteinPer100g: 5, carbsPer100g: 14.5, fatPer100g: 0.5, fibrePer100g: 3.7, sourceType: "manual" },
+  { name: "Butter", caloriesPer100g: 717, proteinPer100g: 0.9, carbsPer100g: 0.1, fatPer100g: 81, fibrePer100g: 0, sourceType: "manual" },
+  { name: "Honey", caloriesPer100g: 304, proteinPer100g: 0.3, carbsPer100g: 82.4, fatPer100g: 0, fibrePer100g: 0.2, sourceType: "manual" },
 ];
 
 function normalize(item: any, sourceType: "off" | "database" | "manual"): NormalizedFood {
