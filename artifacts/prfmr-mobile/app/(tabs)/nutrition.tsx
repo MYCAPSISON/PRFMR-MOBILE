@@ -572,6 +572,9 @@ function WholeFoodTab({ colors, q, setQ, onSelect }: { colors: any; q: string; s
   const filtered = term ? WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(term)) : WHOLE_FOODS;
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
+      <Text style={{ color: "red", fontSize: 11, marginBottom: 4 }}>
+        DEBUG: q="{q}" term="{term}" filtered={filtered.length}/{WHOLE_FOODS.length}
+      </Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
         backgroundColor: colors.secondary, borderRadius: 10, borderWidth: 1,
         borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 }}>
