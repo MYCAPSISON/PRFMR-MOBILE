@@ -566,12 +566,10 @@ function SearchTab({ query, onQueryChange, results, searching, colors, onSelect 
 }
 
 function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: NormalizedFood) => void }) {
+  "use no memo";
   const [q, setQ] = useState("");
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return WHOLE_FOODS;
-    return WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(term));
-  }, [q]);
+  const term = q.trim().toLowerCase();
+  const filtered = term ? WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(term)) : WHOLE_FOODS;
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
