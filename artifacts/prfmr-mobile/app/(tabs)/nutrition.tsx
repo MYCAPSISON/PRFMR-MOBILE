@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -567,9 +567,11 @@ function SearchTab({ query, onQueryChange, results, searching, colors, onSelect 
 
 function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: NormalizedFood) => void }) {
   const [q, setQ] = useState("");
-  const filtered = q.trim().length > 0
-    ? WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(q.toLowerCase()))
-    : WHOLE_FOODS;
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return WHOLE_FOODS;
+    return WHOLE_FOODS.filter(wf => wf.name.toLowerCase().includes(term));
+  }, [q]);
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
