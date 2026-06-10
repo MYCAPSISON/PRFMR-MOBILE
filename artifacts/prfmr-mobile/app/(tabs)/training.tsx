@@ -128,7 +128,7 @@ function AddActivityModal({
       body: {
         activityId: selectedActivity?.id ?? null,
         name: selectedActivity?.name ?? customName,
-        duration: parseFloat(duration) || null,
+        durationMinutes: parseFloat(duration) || null,
         rpe: rpe ?? null,
       },
     }),
