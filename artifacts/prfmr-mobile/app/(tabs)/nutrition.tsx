@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -132,23 +132,6 @@ export default function NutritionScreen() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
-  const [wholeFoodQ, setWholeFoodQ] = useState("");
-  const [wholeFoodFiltered, setWholeFoodFiltered] = useState<NormalizedFood[]>(WHOLE_FOODS);
-  useEffect(() => {
-    console.log("[WF-EFFECT] q='" + wholeFoodQ + "' WHOLE_FOODS.length=" + WHOLE_FOODS.length);
-    const t = wholeFoodQ.trim().toLowerCase();
-    if (!t) { setWholeFoodFiltered(WHOLE_FOODS); return; }
-    const out: NormalizedFood[] = [];
-    for (let i = 0; i < WHOLE_FOODS.length; i++) {
-      if (WHOLE_FOODS[i].name.toLowerCase().indexOf(t) !== -1) out.push(WHOLE_FOODS[i]);
-    }
-    console.log("[WF-EFFECT] results=" + out.length);
-    setWholeFoodFiltered(out);
-  }, [wholeFoodQ]);
-  const handleSetWholeFoodQ = useCallback((v: string) => {
-    console.log("[WF-INPUT] onChangeText='" + v + "'");
-    setWholeFoodQ(v);
-  }, []);
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
@@ -455,7 +438,7 @@ export default function NutritionScreen() {
                   searching={searching} colors={colors} onSelect={item => { setSelectedFood(normalize(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
-                <WholeFoodTab colors={colors} q={wholeFoodQ} setQ={handleSetWholeFoodQ} filtered={wholeFoodFiltered} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
+                <WholeFoodTab colors={colors} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
               )}
               {activeTab === "barcode" && (
                 <BarcodeTab code={barcodeCode} onCodeChange={setBarcodeCode} onLookup={lookupBarcode}
@@ -583,7 +566,13 @@ function SearchTab({ query, onQueryChange, results, searching, colors, onSelect 
   );
 }
 
-function WholeFoodTab({ colors, q, setQ, filtered, onSelect }: { colors: any; q: string; setQ: (v: string) => void; filtered: NormalizedFood[]; onSelect: (food: NormalizedFood) => void }) {
+function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: NormalizedFood) => void }) {
+  "use no memo";
+  const [q, setQ] = useState("");
+  const term = q.trim().toLowerCase();
+  const list = term
+    ? WHOLE_FOODS.filter((wf) => wf.name.toLowerCase().indexOf(term) !== -1)
+    : WHOLE_FOODS;
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
@@ -601,12 +590,12 @@ function WholeFoodTab({ colors, q, setQ, filtered, onSelect }: { colors: any; q:
           </TouchableOpacity>
         )}
       </View>
-      {filtered.length === 0 && (
+      {list.length === 0 && (
         <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center", marginTop: 24 }}>
           No match found
         </Text>
       )}
-      {filtered.map(wf => (
+      {list.map((wf) => (
         <TouchableOpacity key={wf.name} onPress={() => onSelect(wf)}
           style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
             backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
