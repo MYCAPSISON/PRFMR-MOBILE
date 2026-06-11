@@ -133,10 +133,16 @@ export default function NutritionScreen() {
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [wholeFoodQ, setWholeFoodQ] = useState("");
-  const wholeFoodTerm = wholeFoodQ.trim().toLowerCase();
-  const wholeFoodFiltered: NormalizedFood[] = wholeFoodTerm
-    ? WHOLE_FOODS.filter((wf) => wf.name.toLowerCase().indexOf(wholeFoodTerm) !== -1)
-    : WHOLE_FOODS;
+  const [wholeFoodFiltered, setWholeFoodFiltered] = useState<NormalizedFood[]>(WHOLE_FOODS);
+  useEffect(() => {
+    const t = wholeFoodQ.trim().toLowerCase();
+    if (!t) { setWholeFoodFiltered(WHOLE_FOODS); return; }
+    const out: NormalizedFood[] = [];
+    for (let i = 0; i < WHOLE_FOODS.length; i++) {
+      if (WHOLE_FOODS[i].name.toLowerCase().indexOf(t) !== -1) out.push(WHOLE_FOODS[i]);
+    }
+    setWholeFoodFiltered(out);
+  }, [wholeFoodQ]);
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
