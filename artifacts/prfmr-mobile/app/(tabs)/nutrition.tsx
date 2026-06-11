@@ -135,14 +135,20 @@ export default function NutritionScreen() {
   const [wholeFoodQ, setWholeFoodQ] = useState("");
   const [wholeFoodFiltered, setWholeFoodFiltered] = useState<NormalizedFood[]>(WHOLE_FOODS);
   useEffect(() => {
+    console.log("[WF-EFFECT] q='" + wholeFoodQ + "' WHOLE_FOODS.length=" + WHOLE_FOODS.length);
     const t = wholeFoodQ.trim().toLowerCase();
     if (!t) { setWholeFoodFiltered(WHOLE_FOODS); return; }
     const out: NormalizedFood[] = [];
     for (let i = 0; i < WHOLE_FOODS.length; i++) {
       if (WHOLE_FOODS[i].name.toLowerCase().indexOf(t) !== -1) out.push(WHOLE_FOODS[i]);
     }
+    console.log("[WF-EFFECT] results=" + out.length);
     setWholeFoodFiltered(out);
   }, [wholeFoodQ]);
+  const handleSetWholeFoodQ = useCallback((v: string) => {
+    console.log("[WF-INPUT] onChangeText='" + v + "'");
+    setWholeFoodQ(v);
+  }, []);
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
@@ -449,7 +455,7 @@ export default function NutritionScreen() {
                   searching={searching} colors={colors} onSelect={item => { setSelectedFood(normalize(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
-                <WholeFoodTab colors={colors} q={wholeFoodQ} setQ={setWholeFoodQ} filtered={wholeFoodFiltered} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
+                <WholeFoodTab colors={colors} q={wholeFoodQ} setQ={handleSetWholeFoodQ} filtered={wholeFoodFiltered} onSelect={wf => { setSelectedFood(wf); setGrams("100"); }} />
               )}
               {activeTab === "barcode" && (
                 <BarcodeTab code={barcodeCode} onCodeChange={setBarcodeCode} onLookup={lookupBarcode}
