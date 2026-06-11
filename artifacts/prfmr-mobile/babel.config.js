@@ -6,11 +6,6 @@ module.exports = function (api) {
         "babel-preset-expo",
         {
           unstable_transformImportMeta: true,
-          reactCompiler: {
-            sources: (filename) => {
-              return !filename.includes("nutrition.tsx");
-            },
-          },
         },
       ],
     ],
