@@ -573,6 +573,9 @@ function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: Norm
   const list = term
     ? WHOLE_FOODS.filter((wf) => wf.name.toLowerCase().indexOf(term) !== -1)
     : WHOLE_FOODS;
+  if (term.length > 0 && list.length === 0) {
+    Alert.alert("WF Debug", `term="${term}" total=${WHOLE_FOODS.length} first="${WHOLE_FOODS[0]?.name}"`);
+  }
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
