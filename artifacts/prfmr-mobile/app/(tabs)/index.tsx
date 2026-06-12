@@ -13,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { apiFetch } from "@/lib/api";
 import { useRouter } from "expo-router";
 import Svg, { Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText } from "react-native-svg";
+import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
 
 // ─────────────────────────────────────────
 // Types
@@ -168,72 +169,8 @@ const MODAL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "custom", label: "Custom", icon: "edit-2" },
 ];
 
-// CORE_FOODS — pre-computed per-100g values with default serving sizes from PRFMR guide §12
-const CORE_FOODS: NormalizedFood[] = [
-  { name: "Porridge (oats + milk)",        defaultGrams: 250, caloriesPer100g: 74,    proteinPer100g: 2.8,  carbsPer100g: 10.8, fatPer100g: 2.0,  fibrePer100g: 1.2, sourceType: "manual" },
-  { name: "Porridge (oats + water)",       defaultGrams: 250, caloriesPer100g: 52,    proteinPer100g: 2.0,  carbsPer100g: 9.2,  fatPer100g: 0.8,  fibrePer100g: 1.2, sourceType: "manual" },
-  { name: "Cappuccino (whole milk)",       defaultGrams: 240, caloriesPer100g: 50,    proteinPer100g: 2.5,  carbsPer100g: 4.2,  fatPer100g: 2.5,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Latte (whole milk)",            defaultGrams: 350, caloriesPer100g: 51,    proteinPer100g: 2.6,  carbsPer100g: 4.0,  fatPer100g: 2.6,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Flat White",                    defaultGrams: 200, caloriesPer100g: 60,    proteinPer100g: 3.0,  carbsPer100g: 5.0,  fatPer100g: 3.0,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Cappuccino (oat milk)",         defaultGrams: 240, caloriesPer100g: 42,    proteinPer100g: 1.25, carbsPer100g: 6.7,  fatPer100g: 1.25, fibrePer100g: 0.4, sourceType: "manual" },
-  { name: "Toast with Butter (white)",     defaultGrams: 45,  caloriesPer100g: 344,   proteinPer100g: 6.7,  carbsPer100g: 37.8, fatPer100g: 17.8, fibrePer100g: 2.2, sourceType: "manual" },
-  { name: "Toast without Butter (white)",  defaultGrams: 30,  caloriesPer100g: 267,   proteinPer100g: 10,   carbsPer100g: 50,   fatPer100g: 3.3,  fibrePer100g: 3.3, sourceType: "manual" },
-  { name: "Toast with Butter (wholemeal)", defaultGrams: 50,  caloriesPer100g: 330,   proteinPer100g: 10,   carbsPer100g: 36,   fatPer100g: 16,   fibrePer100g: 6,   sourceType: "manual" },
-  { name: "Mashed Potato",                 defaultGrams: 200, caloriesPer100g: 90,    proteinPer100g: 2.0,  carbsPer100g: 15,   fatPer100g: 2.5,  fibrePer100g: 1,   sourceType: "manual" },
-  { name: "Scrambled Eggs (2 eggs+butter)",defaultGrams: 130, caloriesPer100g: 169,   proteinPer100g: 10.8, carbsPer100g: 1.5,  fatPer100g: 13.1, fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Protein Shake (whey + water)",  defaultGrams: 350, caloriesPer100g: 37,    proteinPer100g: 7.1,  carbsPer100g: 0.9,  fatPer100g: 0.6,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Protein Shake (whey + milk)",   defaultGrams: 350, caloriesPer100g: 80,    proteinPer100g: 10,   carbsPer100g: 5.1,  fatPer100g: 2.3,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Overnight Oats",               defaultGrams: 300, caloriesPer100g: 107,   proteinPer100g: 4.0,  carbsPer100g: 15,   fatPer100g: 3.3,  fibrePer100g: 1.7, sourceType: "manual" },
-  { name: "Beans on Toast",               defaultGrams: 260, caloriesPer100g: 108,   proteinPer100g: 5.4,  carbsPer100g: 16.2, fatPer100g: 1.9,  fibrePer100g: 3.1, sourceType: "manual" },
-  { name: "Tuna Mayo Sandwich",            defaultGrams: 200, caloriesPer100g: 175,   proteinPer100g: 11,   carbsPer100g: 15,   fatPer100g: 7,    fibrePer100g: 1,   sourceType: "manual" },
-  { name: "Chicken Wrap",                  defaultGrams: 250, caloriesPer100g: 152,   proteinPer100g: 11.2, carbsPer100g: 14,   fatPer100g: 4.8,  fibrePer100g: 0.8, sourceType: "manual" },
-  { name: "Greek Yoghurt with Honey",      defaultGrams: 170, caloriesPer100g: 106,   proteinPer100g: 8.2,  carbsPer100g: 12.9, fatPer100g: 2.9,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "PB&J Sandwich",                defaultGrams: 130, caloriesPer100g: 292,   proteinPer100g: 9.2,  carbsPer100g: 34.6, fatPer100g: 12.3, fibrePer100g: 2.3, sourceType: "manual" },
-  { name: "Cereal with Milk",              defaultGrams: 270, caloriesPer100g: 93,    proteinPer100g: 3.0,  carbsPer100g: 15.6, fatPer100g: 1.9,  fibrePer100g: 1.1, sourceType: "manual" },
-  // Whole-food ingredients
-  { name: "Chicken Breast (cooked)",       defaultGrams: 150, caloriesPer100g: 165,   proteinPer100g: 31,   carbsPer100g: 0,    fatPer100g: 3.6,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Salmon (cooked)",               defaultGrams: 150, caloriesPer100g: 208,   proteinPer100g: 20,   carbsPer100g: 0,    fatPer100g: 13,   fibrePer100g: 0,   sourceType: "manual" },
-  { name: "White Rice (cooked)",           defaultGrams: 180, caloriesPer100g: 130,   proteinPer100g: 2.7,  carbsPer100g: 28.2, fatPer100g: 0.3,  fibrePer100g: 0.4, sourceType: "manual" },
-  { name: "Brown Rice (cooked)",           defaultGrams: 180, caloriesPer100g: 123,   proteinPer100g: 2.6,  carbsPer100g: 25.6, fatPer100g: 1.0,  fibrePer100g: 1.8, sourceType: "manual" },
-  { name: "Sweet Potato (cooked)",         defaultGrams: 200, caloriesPer100g: 86,    proteinPer100g: 1.6,  carbsPer100g: 20.1, fatPer100g: 0.1,  fibrePer100g: 3,   sourceType: "manual" },
-  { name: "Tuna (canned in water)",        defaultGrams: 120, caloriesPer100g: 116,   proteinPer100g: 25.5, carbsPer100g: 0,    fatPer100g: 0.8,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Beef Mince (lean, cooked)",     defaultGrams: 150, caloriesPer100g: 215,   proteinPer100g: 26,   carbsPer100g: 0,    fatPer100g: 12,   fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Banana",                        defaultGrams: 120, caloriesPer100g: 89,    proteinPer100g: 1.1,  carbsPer100g: 23,   fatPer100g: 0.3,  fibrePer100g: 2.6, sourceType: "manual" },
-  // Additional whole-food ingredients
-  { name: "Turkey Breast",                 defaultGrams: 150, caloriesPer100g: 135,   proteinPer100g: 30,   carbsPer100g: 0,    fatPer100g: 1,    fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Chicken Thigh (cooked)",        defaultGrams: 150, caloriesPer100g: 209,   proteinPer100g: 26,   carbsPer100g: 0,    fatPer100g: 11,   fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Steak (sirloin)",               defaultGrams: 200, caloriesPer100g: 207,   proteinPer100g: 26,   carbsPer100g: 0,    fatPer100g: 11,   fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Eggs",                          defaultGrams: 100, caloriesPer100g: 155,   proteinPer100g: 12.6, carbsPer100g: 1.1,  fatPer100g: 10.6, fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Egg Whites",                    defaultGrams: 100, caloriesPer100g: 52,    proteinPer100g: 11,   carbsPer100g: 0.7,  fatPer100g: 0.2,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Oats",                          defaultGrams: 80,  caloriesPer100g: 389,   proteinPer100g: 16.9, carbsPer100g: 66.3, fatPer100g: 6.9,  fibrePer100g: 10.6, sourceType: "manual" },
-  { name: "Pasta (cooked)",                defaultGrams: 200, caloriesPer100g: 158,   proteinPer100g: 5.8,  carbsPer100g: 31,   fatPer100g: 0.9,  fibrePer100g: 1.8, sourceType: "manual" },
-  { name: "Bread (wholegrain)",            defaultGrams: 40,  caloriesPer100g: 247,   proteinPer100g: 9,    carbsPer100g: 41,   fatPer100g: 3.5,  fibrePer100g: 6,   sourceType: "manual" },
-  { name: "Bread (white)",                 defaultGrams: 35,  caloriesPer100g: 265,   proteinPer100g: 9,    carbsPer100g: 49,   fatPer100g: 3.2,  fibrePer100g: 2.7, sourceType: "manual" },
-  { name: "Potato (boiled)",               defaultGrams: 200, caloriesPer100g: 77,    proteinPer100g: 2,    carbsPer100g: 17,   fatPer100g: 0.1,  fibrePer100g: 1.8, sourceType: "manual" },
-  { name: "Broccoli",                      defaultGrams: 150, caloriesPer100g: 34,    proteinPer100g: 2.8,  carbsPer100g: 6.6,  fatPer100g: 0.4,  fibrePer100g: 2.6, sourceType: "manual" },
-  { name: "Spinach",                       defaultGrams: 80,  caloriesPer100g: 23,    proteinPer100g: 2.9,  carbsPer100g: 3.6,  fatPer100g: 0.4,  fibrePer100g: 2.2, sourceType: "manual" },
-  { name: "Avocado",                       defaultGrams: 100, caloriesPer100g: 160,   proteinPer100g: 2,    carbsPer100g: 9,    fatPer100g: 15,   fibrePer100g: 7,   sourceType: "manual" },
-  { name: "Apple",                         defaultGrams: 150, caloriesPer100g: 52,    proteinPer100g: 0.3,  carbsPer100g: 14,   fatPer100g: 0.2,  fibrePer100g: 2.4, sourceType: "manual" },
-  { name: "Blueberries",                   defaultGrams: 100, caloriesPer100g: 57,    proteinPer100g: 0.7,  carbsPer100g: 14.5, fatPer100g: 0.3,  fibrePer100g: 2.4, sourceType: "manual" },
-  { name: "Greek Yoghurt",                 defaultGrams: 200, caloriesPer100g: 97,    proteinPer100g: 9,    carbsPer100g: 3.6,  fatPer100g: 5,    fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Cottage Cheese",                defaultGrams: 150, caloriesPer100g: 98,    proteinPer100g: 11,   carbsPer100g: 3.4,  fatPer100g: 4.3,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Milk (whole)",                  defaultGrams: 250, caloriesPer100g: 61,    proteinPer100g: 3.2,  carbsPer100g: 4.8,  fatPer100g: 3.3,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Milk (semi-skimmed)",           defaultGrams: 250, caloriesPer100g: 46,    proteinPer100g: 3.4,  carbsPer100g: 4.8,  fatPer100g: 1.6,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Almond Milk (unsweetened)",     defaultGrams: 250, caloriesPer100g: 15,    proteinPer100g: 0.5,  carbsPer100g: 0.6,  fatPer100g: 1.1,  fibrePer100g: 0.2, sourceType: "manual" },
-  { name: "Almond Milk (sweetened)",       defaultGrams: 250, caloriesPer100g: 24,    proteinPer100g: 0.4,  carbsPer100g: 3.5,  fatPer100g: 1.0,  fibrePer100g: 0.2, sourceType: "manual" },
-  { name: "Oat Milk",                      defaultGrams: 250, caloriesPer100g: 46,    proteinPer100g: 1,    carbsPer100g: 7.9,  fatPer100g: 1.5,  fibrePer100g: 0.8, sourceType: "manual" },
-  { name: "Almonds",                       defaultGrams: 30,  caloriesPer100g: 579,   proteinPer100g: 21,   carbsPer100g: 22,   fatPer100g: 50,   fibrePer100g: 12.5, sourceType: "manual" },
-  { name: "Peanut Butter",                 defaultGrams: 30,  caloriesPer100g: 588,   proteinPer100g: 25,   carbsPer100g: 20,   fatPer100g: 50,   fibrePer100g: 6,   sourceType: "manual" },
-  { name: "Olive Oil",                     defaultGrams: 15,  caloriesPer100g: 884,   proteinPer100g: 0,    carbsPer100g: 0,    fatPer100g: 100,  fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Butter",                        defaultGrams: 10,  caloriesPer100g: 717,   proteinPer100g: 0.9,  carbsPer100g: 0.1,  fatPer100g: 81,   fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Honey",                         defaultGrams: 15,  caloriesPer100g: 304,   proteinPer100g: 0.3,  carbsPer100g: 82.4, fatPer100g: 0,    fibrePer100g: 0.2, sourceType: "manual" },
-  { name: "Whey Protein",                  defaultGrams: 35,  caloriesPer100g: 380,   proteinPer100g: 75,   carbsPer100g: 8,    fatPer100g: 5,    fibrePer100g: 0,   sourceType: "manual" },
-  { name: "Kidney Beans (cooked)",         defaultGrams: 150, caloriesPer100g: 127,   proteinPer100g: 8.7,  carbsPer100g: 22.8, fatPer100g: 0.5,  fibrePer100g: 6.4, sourceType: "manual" },
-  { name: "Lentils (cooked)",              defaultGrams: 150, caloriesPer100g: 116,   proteinPer100g: 9,    carbsPer100g: 20,   fatPer100g: 0.4,  fibrePer100g: 7.9, sourceType: "manual" },
-  { name: "Baked Beans (canned)",          defaultGrams: 200, caloriesPer100g: 94,    proteinPer100g: 5,    carbsPer100g: 14.5, fatPer100g: 0.5,  fibrePer100g: 3.7, sourceType: "manual" },
-];
+const CORE_FOODS: NormalizedFood[] = INGREDIENTS_DATA;
 
-// Keep legacy name for any refs
 const WHOLE_FOODS_IDX = CORE_FOODS;
 
 function normalizeFood(item: any, sourceType: "off" | "database" | "manual"): NormalizedFood {
