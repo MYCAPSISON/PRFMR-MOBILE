@@ -157,7 +157,7 @@ interface NormalizedFood {
   carbsPer100g: number;
   fatPer100g: number;
   fibrePer100g: number;
-  sourceType: "off" | "database" | "manual";
+  sourceType: "off" | "database" | "manual" | "ingredient";
   defaultGrams?: number;
   imageUrl?: string;
 }
@@ -1285,6 +1285,10 @@ function MealsSection({ date }: { date: string }) {
   function buildPayload(food: NormalizedFood, gramsStr: string) {
     const g = parseFloat(gramsStr) || 100;
     const r = g / 100;
+    const isOff = food.sourceType === "off" || food.sourceType === "database";
+    const apiSourceType = isOff ? "off" : food.sourceType === "ingredient" ? "ingredient" : "manual";
+    const isRaw = /\(raw\)/i.test(food.name);
+    const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
     return {
       name: food.name,
       calories: Math.round(food.caloriesPer100g * r),
@@ -1295,15 +1299,16 @@ function MealsSection({ date }: { date: string }) {
       grams: Math.round(g),
       meal: mealType,
       date,
-      sourceType: food.sourceType === "manual" ? "manual" : "off",
-      macroSource: "ingredient",
+      sourceType: apiSourceType,
+      macroSource: isOff ? "off" : "ingredient",
       microSource: "none",
-      enteredBasis: "cooked",
-      isRawWeight: false,
+      enteredBasis: isRaw ? "raw" : "cooked",
+      ...(snackIdx !== undefined && { snackIndex: snackIdx }),
     };
   }
 
   function addCustom() {
+    const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
     addMut.mutate({
       name: customName.trim(),
       calories: Math.round(parseFloat(customCal) || 0),
@@ -1318,7 +1323,7 @@ function MealsSection({ date }: { date: string }) {
       macroSource: "ingredient",
       microSource: "none",
       enteredBasis: "cooked",
-      isRawWeight: false,
+      ...(snackIdx !== undefined && { snackIndex: snackIdx }),
     });
   }
 

@@ -238,6 +238,9 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     try {
       const errorData = await response.json();
       errorMessage = errorData.message ?? errorData.error ?? errorMessage;
+      if (__DEV__ && errorData.issues) {
+        console.error("[api] Validation issues:", JSON.stringify(errorData.issues));
+      }
     } catch { /* ignore */ }
     console.error("[api] Error:", method, path, response.status, errorMessage);
     throw new Error(errorMessage);
