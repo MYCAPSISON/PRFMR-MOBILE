@@ -44,7 +44,10 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
   - Provisional check-in: `POST /me/provisional-checkin`
   - Targets: `GET /me/targets/effective?date=`
   - Sessions: `GET /workouts/sessions?start=&end=`, `POST /workouts/sessions { date, timeOfDay }`
-  - Activities: `POST /workouts/sessions/:id/activities { activityId, name, duration, rpe }`
+  - Activities (cardio): `POST /workouts/sessions/:id/activities { name, durationMinutes, activityCatalogId?, metValue(REQUIRED), rpe?, intensity? }`
+  - Activities (lifting): `POST /workouts/sessions/:id/activities { name, durationMinutes, activityType:"lifting", sessionRpe(REQUIRED), bodyRegion:"upper"|"lower"|"full"(REQUIRED) }`
+  - Food: `POST /food { userId(REQUIRED), name, date, meal, calories, protein, carbs, fat, ... }` — userId is NOT injected server-side, client must send it
+  - Activity catalog: `GET /activities` returns `{ id, name, intensity, metValue }` (NOT `category`)
 - **Key files**:
   - `context/AuthContext.tsx` — session auth state
   - `lib/api.ts` — fetch wrapper with cookie session management
