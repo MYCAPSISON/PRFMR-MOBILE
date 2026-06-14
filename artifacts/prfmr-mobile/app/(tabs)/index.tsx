@@ -1186,6 +1186,7 @@ function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, s
 function MealsSection({ date }: { date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [modal, setModal] = useState(false);
   const [mealType, setMealType] = useState<string>("breakfast");
   const [activeTab, setActiveTab] = useState<TabId>("search");
@@ -1290,6 +1291,7 @@ function MealsSection({ date }: { date: string }) {
     const isRaw = /\(raw\)/i.test(food.name);
     const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
     return {
+      userId: user!.id,
       name: food.name,
       calories: Math.round(food.caloriesPer100g * r),
       protein: Math.round(food.proteinPer100g * r),
@@ -1310,6 +1312,7 @@ function MealsSection({ date }: { date: string }) {
   function addCustom() {
     const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
     addMut.mutate({
+      userId: user!.id,
       name: customName.trim(),
       calories: Math.round(parseFloat(customCal) || 0),
       protein: Math.round(parseFloat(customProtein) || 0),
