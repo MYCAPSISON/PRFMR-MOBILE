@@ -301,12 +301,118 @@ function AddActivityModal({
 }
 
 // ─────────────────────────────────────────
+// Edit Activity Modal
+// ─────────────────────────────────────────
+function EditActivityModal({
+  activity, date, onClose,
+}: { activity: SessionActivity; date: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const isLifting = activity.activityType === "lifting";
+
+  const [duration, setDuration] = useState(String(activity.durationMinutes ?? ""));
+  const [rpe, setRpe] = useState<number | null>(
+    isLifting ? (activity.sessionRpe ?? null) : (activity.rpe ?? null)
+  );
+  const [bodyRegion, setBodyRegion] = useState<"upper" | "lower" | "full" | null>(
+    (activity.bodyRegion as "upper" | "lower" | "full" | null) ?? null
+  );
+
+  const patchMut = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        durationMinutes: Math.round(parseFloat(duration)) || activity.durationMinutes,
+      };
+      if (isLifting) {
+        if (rpe != null) body.sessionRpe = rpe;
+        if (bodyRegion) body.bodyRegion = bodyRegion;
+      } else {
+        if (rpe != null) body.rpe = rpe;
+      }
+      return apiFetch(`/workouts/activities/${activity.id}`, { method: "PATCH", body });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions", date] });
+      onClose();
+    },
+  });
+
+  const canSave = parseFloat(duration) > 0 && !patchMut.isPending;
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <View style={[s.rowBetween, { padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }]}>
+          <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>Edit Activity</Text>
+          <TouchableOpacity onPress={onClose}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <Text style={{ color: "#6b7280", fontSize: 13, fontWeight: "600", marginBottom: 14 }}>{activity.name}</Text>
+
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>DURATION (minutes)</Text>
+          <TextInput
+            style={[s.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 14 }]}
+            keyboardType="decimal-pad" value={duration} onChangeText={setDuration}
+          />
+
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>
+            {isLifting ? "SESSION RPE" : "EFFORT / RPE"}
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(r => (
+              <TouchableOpacity key={r} style={[s.rpeBtn, {
+                borderColor: rpe === r ? "#ff7a00" : "#1a1e28",
+                backgroundColor: rpe === r ? "rgba(255,122,0,0.1)" : "#181c26",
+              }]} onPress={() => setRpe(rpe === r ? null : r)}>
+                <Text style={{ color: rpe === r ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 14 }}>{r}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {rpe != null && <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 14 }}>RPE {rpe} — {INTENSITY_OPTS[rpe - 1]?.label}</Text>}
+          {rpe == null && <View style={{ marginBottom: 14 }} />}
+
+          {isLifting && (
+            <>
+              <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>BODY REGION</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+                {BODY_REGIONS.map(br => (
+                  <TouchableOpacity key={br.value} onPress={() => setBodyRegion(br.value)}
+                    style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 8, borderWidth: 1,
+                      borderColor: bodyRegion === br.value ? "#ff7a00" : "#1a1e28",
+                      backgroundColor: bodyRegion === br.value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
+                    <Text style={{ color: bodyRegion === br.value ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 12 }}>{br.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
+
+          {patchMut.error && (
+            <Text style={{ color: "#f87171", fontSize: 12, marginBottom: 10 }}>
+              {(patchMut.error as Error).message}
+            </Text>
+          )}
+
+          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4 }]}
+            disabled={!canSave} onPress={() => patchMut.mutate()}>
+            {patchMut.isPending
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Save Changes</Text>}
+          </TouchableOpacity>
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────
 // Session Card
 // ─────────────────────────────────────────
 function SessionCard({ session, date }: { session: WorkoutSession; date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
   const [addActivity, setAddActivity] = useState(false);
+  const [editingActivity, setEditingActivity] = useState<SessionActivity | null>(null);
 
   const deleteSessionMut = useMutation({
     mutationFn: () => apiFetch(`/workouts/sessions/${session.id}`, { method: "DELETE" }),
@@ -339,19 +445,36 @@ function SessionCard({ session, date }: { session: WorkoutSession; date: string 
         <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 6 }]}>No activities yet. Tap + to log one.</Text>
       )}
 
-      {session.activities.map(a => (
-        <View key={a.id} style={[s.activityRow, { borderColor: colors.border }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={[s.sm, { color: colors.foreground, fontWeight: "600" }]}>{a.name}</Text>
-            <Text style={[s.xs, { color: colors.mutedForeground }]}>
-              {[a.durationMinutes ? `${a.durationMinutes} min` : null, a.rpe ? `RPE ${a.rpe}` : null].filter(Boolean).join(" · ")}
-            </Text>
+      {session.activities.map(a => {
+        const isLifting = a.activityType === "lifting";
+        const rpeDisplay = isLifting
+          ? (a.sessionRpe ? `Session RPE ${a.sessionRpe}` : null)
+          : (a.rpe ? `RPE ${a.rpe}` : null);
+        const regionDisplay = isLifting && a.bodyRegion ? a.bodyRegion : null;
+        const detail = [
+          a.durationMinutes ? `${a.durationMinutes} min` : null,
+          rpeDisplay,
+          regionDisplay,
+        ].filter(Boolean).join(" · ");
+
+        return (
+          <View key={a.id} style={[s.activityRow, { borderColor: colors.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.sm, { color: colors.foreground, fontWeight: "600" }]}>{a.name}</Text>
+              {detail ? <Text style={[s.xs, { color: colors.mutedForeground }]}>{detail}</Text> : null}
+              {a.estimatedKcal ? <Text style={[s.xs, { color: colors.mutedForeground }]}>~{Math.round(a.estimatedKcal)} kcal</Text> : null}
+            </View>
+            <View style={{ flexDirection: "row", gap: 2 }}>
+              <TouchableOpacity onPress={() => setEditingActivity(a)} style={{ padding: 6 }}>
+                <Feather name="edit-2" size={13} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => deleteActivityMut.mutate(a.id)} style={{ padding: 6 }}>
+                <Feather name="x" size={14} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
           </View>
-          <TouchableOpacity onPress={() => deleteActivityMut.mutate(a.id)} style={{ padding: 4 }}>
-            <Feather name="x" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        </View>
-      ))}
+        );
+      })}
 
       <TouchableOpacity style={[s.addActivityBtn, { borderColor: colors.border }]} onPress={() => setAddActivity(true)}>
         <Feather name="plus" size={14} color={colors.mutedForeground} />
@@ -359,6 +482,9 @@ function SessionCard({ session, date }: { session: WorkoutSession; date: string 
       </TouchableOpacity>
 
       <AddActivityModal visible={addActivity} sessionId={session.id} date={date} onClose={() => setAddActivity(false)} />
+      {editingActivity && (
+        <EditActivityModal activity={editingActivity} date={date} onClose={() => setEditingActivity(null)} />
+      )}
     </Card>
   );
 }
