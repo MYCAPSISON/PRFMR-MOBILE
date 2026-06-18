@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
+  KeyboardAvoidingView,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -74,8 +75,13 @@ interface FoodEntry {
   carbs: number;
   fat: number;
   fibre?: number;
+  grams?: number;
   meal: string;
   date: string;
+  snackIndex?: number;
+  sourceType?: string;
+  ingredientIndex?: number;
+  normalizedGrams?: number;
 }
 
 interface ScheduledSlot {
@@ -160,6 +166,8 @@ interface NormalizedFood {
   sourceType: "off" | "database" | "manual" | "ingredient";
   defaultGrams?: number;
   imageUrl?: string;
+  ingredientIndex?: number;
+  offBarcode?: string;
 }
 
 const MODAL_TABS: { id: TabId; label: string; icon: string }[] = [
@@ -174,15 +182,18 @@ const CORE_FOODS: NormalizedFood[] = INGREDIENTS_DATA;
 const WHOLE_FOODS_IDX = CORE_FOODS;
 
 function normalizeFood(item: any, sourceType: "off" | "database" | "manual"): NormalizedFood {
+  const macros = item.macros_per_100g ?? item.off?.macros_per_100g ?? {};
   return {
-    name: item.name ?? item.product_name ?? "Unknown",
-    brand: item.brand ?? item.brands ?? undefined,
-    caloriesPer100g: item.caloriesPer100g ?? item.calories ?? item.nutriments?.["energy-kcal_100g"] ?? 0,
-    proteinPer100g: item.proteinPer100g ?? item.protein ?? item.nutriments?.proteins_100g ?? 0,
-    carbsPer100g: item.carbsPer100g ?? item.carbs ?? item.nutriments?.carbohydrates_100g ?? 0,
-    fatPer100g: item.fatPer100g ?? item.fat ?? item.nutriments?.fat_100g ?? 0,
-    fibrePer100g: item.fibrePer100g ?? item.fibre ?? item.nutriments?.fiber_100g ?? item.nutriments?.fibre_100g ?? 0,
+    name: item.name ?? item.off?.name ?? item.product_name ?? "Unknown",
+    brand: item.brand ?? item.off?.brand ?? item.brands ?? undefined,
+    caloriesPer100g: item.caloriesPer100g ?? macros.kcal ?? item.calories ?? item.nutriments?.["energy-kcal_100g"] ?? 0,
+    proteinPer100g: item.proteinPer100g ?? macros.protein ?? item.protein ?? item.nutriments?.proteins_100g ?? 0,
+    carbsPer100g: item.carbsPer100g ?? macros.carbs ?? item.carbs ?? item.nutriments?.carbohydrates_100g ?? 0,
+    fatPer100g: item.fatPer100g ?? macros.fat ?? item.fat ?? item.nutriments?.fat_100g ?? 0,
+    fibrePer100g: item.fibrePer100g ?? macros.fibre ?? item.fibre ?? item.nutriments?.fiber_100g ?? item.nutriments?.fibre_100g ?? 0,
     sourceType,
+    offBarcode: item.barcode ?? item.off?.barcode ?? undefined,
+    ingredientIndex: item.mapping?.ingredientIndex ?? undefined,
   };
 }
 
@@ -1181,6 +1192,122 @@ function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, s
 }
 
 // ─────────────────────────────────────────
+// Edit Food Modal
+// ─────────────────────────────────────────
+function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const baseGrams = entry.grams || 100;
+  const refGrams = entry.normalizedGrams || baseGrams;
+
+  const [grams, setGrams] = useState(String(baseGrams));
+  const [cal, setCal] = useState(String(entry.calories));
+  const [protein, setProtein] = useState(String(entry.protein));
+  const [carbs, setCarbs] = useState(String(entry.carbs));
+  const [fat, setFat] = useState(String(entry.fat));
+  const [fibre, setFibre] = useState(String(entry.fibre ?? 0));
+
+  function recalcFromGrams(newGramsStr: string) {
+    setGrams(newGramsStr);
+    const g = parseFloat(newGramsStr);
+    if (!g || !refGrams) return;
+    const r = g / refGrams;
+    setCal(String(Math.round(entry.calories * r)));
+    setProtein(String(Math.round(entry.protein * r)));
+    setCarbs(String(Math.round(entry.carbs * r)));
+    setFat(String(Math.round(entry.fat * r)));
+    setFibre(String(Math.round((entry.fibre ?? 0) * r)));
+  }
+
+  const patchMut = useMutation({
+    mutationFn: () => apiFetch(`/food/${entry.id}`, {
+      method: "PATCH",
+      body: {
+        grams: Math.round(parseFloat(grams) || baseGrams),
+        calories: Math.round(parseFloat(cal) || 0),
+        protein: Math.round(parseFloat(protein) || 0),
+        carbs: Math.round(parseFloat(carbs) || 0),
+        fat: Math.round(parseFloat(fat) || 0),
+        fibre: Math.round(parseFloat(fibre) || 0),
+      },
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["food", date] });
+      qc.invalidateQueries({ queryKey: ["amqs-score", date] });
+      onClose();
+    },
+  });
+
+  const canSave = parseFloat(cal) >= 0 && !patchMut.isPending;
+
+  const fieldStyle = {
+    height: 46, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+    backgroundColor: "#181c26", paddingHorizontal: 12, color: "#eceef2", fontSize: 15,
+  };
+  const labelStyle = { color: "#6b7280", fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.5, marginBottom: 6 };
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>Edit Food</Text>
+          <TouchableOpacity onPress={onClose}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+        </View>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
+            <Text style={{ color: "#ff7a00", fontWeight: "700", fontSize: 14, marginBottom: 4 }} numberOfLines={1}>{entry.name}</Text>
+
+            <View>
+              <Text style={labelStyle}>GRAMS (auto-recalculates macros)</Text>
+              <TextInput style={fieldStyle} keyboardType="decimal-pad" value={grams} onChangeText={recalcFromGrams} />
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={labelStyle}>CALORIES</Text>
+                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={cal} onChangeText={setCal} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={labelStyle}>PROTEIN (g)</Text>
+                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={protein} onChangeText={setProtein} />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={labelStyle}>CARBS (g)</Text>
+                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={carbs} onChangeText={setCarbs} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={labelStyle}>FAT (g)</Text>
+                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={fat} onChangeText={setFat} />
+              </View>
+            </View>
+            <View>
+              <Text style={labelStyle}>FIBRE (g)</Text>
+              <TextInput style={fieldStyle} keyboardType="decimal-pad" value={fibre} onChangeText={setFibre} />
+            </View>
+
+            {patchMut.error && (
+              <Text style={{ color: "#f87171", fontSize: 12 }}>{(patchMut.error as Error).message}</Text>
+            )}
+
+            <TouchableOpacity
+              style={{ height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, marginTop: 4 }}
+              disabled={!canSave} onPress={() => patchMut.mutate()}>
+              {patchMut.isPending
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Save Changes</Text>}
+            </TouchableOpacity>
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────
 // Meals Section
 // ─────────────────────────────────────────
 function MealsSection({ date }: { date: string }) {
@@ -1211,6 +1338,7 @@ function MealsSection({ date }: { date: string }) {
   const [customFat, setCustomFat] = useState("");
   const [customFibre, setCustomFibre] = useState("0");
   const [wholeSearch, setWholeSearch] = useState("");
+  const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
 
   const { data: entries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", date],
@@ -1287,8 +1415,10 @@ function MealsSection({ date }: { date: string }) {
     const g = parseFloat(gramsStr) || 100;
     const r = g / 100;
     const isOff = food.sourceType === "off" || food.sourceType === "database";
-    const apiSourceType = isOff ? "off" : food.sourceType === "ingredient" ? "ingredient" : "manual";
+    const isIngredient = food.sourceType === "ingredient";
+    const apiSourceType = isOff ? "off" : isIngredient ? "ingredient" : "manual";
     const isRaw = /\(raw\)/i.test(food.name);
+    const hasMappedIngredient = food.ingredientIndex != null;
     const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
     return {
       userId: user!.id,
@@ -1303,8 +1433,10 @@ function MealsSection({ date }: { date: string }) {
       date,
       sourceType: apiSourceType,
       macroSource: isOff ? "off" : "ingredient",
-      microSource: "none",
+      microSource: (isIngredient || hasMappedIngredient) ? "ingredient" : "none",
       enteredBasis: isRaw ? "raw" : "cooked",
+      ...(food.offBarcode && { offBarcode: food.offBarcode }),
+      ...(food.ingredientIndex != null && { ingredientIndex: food.ingredientIndex }),
       ...(snackIdx !== undefined && { snackIndex: snackIdx }),
     };
   }
@@ -1363,11 +1495,17 @@ function MealsSection({ date }: { date: string }) {
                   <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]} numberOfLines={1}>{e.name}</Text>
                   <Text style={[styles.xs, { color: colors.mutedForeground }]}>
                     {Math.round(e.calories)} kcal · P:{Math.round(e.protein)}g · C:{Math.round(e.carbs)}g · F:{Math.round(e.fat)}g
+                    {e.grams ? ` · ${e.grams}g` : ""}
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => deleteMut.mutate(e.id)} style={{ padding: 4 }}>
-                  <Feather name="trash-2" size={14} color={colors.mutedForeground} />
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", gap: 2 }}>
+                  <TouchableOpacity onPress={() => setEditingEntry(e)} style={{ padding: 6 }}>
+                    <Feather name="edit-2" size={13} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteMut.mutate(e.id)} style={{ padding: 6 }}>
+                    <Feather name="trash-2" size={14} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                </View>
               </View>
             ))}
           </View>
@@ -1570,6 +1708,10 @@ function MealsSection({ date }: { date: string }) {
           )}
         </SafeAreaView>
       </Modal>
+
+      {editingEntry && (
+        <EditFoodModal entry={editingEntry} date={date} onClose={() => setEditingEntry(null)} />
+      )}
     </Card>
   );
 }
