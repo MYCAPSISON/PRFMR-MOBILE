@@ -109,28 +109,78 @@ function SmallBadge({ label, color, bg }: { label: string; color: string; bg: st
 // ─────────────────────────────────────────
 // Add Activity Modal
 // ─────────────────────────────────────────
-const BODY_REGIONS: { label: string; value: "upper" | "lower" | "full" }[] = [
-  { label: "Upper Body", value: "upper" },
-  { label: "Lower Body", value: "lower" },
-  { label: "Full Body", value: "full" },
+const BODY_REGION_OPTIONS: { label: string; value: "upper" | "lower" | "full" }[] = [
+  { label: "Upper Body (×1.0)", value: "upper" },
+  { label: "Lower Body (×1.25)", value: "lower" },
+  { label: "Full Body (×1.1)", value: "full" },
 ];
 
+function isLiftingActivity(a: ActivityCatalogItem | null): boolean {
+  if (!a) return false;
+  return a.name.toLowerCase().includes("strength training") || !a.metValue;
+}
+
+function activityDisplayName(a: ActivityCatalogItem): string {
+  return a.metValue ? `${a.name} (MET ${a.metValue})` : a.name;
+}
+
+// Shared inline body-region dropdown
+function BodyRegionDropdown({
+  value, onChange,
+}: { value: "upper" | "lower" | "full" | null; onChange: (v: "upper" | "lower" | "full") => void }) {
+  const [open, setOpen] = useState(false);
+  const current = BODY_REGION_OPTIONS.find(o => o.value === value);
+  return (
+    <View>
+      <TouchableOpacity onPress={() => setOpen(o => !o)}
+        style={{ flexDirection: "row", alignItems: "center", height: 48,
+          borderRadius: 10, borderWidth: 1, borderColor: open ? "#ff7a00" : "#2a2e3a",
+          backgroundColor: "#181c26", paddingHorizontal: 14 }}>
+        <Text style={{ flex: 1, color: current ? "#eceef2" : "#6b7280", fontSize: 15 }}>
+          {current?.label ?? "Select body region"}
+        </Text>
+        <Feather name={open ? "chevron-up" : "chevron-down"} size={16} color="#6b7280" />
+      </TouchableOpacity>
+      {open && (
+        <View style={{ marginTop: 3, borderRadius: 10, borderWidth: 1,
+          borderColor: "#1a1e28", backgroundColor: "#181c26", overflow: "hidden" }}>
+          {BODY_REGION_OPTIONS.map((o, i) => (
+            <TouchableOpacity key={o.value}
+              onPress={() => { onChange(o.value); setOpen(false); }}
+              style={{ paddingHorizontal: 14, paddingVertical: 13,
+                borderBottomWidth: i < BODY_REGION_OPTIONS.length - 1 ? 1 : 0,
+                borderBottomColor: "#1a1e28",
+                backgroundColor: value === o.value ? "rgba(255,122,0,0.08)" : "transparent" }}>
+              <Text style={{ color: value === o.value ? "#ff7a00" : "#eceef2",
+                fontWeight: value === o.value ? "700" : "400", fontSize: 14 }}>
+                {o.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────
+// Add Activity Modal
+// ─────────────────────────────────────────
 function AddActivityModal({
   visible, sessionId, date, onClose,
 }: { visible: boolean; sessionId: number; date: string; onClose: () => void }) {
-  const colors = useColors();
   const qc = useQueryClient();
-  const [activityType, setActivityType] = useState<"cardio" | "lifting">("cardio");
   const [search, setSearch] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<ActivityCatalogItem | null>(null);
   const [customName, setCustomName] = useState("");
   const [duration, setDuration] = useState("");
-  const [rpe, setRpe] = useState<number | null>(null);
+  const [rpeStr, setRpeStr] = useState("");
   const [bodyRegion, setBodyRegion] = useState<"upper" | "lower" | "full" | null>(null);
 
   const reset = () => {
-    setSearch(""); setSelectedActivity(null); setCustomName("");
-    setDuration(""); setRpe(null); setBodyRegion(null);
+    setSearch(""); setDropdownOpen(false); setSelectedActivity(null);
+    setCustomName(""); setDuration(""); setRpeStr(""); setBodyRegion(null);
   };
 
   const { data: catalog = [] } = useQuery<ActivityCatalogItem[]>({
@@ -138,12 +188,16 @@ function AddActivityModal({
     queryFn: () => apiFetch("/activities"),
   });
 
+  const isLifting = isLiftingActivity(selectedActivity);
+  const filtered = catalog.filter(a => a.name.toLowerCase().includes(search.toLowerCase())).slice(0, 15);
+
   const addMut = useMutation({
     mutationFn: () => {
       const name = selectedActivity?.name ?? customName.trim();
       const durationMinutes = Math.round(parseFloat(duration)) || null;
+      const rpe = parseFloat(rpeStr) || null;
 
-      if (activityType === "lifting") {
+      if (isLifting) {
         return apiFetch(`/workouts/sessions/${sessionId}/activities`, {
           method: "POST",
           body: {
@@ -155,7 +209,6 @@ function AddActivityModal({
           },
         });
       }
-      // cardio
       return apiFetch(`/workouts/sessions/${sessionId}/activities`, {
         method: "POST",
         body: {
@@ -175,125 +228,149 @@ function AddActivityModal({
     },
   });
 
-  const filtered = catalog.filter(a => a.name.toLowerCase().includes(search.toLowerCase())).slice(0, 12);
   const hasName = selectedActivity !== null || customName.trim().length > 0;
   const hasDuration = parseFloat(duration) > 0;
-  const liftingReady = activityType === "lifting" && rpe !== null && bodyRegion !== null;
-  const cardioReady = activityType === "cardio";
+  const liftingReady = isLifting && parseFloat(rpeStr) > 0 && bodyRegion !== null;
+  const cardioReady = !isLifting;
   const canSubmit = hasName && hasDuration && (liftingReady || cardioReady) && !addMut.isPending;
+
+  const lbl = { color: "#eceef2", fontSize: 14, fontWeight: "600" as const, marginBottom: 8 };
+  const hint = { color: "#6b7280", fontSize: 12, marginTop: 6 };
+  const inp: object = { height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#2a2e3a",
+    backgroundColor: "#181c26", paddingHorizontal: 14, color: "#eceef2", fontSize: 15 };
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
-        <View style={[s.rowBetween, { padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }]}>
-          <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>Log Activity</Text>
-          <TouchableOpacity onPress={onClose}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+        {/* Header */}
+        <View style={{ alignItems: "center", paddingTop: 18, paddingBottom: 10, paddingHorizontal: 44,
+          borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          <TouchableOpacity style={{ position: "absolute", right: 16, top: 16 }} onPress={onClose}>
+            <Feather name="x" size={22} color="#6b7280" />
+          </TouchableOpacity>
+          <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>Add Activity</Text>
+          <Text style={{ color: "#6b7280", fontSize: 13, marginTop: 3, textAlign: "center" }}>
+            Add a cardio, sports, or strength activity
+          </Text>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
 
-          {/* Activity type toggle */}
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>TYPE</Text>
-          <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
-            {(["cardio", "lifting"] as const).map(t => (
-              <TouchableOpacity key={t} onPress={() => { setActivityType(t); setSelectedActivity(null); setSearch(""); setRpe(null); }}
-                style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 8, borderWidth: 1,
-                  borderColor: activityType === t ? "#ff7a00" : "#1a1e28",
-                  backgroundColor: activityType === t ? "rgba(255,122,0,0.1)" : "#181c26" }}>
-                <Text style={{ color: activityType === t ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 13 }}>
-                  {t === "cardio" ? "Cardio / Sport" : "Lifting"}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
 
-          {/* Search catalog (cardio only) */}
-          {activityType === "cardio" && (
-            <>
-              <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>SEARCH ACTIVITY</Text>
-              <View style={[s.searchBar, { borderColor: "#1a1e28", backgroundColor: "#181c26" }]}>
-                <Feather name="search" size={15} color="#6b7280" />
-                <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
-                  placeholder="e.g. Running, Sparring..." placeholderTextColor="#6b7280"
-                  value={search} onChangeText={setSearch} />
-              </View>
-              {filtered.length > 0 && (
-                <View style={{ marginBottom: 14 }}>
-                  {filtered.map(a => (
-                    <TouchableOpacity key={a.id} style={[s.catalogItem, {
-                      borderColor: selectedActivity?.id === a.id ? "#ff7a00" : "#1a1e28",
-                      backgroundColor: selectedActivity?.id === a.id ? "rgba(255,122,0,0.1)" : "#181c26",
-                    }]} onPress={() => { setSelectedActivity(a); setCustomName(""); }}>
-                      <Text style={{ color: selectedActivity?.id === a.id ? "#ff7a00" : "#eceef2", fontWeight: "600", fontSize: 14 }}>{a.name}</Text>
-                      <Text style={{ color: "#6b7280", fontSize: 12 }}>
-                        {a.intensity} · MET {a.metValue ?? "?"}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+          {/* Select Activity dropdown */}
+          <View>
+            <Text style={lbl}>Select Activity</Text>
+            <TouchableOpacity onPress={() => setDropdownOpen(o => !o)}
+              style={{ flexDirection: "row", alignItems: "center", height: 48,
+                borderRadius: 10, borderWidth: 1,
+                borderColor: dropdownOpen ? "#ff7a00" : "#2a2e3a",
+                backgroundColor: "#181c26", paddingHorizontal: 14 }}>
+              <Text style={{ flex: 1, color: selectedActivity ? "#eceef2" : "#6b7280", fontSize: 15 }} numberOfLines={1}>
+                {selectedActivity ? activityDisplayName(selectedActivity) : "Search activities..."}
+              </Text>
+              <Feather name={dropdownOpen ? "chevron-up" : "chevron-down"} size={16} color="#6b7280" />
+            </TouchableOpacity>
+
+            {dropdownOpen && (
+              <View style={{ marginTop: 3, borderRadius: 10, borderWidth: 1,
+                borderColor: "#1a1e28", backgroundColor: "#181c26", overflow: "hidden" }}>
+                <View style={{ flexDirection: "row", alignItems: "center",
+                  paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+                  <Feather name="search" size={14} color="#6b7280" />
+                  <TextInput style={{ flex: 1, height: 42, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
+                    placeholder="Search activities..." placeholderTextColor="#6b7280"
+                    value={search} onChangeText={setSearch} autoFocus />
                 </View>
-              )}
-            </>
-          )}
-
-          {/* Name */}
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>
-            {activityType === "cardio" ? "OR CUSTOM NAME" : "EXERCISE NAME"}
-          </Text>
-          <TextInput style={[s.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 14 }]}
-            placeholder={activityType === "cardio" ? "Custom activity name" : "e.g. Bench Press, Squats"}
-            placeholderTextColor="#6b7280"
-            value={customName} onChangeText={t => { setCustomName(t); if (activityType === "cardio") setSelectedActivity(null); }} />
-
-          {/* Duration */}
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>DURATION (minutes)</Text>
-          <TextInput style={[s.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 14 }]}
-            placeholder="e.g. 45" placeholderTextColor="#6b7280"
-            keyboardType="decimal-pad" value={duration} onChangeText={setDuration} />
-
-          {/* RPE — cardio: optional, lifting: required session RPE */}
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>
-            {activityType === "lifting" ? "SESSION RPE (required)" : "EFFORT / RPE (optional)"}
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(r => (
-              <TouchableOpacity key={r} style={[s.rpeBtn, {
-                borderColor: rpe === r ? "#ff7a00" : "#1a1e28",
-                backgroundColor: rpe === r ? "rgba(255,122,0,0.1)" : "#181c26",
-              }]} onPress={() => setRpe(rpe === r ? null : r)}>
-                <Text style={{ color: rpe === r ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 14 }}>{r}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {rpe != null && <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 14 }}>RPE {rpe} — {INTENSITY_OPTS[rpe - 1]?.label}</Text>}
-          {rpe == null && <View style={{ marginBottom: 14 }} />}
-
-          {/* Body region — lifting only */}
-          {activityType === "lifting" && (
-            <>
-              <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>BODY REGION (required)</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
-                {BODY_REGIONS.map(br => (
-                  <TouchableOpacity key={br.value} onPress={() => setBodyRegion(br.value)}
-                    style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 8, borderWidth: 1,
-                      borderColor: bodyRegion === br.value ? "#ff7a00" : "#1a1e28",
-                      backgroundColor: bodyRegion === br.value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
-                    <Text style={{ color: bodyRegion === br.value ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 12 }}>{br.label}</Text>
+                {filtered.map((a, i) => (
+                  <TouchableOpacity key={a.id}
+                    onPress={() => { setSelectedActivity(a); setCustomName(""); setDropdownOpen(false); setSearch(""); }}
+                    style={{ paddingHorizontal: 14, paddingVertical: 12,
+                      borderBottomWidth: i < filtered.length - 1 ? 1 : 0,
+                      borderBottomColor: "#1a1e28",
+                      backgroundColor: selectedActivity?.id === a.id ? "rgba(255,122,0,0.08)" : "transparent" }}>
+                    <Text style={{ color: selectedActivity?.id === a.id ? "#ff7a00" : "#eceef2",
+                      fontWeight: "500", fontSize: 14 }}>
+                      {activityDisplayName(a)}
+                    </Text>
                   </TouchableOpacity>
                 ))}
+                {filtered.length === 0 && (
+                  <Text style={{ color: "#6b7280", padding: 14, fontSize: 13 }}>No results</Text>
+                )}
               </View>
-            </>
+            )}
+          </View>
+
+          {/* Lifting fields */}
+          {isLifting && (
+            <View style={{ gap: 14 }}>
+              <View style={{ backgroundColor: "#181c26", borderRadius: 8, padding: 12,
+                borderWidth: 1, borderColor: "#2a2e3a" }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>
+                  Session RPE method — training load = duration × RPE × region multiplier
+                </Text>
+              </View>
+
+              <View>
+                <Text style={lbl}>Session RPE (1–10) *</Text>
+                <TextInput style={inp} keyboardType="decimal-pad"
+                  placeholder="e.g. 7" placeholderTextColor="#6b7280"
+                  value={rpeStr} onChangeText={setRpeStr} />
+                <Text style={hint}>How hard was the session overall? 1 = very easy, 10 = maximal</Text>
+              </View>
+
+              <View>
+                <Text style={lbl}>Body Region</Text>
+                <BodyRegionDropdown value={bodyRegion} onChange={setBodyRegion} />
+              </View>
+            </View>
+          )}
+
+          {/* Cardio: OR custom name */}
+          {!isLifting && (
+            <View>
+              <Text style={{ color: "#6b7280", fontSize: 13, textAlign: "center", marginBottom: 12 }}>or</Text>
+              <Text style={lbl}>Custom Activity Name</Text>
+              <TextInput style={inp}
+                placeholder="e.g., Swimming" placeholderTextColor="#6b7280"
+                value={customName}
+                onChangeText={t => { setCustomName(t); setSelectedActivity(null); }} />
+            </View>
+          )}
+
+          {/* Duration */}
+          <View>
+            <Text style={lbl}>Duration (minutes) *</Text>
+            <TextInput style={inp} keyboardType="decimal-pad"
+              placeholder="e.g., 60" placeholderTextColor="#6b7280"
+              value={duration} onChangeText={setDuration} />
+          </View>
+
+          {/* RPE — cardio only */}
+          {!isLifting && (
+            <View>
+              <Text style={lbl}>Effort (RPE) — optional</Text>
+              <TextInput style={inp} keyboardType="decimal-pad"
+                placeholder="1–10" placeholderTextColor="#4b5563"
+                value={rpeStr} onChangeText={setRpeStr} />
+              <Text style={hint}>1 = very easy · 10 = max effort</Text>
+            </View>
           )}
 
           {addMut.error && (
-            <Text style={{ color: "#f87171", fontSize: 12, marginBottom: 10 }}>
+            <Text style={{ color: "#f87171", fontSize: 12 }}>
               {(addMut.error as Error).message}
             </Text>
           )}
 
           <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSubmit ? 1 : 0.4 }]}
             disabled={!canSubmit} onPress={() => addMut.mutate()}>
-            {addMut.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Log Activity</Text>}
+            {addMut.isPending
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+                  {isLifting ? "Add Lifting Session" : "Add Activity"}
+                </Text>}
           </TouchableOpacity>
-          <View style={{ height: 40 }} />
+          <View style={{ height: 30 }} />
         </ScrollView>
       </SafeAreaView>
     </Modal>
@@ -310,8 +387,8 @@ function EditActivityModal({
   const isLifting = activity.activityType === "lifting";
 
   const [duration, setDuration] = useState(String(activity.durationMinutes ?? ""));
-  const [rpe, setRpe] = useState<number | null>(
-    isLifting ? (activity.sessionRpe ?? null) : (activity.rpe ?? null)
+  const [rpeStr, setRpeStr] = useState(
+    String(isLifting ? (activity.sessionRpe ?? "") : (activity.rpe ?? ""))
   );
   const [bodyRegion, setBodyRegion] = useState<"upper" | "lower" | "full" | null>(
     (activity.bodyRegion as "upper" | "lower" | "full" | null) ?? null
@@ -319,6 +396,7 @@ function EditActivityModal({
 
   const patchMut = useMutation({
     mutationFn: () => {
+      const rpe = parseFloat(rpeStr) || null;
       const body: Record<string, unknown> = {
         durationMinutes: Math.round(parseFloat(duration)) || activity.durationMinutes,
       };
@@ -338,56 +416,86 @@ function EditActivityModal({
 
   const canSave = parseFloat(duration) > 0 && !patchMut.isPending;
 
+  const lbl = { color: "#eceef2", fontSize: 14, fontWeight: "600" as const, marginBottom: 8 };
+  const hint = { color: "#6b7280", fontSize: 12, marginTop: 6 };
+  const inp: object = { height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#2a2e3a",
+    backgroundColor: "#181c26", paddingHorizontal: 14, color: "#eceef2", fontSize: 15 };
+
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
-        <View style={[s.rowBetween, { padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }]}>
+        {/* Header */}
+        <View style={{ alignItems: "center", paddingTop: 18, paddingBottom: 10, paddingHorizontal: 44,
+          borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          <TouchableOpacity style={{ position: "absolute", right: 16, top: 16 }} onPress={onClose}>
+            <Feather name="x" size={22} color="#6b7280" />
+          </TouchableOpacity>
           <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>Edit Activity</Text>
-          <TouchableOpacity onPress={onClose}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
-        </View>
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <Text style={{ color: "#6b7280", fontSize: 13, fontWeight: "600", marginBottom: 14 }}>{activity.name}</Text>
-
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>DURATION (minutes)</Text>
-          <TextInput
-            style={[s.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 14 }]}
-            keyboardType="decimal-pad" value={duration} onChangeText={setDuration}
-          />
-
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>
-            {isLifting ? "SESSION RPE" : "EFFORT / RPE"}
+          <Text style={{ color: "#6b7280", fontSize: 13, marginTop: 3, textAlign: "center" }}>
+            Update activity details and recalculate calories
           </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(r => (
-              <TouchableOpacity key={r} style={[s.rpeBtn, {
-                borderColor: rpe === r ? "#ff7a00" : "#1a1e28",
-                backgroundColor: rpe === r ? "rgba(255,122,0,0.1)" : "#181c26",
-              }]} onPress={() => setRpe(rpe === r ? null : r)}>
-                <Text style={{ color: rpe === r ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 14 }}>{r}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {rpe != null && <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 14 }}>RPE {rpe} — {INTENSITY_OPTS[rpe - 1]?.label}</Text>}
-          {rpe == null && <View style={{ marginBottom: 14 }} />}
+        </View>
 
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+
+          {/* Activity display (read-only) */}
+          <View>
+            <Text style={lbl}>Activity</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", height: 48,
+              borderRadius: 10, borderWidth: 1, borderColor: "#2a2e3a",
+              backgroundColor: "#181c26", paddingHorizontal: 14 }}>
+              <Text style={{ flex: 1, color: "#eceef2", fontSize: 15 }} numberOfLines={1}>
+                {activity.name}
+              </Text>
+              <Feather name="chevron-down" size={16} color="#374151" />
+            </View>
+          </View>
+
+          {/* Lifting: info box → Session RPE → Body Region → Duration */}
           {isLifting && (
             <>
-              <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 }}>BODY REGION</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
-                {BODY_REGIONS.map(br => (
-                  <TouchableOpacity key={br.value} onPress={() => setBodyRegion(br.value)}
-                    style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 8, borderWidth: 1,
-                      borderColor: bodyRegion === br.value ? "#ff7a00" : "#1a1e28",
-                      backgroundColor: bodyRegion === br.value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
-                    <Text style={{ color: bodyRegion === br.value ? "#ff7a00" : "#6b7280", fontWeight: "700", fontSize: 12 }}>{br.label}</Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={{ backgroundColor: "#181c26", borderRadius: 8, padding: 12,
+                borderWidth: 1, borderColor: "#2a2e3a" }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>
+                  Session RPE method — training load = duration × RPE × region multiplier
+                </Text>
+              </View>
+
+              <View>
+                <Text style={lbl}>Session RPE (1–10)</Text>
+                <TextInput style={inp} keyboardType="decimal-pad"
+                  placeholder="1–10" placeholderTextColor="#4b5563"
+                  value={rpeStr} onChangeText={setRpeStr} />
+                <Text style={hint}>1 = very easy, 10 = maximal</Text>
+              </View>
+
+              <View>
+                <Text style={lbl}>Body Region</Text>
+                <BodyRegionDropdown value={bodyRegion} onChange={setBodyRegion} />
               </View>
             </>
           )}
 
+          {/* Duration */}
+          <View>
+            <Text style={lbl}>Duration (minutes){isLifting ? "" : ""}</Text>
+            <TextInput style={inp} keyboardType="decimal-pad"
+              value={duration} onChangeText={setDuration} />
+          </View>
+
+          {/* Cardio: Effort RPE below duration */}
+          {!isLifting && (
+            <View>
+              <Text style={lbl}>Effort (RPE) — optional</Text>
+              <TextInput style={inp} keyboardType="decimal-pad"
+                placeholder="1–10" placeholderTextColor="#4b5563"
+                value={rpeStr} onChangeText={setRpeStr} />
+              <Text style={hint}>1 = very easy · 10 = max effort</Text>
+            </View>
+          )}
+
           {patchMut.error && (
-            <Text style={{ color: "#f87171", fontSize: 12, marginBottom: 10 }}>
+            <Text style={{ color: "#f87171", fontSize: 12 }}>
               {(patchMut.error as Error).message}
             </Text>
           )}
@@ -396,9 +504,9 @@ function EditActivityModal({
             disabled={!canSave} onPress={() => patchMut.mutate()}>
             {patchMut.isPending
               ? <ActivityIndicator color="#fff" size="small" />
-              : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Save Changes</Text>}
+              : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Save Changes</Text>}
           </TouchableOpacity>
-          <View style={{ height: 40 }} />
+          <View style={{ height: 30 }} />
         </ScrollView>
       </SafeAreaView>
     </Modal>
