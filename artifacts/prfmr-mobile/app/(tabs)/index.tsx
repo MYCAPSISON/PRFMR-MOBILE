@@ -1300,6 +1300,13 @@ function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, s
 // ─────────────────────────────────────────
 // Edit Food Modal
 // ─────────────────────────────────────────
+const MEAL_META: { value: string; label: string; icon: string }[] = [
+  { value: "breakfast", label: "Breakfast", icon: "coffee" },
+  { value: "lunch",     label: "Lunch",     icon: "sun" },
+  { value: "dinner",    label: "Dinner",    icon: "moon" },
+  { value: "snack",     label: "Snack",     icon: "package" },
+];
+
 function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: string; onClose: () => void }) {
   const qc = useQueryClient();
   const unit = getCoreFoodUnit(entry.name);
@@ -1307,6 +1314,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   const refGrams = entry.normalizedGrams || baseGrams;
 
   // Infer initial count from stored grams
+  const initSize: UnitSize = unit?.defaultSize ?? "medium";
   function inferCount(u: NonNullable<typeof unit>, s: UnitSize): number {
     if (u.supportsSize && u.gramsBySize) {
       return Math.max(1, Math.round(baseGrams / u.gramsBySize[s]));
@@ -1314,9 +1322,12 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
     return Math.max(1, Math.round(baseGrams / (u.gramsPerUnit ?? 100)));
   }
 
-  const initSize: UnitSize = unit?.defaultSize ?? "medium";
+  // "count" | "grams" — count-mode foods default to count, others to grams
+  const [amountMode, setAmountMode] = useState<"count" | "grams">(unit ? "count" : "grams");
   const [count, setCount] = useState(unit ? inferCount(unit, initSize) : 1);
   const [size, setSize] = useState<UnitSize>(initSize);
+  const [mealOpen, setMealOpen] = useState(false);
+  const [meal, setMeal] = useState(entry.meal ?? "breakfast");
 
   const [grams, setGrams] = useState(String(baseGrams));
   const [cal, setCal] = useState(String(entry.calories));
@@ -1325,7 +1336,6 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   const [fat, setFat] = useState(String(entry.fat));
   const [fibre, setFibre] = useState(String(entry.fibre ?? 0));
 
-  // Recalc all macros proportionally whenever resolved grams changes
   function recalcFromGrams(newGramsStr: string) {
     setGrams(newGramsStr);
     const g = parseFloat(newGramsStr);
@@ -1338,18 +1348,19 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
     setFibre(String(Math.round((entry.fibre ?? 0) * r)));
   }
 
-  // In count mode, sync grams whenever count/size changes
+  // In count mode, sync grams + macros whenever count/size changes
   React.useEffect(() => {
-    if (unit) {
+    if (unit && amountMode === "count") {
       recalcFromGrams(String(computeUnitGrams(unit, count, size)));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count, size]);
+  }, [count, size, amountMode]);
 
   const patchMut = useMutation({
     mutationFn: () => apiFetch(`/food/${entry.id}`, {
       method: "PATCH",
       body: {
+        meal,
         grams: Math.round(parseFloat(grams) || baseGrams),
         calories: Math.round(parseFloat(cal) || 0),
         protein: Math.round(parseFloat(protein) || 0),
@@ -1366,14 +1377,15 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   });
 
   const canSave = parseFloat(cal) >= 0 && !patchMut.isPending;
+  const currentMeal = MEAL_META.find(m => m.value === meal) ?? MEAL_META[0];
 
-  const fieldStyle = {
+  const fieldStyle: object = {
     height: 46, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
     backgroundColor: "#181c26", paddingHorizontal: 12, color: "#eceef2", fontSize: 15,
   };
-  const labelStyle = { color: "#6b7280", fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.5, marginBottom: 6 };
+  const labelStyle = { color: "#9ca3af", fontSize: 13, fontWeight: "500" as const, marginBottom: 6 };
 
-  const SIZE_LABELS: { value: UnitSize; label: string }[] = [
+  const SIZE_OPTIONS: { value: UnitSize; label: string }[] = [
     { value: "small", label: "Small" },
     { value: "medium", label: "Medium" },
     { value: "large", label: "Large" },
@@ -1382,62 +1394,96 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        {/* Header */}
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-          <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>Edit Food</Text>
-          <TouchableOpacity onPress={onClose}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+          paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700", flex: 1 }} numberOfLines={1}>
+            Edit: {entry.name}
+          </Text>
+          <TouchableOpacity onPress={onClose} style={{ marginLeft: 12 }}>
+            <Feather name="x" size={22} color="#6b7280" />
+          </TouchableOpacity>
         </View>
+
         <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
-            <Text style={{ color: "#ff7a00", fontWeight: "700", fontSize: 14, marginBottom: 4 }} numberOfLines={1}>{entry.name}</Text>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
 
-            {unit ? (
-              /* ── Count mode ── */
-              <View style={{ gap: 12 }}>
-                <Text style={labelStyle}>HOW MANY?</Text>
-
-                {/* Count stepper */}
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity
-                    onPress={() => setCount(c => Math.max(1, c - 1))}
-                    style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
-                      borderColor: "#1a1e28", backgroundColor: "#181c26",
-                      alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: "#eceef2", fontSize: 24, fontWeight: "300" }}>−</Text>
-                  </TouchableOpacity>
-                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", height: 52,
-                    borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
-                    <Text style={{ color: "#eceef2", fontSize: 22, fontWeight: "700" }}>
-                      {count}{" "}
-                      <Text style={{ fontSize: 14, fontWeight: "400", color: "#9ca3af" }}>
-                        {count === 1 ? unit.unitLabel : unit.unitLabel + "s"}
+            {/* Meal selector */}
+            <View>
+              <Text style={labelStyle}>Meal</Text>
+              <TouchableOpacity
+                onPress={() => setMealOpen(o => !o)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 10,
+                  height: 48, borderRadius: 10, borderWidth: 2,
+                  borderColor: mealOpen ? "#ff7a00" : "#2a2e3a",
+                  backgroundColor: "#181c26", paddingHorizontal: 14 }}>
+                <Feather name={currentMeal.icon as any} size={16} color="#ff7a00" />
+                <Text style={{ flex: 1, color: "#eceef2", fontWeight: "600", fontSize: 15 }}>
+                  {currentMeal.label}
+                </Text>
+                <Feather name={mealOpen ? "chevron-up" : "chevron-down"} size={16} color="#6b7280" />
+              </TouchableOpacity>
+              {mealOpen && (
+                <View style={{ marginTop: 4, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                  backgroundColor: "#181c26", overflow: "hidden" }}>
+                  {MEAL_META.map(m => (
+                    <TouchableOpacity key={m.value}
+                      onPress={() => { setMeal(m.value); setMealOpen(false); }}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 12,
+                        paddingHorizontal: 14, paddingVertical: 13,
+                        borderBottomWidth: m.value === "snack" ? 0 : 1, borderBottomColor: "#1a1e28",
+                        backgroundColor: meal === m.value ? "rgba(255,122,0,0.08)" : "transparent" }}>
+                      <Feather name={m.icon as any} size={15} color={meal === m.value ? "#ff7a00" : "#6b7280"} />
+                      <Text style={{ color: meal === m.value ? "#ff7a00" : "#eceef2",
+                        fontWeight: meal === m.value ? "700" : "400", fontSize: 14 }}>
+                        {m.label}
                       </Text>
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setCount(c => c + 1)}
-                    style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
-                      borderColor: "#1a1e28", backgroundColor: "#181c26",
-                      alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: "#ff7a00", fontSize: 24, fontWeight: "300" }}>+</Text>
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
                 </View>
+              )}
+            </View>
 
-                {/* Size selector */}
+            {/* Amount + Count/Grams toggle */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={[labelStyle, { marginBottom: 0, fontSize: 14, fontWeight: "600", color: "#eceef2" }]}>
+                Amount
+              </Text>
+              {unit && (
+                <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden",
+                  borderWidth: 1, borderColor: "#2a2e3a" }}>
+                  {(["count", "grams"] as const).map(mode => (
+                    <TouchableOpacity key={mode} onPress={() => setAmountMode(mode)}
+                      style={{ paddingHorizontal: 16, paddingVertical: 7,
+                        backgroundColor: amountMode === mode ? "#ff7a00" : "#181c26" }}>
+                      <Text style={{ color: amountMode === mode ? "#fff" : "#9ca3af",
+                        fontWeight: "700", fontSize: 13, textTransform: "capitalize" }}>
+                        {mode === "count" ? "Count" : "Grams"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {amountMode === "count" && unit ? (
+              <View style={{ gap: 12 }}>
+                {/* Size pills */}
                 {unit.supportsSize && (
-                  <View style={{ gap: 6 }}>
-                    <Text style={labelStyle}>SIZE</Text>
+                  <View>
+                    <Text style={labelStyle}>Size</Text>
                     <View style={{ flexDirection: "row", gap: 8 }}>
-                      {SIZE_LABELS.map(({ value, label }) => (
+                      {SIZE_OPTIONS.map(({ value, label }) => (
                         <TouchableOpacity key={value} onPress={() => setSize(value)}
                           style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
                             borderWidth: 1,
-                            borderColor: size === value ? "#ff7a00" : "#1a1e28",
-                            backgroundColor: size === value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
+                            borderColor: size === value ? "#ff7a00" : "#2a2e3a",
+                            backgroundColor: size === value ? "rgba(255,122,0,0.15)" : "#181c26" }}>
                           <Text style={{ color: size === value ? "#ff7a00" : "#6b7280",
                             fontWeight: "700", fontSize: 13 }}>{label}</Text>
                           {unit.gramsBySize && (
-                            <Text style={{ color: size === value ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
+                            <Text style={{ color: size === value ? "rgba(255,122,0,0.7)" : "#374151",
+                              fontSize: 11, marginTop: 2 }}>
                               {unit.gramsBySize[value]}g
                             </Text>
                           )}
@@ -1447,42 +1493,71 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
                   </View>
                 )}
 
-                <Text style={{ color: "#4b5563", fontSize: 12, textAlign: "center" }}>
-                  = {grams}g total
-                </Text>
+                {/* Count stepper row */}
+                <View>
+                  <Text style={labelStyle}>{unit.unitLabel.charAt(0).toUpperCase() + unit.unitLabel.slice(1)}s</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))}
+                      style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1,
+                        borderColor: "#2a2e3a", backgroundColor: "#181c26",
+                        alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: "#eceef2", fontSize: 22, lineHeight: 26 }}>−</Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: "#eceef2", fontSize: 28, fontWeight: "700", minWidth: 36, textAlign: "center" }}>
+                      {count}
+                    </Text>
+                    <TouchableOpacity onPress={() => setCount(c => c + 1)}
+                      style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1,
+                        borderColor: "#2a2e3a", backgroundColor: "#181c26",
+                        alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: "#ff7a00", fontSize: 22, lineHeight: 26 }}>+</Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: "#6b7280", fontSize: 13, marginLeft: 4 }}>≈{grams}g total</Text>
+                  </View>
+                </View>
               </View>
             ) : (
-              /* ── Grams mode ── */
+              /* Grams mode */
               <View>
-                <Text style={labelStyle}>GRAMS (auto-recalculates macros)</Text>
+                <Text style={labelStyle}>Grams</Text>
                 <TextInput style={fieldStyle} keyboardType="decimal-pad" value={grams} onChangeText={recalcFromGrams} />
               </View>
             )}
 
-            {/* Macro fields (always shown, editable for fine-tuning) */}
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={labelStyle}>CALORIES</Text>
-                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={cal} onChangeText={setCal} />
+            {/* Macro grid — matches web app: Grams+Calories | Protein+Carbs | Fat+Fibre */}
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={labelStyle}>Grams</Text>
+                  <TextInput style={fieldStyle} keyboardType="decimal-pad" value={grams}
+                    onChangeText={amountMode === "grams" ? recalcFromGrams : setGrams}
+                    editable={amountMode === "grams"} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={labelStyle}>Calories</Text>
+                  <TextInput style={fieldStyle} keyboardType="decimal-pad" value={cal} onChangeText={setCal} />
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={labelStyle}>PROTEIN (g)</Text>
-                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={protein} onChangeText={setProtein} />
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={labelStyle}>Protein (g)</Text>
+                  <TextInput style={fieldStyle} keyboardType="decimal-pad" value={protein} onChangeText={setProtein} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={labelStyle}>Carbs (g)</Text>
+                  <TextInput style={fieldStyle} keyboardType="decimal-pad" value={carbs} onChangeText={setCarbs} />
+                </View>
               </View>
-            </View>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={labelStyle}>CARBS (g)</Text>
-                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={carbs} onChangeText={setCarbs} />
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={labelStyle}>Fat (g)</Text>
+                  <TextInput style={fieldStyle} keyboardType="decimal-pad" value={fat} onChangeText={setFat} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={labelStyle}>Fibre (g)</Text>
+                  <TextInput style={fieldStyle} keyboardType="decimal-pad" value={fibre} onChangeText={setFibre} />
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={labelStyle}>FAT (g)</Text>
-                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={fat} onChangeText={setFat} />
-              </View>
-            </View>
-            <View>
-              <Text style={labelStyle}>FIBRE (g)</Text>
-              <TextInput style={fieldStyle} keyboardType="decimal-pad" value={fibre} onChangeText={setFibre} />
             </View>
 
             {patchMut.error && (
@@ -1490,12 +1565,12 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
             )}
 
             <TouchableOpacity
-              style={{ height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center",
+              style={{ height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
                 backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, marginTop: 4 }}
               disabled={!canSave} onPress={() => patchMut.mutate()}>
               {patchMut.isPending
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Save Changes</Text>}
+                : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Save Changes</Text>}
             </TouchableOpacity>
             <View style={{ height: 20 }} />
           </ScrollView>
