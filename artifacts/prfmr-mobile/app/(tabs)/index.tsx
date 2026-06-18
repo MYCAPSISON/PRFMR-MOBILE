@@ -1302,8 +1302,21 @@ function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, s
 // ─────────────────────────────────────────
 function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const unit = getCoreFoodUnit(entry.name);
   const baseGrams = entry.grams || 100;
   const refGrams = entry.normalizedGrams || baseGrams;
+
+  // Infer initial count from stored grams
+  function inferCount(u: NonNullable<typeof unit>, s: UnitSize): number {
+    if (u.supportsSize && u.gramsBySize) {
+      return Math.max(1, Math.round(baseGrams / u.gramsBySize[s]));
+    }
+    return Math.max(1, Math.round(baseGrams / (u.gramsPerUnit ?? 100)));
+  }
+
+  const initSize: UnitSize = unit?.defaultSize ?? "medium";
+  const [count, setCount] = useState(unit ? inferCount(unit, initSize) : 1);
+  const [size, setSize] = useState<UnitSize>(initSize);
 
   const [grams, setGrams] = useState(String(baseGrams));
   const [cal, setCal] = useState(String(entry.calories));
@@ -1312,6 +1325,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   const [fat, setFat] = useState(String(entry.fat));
   const [fibre, setFibre] = useState(String(entry.fibre ?? 0));
 
+  // Recalc all macros proportionally whenever resolved grams changes
   function recalcFromGrams(newGramsStr: string) {
     setGrams(newGramsStr);
     const g = parseFloat(newGramsStr);
@@ -1323,6 +1337,14 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
     setFat(String(Math.round(entry.fat * r)));
     setFibre(String(Math.round((entry.fibre ?? 0) * r)));
   }
+
+  // In count mode, sync grams whenever count/size changes
+  React.useEffect(() => {
+    if (unit) {
+      recalcFromGrams(String(computeUnitGrams(unit, count, size)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, size]);
 
   const patchMut = useMutation({
     mutationFn: () => apiFetch(`/food/${entry.id}`, {
@@ -1351,6 +1373,12 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   };
   const labelStyle = { color: "#6b7280", fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.5, marginBottom: 6 };
 
+  const SIZE_LABELS: { value: UnitSize; label: string }[] = [
+    { value: "small", label: "Small" },
+    { value: "medium", label: "Medium" },
+    { value: "large", label: "Large" },
+  ];
+
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
@@ -1363,11 +1391,75 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
           <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
             <Text style={{ color: "#ff7a00", fontWeight: "700", fontSize: 14, marginBottom: 4 }} numberOfLines={1}>{entry.name}</Text>
 
-            <View>
-              <Text style={labelStyle}>GRAMS (auto-recalculates macros)</Text>
-              <TextInput style={fieldStyle} keyboardType="decimal-pad" value={grams} onChangeText={recalcFromGrams} />
-            </View>
+            {unit ? (
+              /* ── Count mode ── */
+              <View style={{ gap: 12 }}>
+                <Text style={labelStyle}>HOW MANY?</Text>
 
+                {/* Count stepper */}
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity
+                    onPress={() => setCount(c => Math.max(1, c - 1))}
+                    style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
+                      borderColor: "#1a1e28", backgroundColor: "#181c26",
+                      alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: "#eceef2", fontSize: 24, fontWeight: "300" }}>−</Text>
+                  </TouchableOpacity>
+                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", height: 52,
+                    borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+                    <Text style={{ color: "#eceef2", fontSize: 22, fontWeight: "700" }}>
+                      {count}{" "}
+                      <Text style={{ fontSize: 14, fontWeight: "400", color: "#9ca3af" }}>
+                        {count === 1 ? unit.unitLabel : unit.unitLabel + "s"}
+                      </Text>
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setCount(c => c + 1)}
+                    style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
+                      borderColor: "#1a1e28", backgroundColor: "#181c26",
+                      alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: "#ff7a00", fontSize: 24, fontWeight: "300" }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Size selector */}
+                {unit.supportsSize && (
+                  <View style={{ gap: 6 }}>
+                    <Text style={labelStyle}>SIZE</Text>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      {SIZE_LABELS.map(({ value, label }) => (
+                        <TouchableOpacity key={value} onPress={() => setSize(value)}
+                          style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
+                            borderWidth: 1,
+                            borderColor: size === value ? "#ff7a00" : "#1a1e28",
+                            backgroundColor: size === value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
+                          <Text style={{ color: size === value ? "#ff7a00" : "#6b7280",
+                            fontWeight: "700", fontSize: 13 }}>{label}</Text>
+                          {unit.gramsBySize && (
+                            <Text style={{ color: size === value ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
+                              {unit.gramsBySize[value]}g
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                <Text style={{ color: "#4b5563", fontSize: 12, textAlign: "center" }}>
+                  = {grams}g total
+                </Text>
+              </View>
+            ) : (
+              /* ── Grams mode ── */
+              <View>
+                <Text style={labelStyle}>GRAMS (auto-recalculates macros)</Text>
+                <TextInput style={fieldStyle} keyboardType="decimal-pad" value={grams} onChangeText={recalcFromGrams} />
+              </View>
+            )}
+
+            {/* Macro fields (always shown, editable for fine-tuning) */}
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}>
                 <Text style={labelStyle}>CALORIES</Text>
