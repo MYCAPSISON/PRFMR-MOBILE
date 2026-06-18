@@ -15,6 +15,7 @@ import { apiFetch } from "@/lib/api";
 import { useRouter } from "expo-router";
 import Svg, { Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText } from "react-native-svg";
 import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
+import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/coreFoodUnits";
 
 // ─────────────────────────────────────────
 // Types
@@ -1028,6 +1029,27 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   food: NormalizedFood; grams: string; onGramsChange: (g: string) => void;
   onConfirm: () => void; onBack: () => void; isPending: boolean;
 }) {
+  const unit = getCoreFoodUnit(food.name);
+  const [count, setCount] = useState(unit ? unit.defaultCount : 1);
+  const [size, setSize] = useState<UnitSize>(unit?.defaultSize ?? "medium");
+
+  // Sync computed grams to parent whenever count/size changes (count mode)
+  React.useEffect(() => {
+    if (unit) {
+      onGramsChange(String(computeUnitGrams(unit, count, size)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, size]);
+
+  // Reset count/size when a different food is selected
+  React.useEffect(() => {
+    if (unit) {
+      setCount(unit.defaultCount);
+      setSize(unit.defaultSize ?? "medium");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [food.name]);
+
   const g = parseFloat(grams) || 100;
   const r = g / 100;
   const cal = Math.round(food.caloriesPer100g * r);
@@ -1035,16 +1057,96 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   const carbs = rd1(food.carbsPer100g * r);
   const fat = rd1(food.fatPer100g * r);
   const fibre = rd1(food.fibrePer100g * r);
+
+  const SIZE_LABELS: { value: UnitSize; label: string }[] = [
+    { value: "small", label: "Small" },
+    { value: "medium", label: "Medium" },
+    { value: "large", label: "Large" },
+  ];
+
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
       <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "700" }}>{food.name}</Text>
       {food.brand ? <Text style={{ color: "#6b7280" }}>{food.brand}</Text> : null}
-      <Text style={{ color: "#6b7280", fontSize: 13, fontWeight: "700", marginTop: 8 }}>SERVING SIZE (grams)</Text>
-      <TextInput
-        style={{ height: 52, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-          backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 22, textAlign: "center", color: "#eceef2" }}
-        value={grams} onChangeText={onGramsChange} keyboardType="numeric" selectTextOnFocus
-      />
+
+      {unit ? (
+        /* ── Count mode ── */
+        <View style={{ gap: 12 }}>
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>
+            HOW MANY?
+          </Text>
+
+          {/* Count stepper */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 0 }}>
+            <TouchableOpacity
+              onPress={() => setCount(c => Math.max(1, c - 1))}
+              style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
+                borderColor: "#1a1e28", backgroundColor: "#181c26",
+                alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#eceef2", fontSize: 24, fontWeight: "300" }}>−</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", height: 52,
+              borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+              <Text style={{ color: "#eceef2", fontSize: 22, fontWeight: "700" }}>
+                {count} <Text style={{ fontSize: 14, fontWeight: "400", color: "#9ca3af" }}>
+                  {count === 1 ? unit.unitLabel : unit.unitLabel + "s"}
+                </Text>
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setCount(c => c + 1)}
+              style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
+                borderColor: "#1a1e28", backgroundColor: "#181c26",
+                alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#ff7a00", fontSize: 24, fontWeight: "300" }}>+</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Size selector */}
+          {unit.supportsSize && (
+            <View style={{ gap: 6 }}>
+              <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>SIZE</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {SIZE_LABELS.map(({ value, label }) => (
+                  <TouchableOpacity key={value} onPress={() => setSize(value)}
+                    style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
+                      borderWidth: 1,
+                      borderColor: size === value ? "#ff7a00" : "#1a1e28",
+                      backgroundColor: size === value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
+                    <Text style={{ color: size === value ? "#ff7a00" : "#6b7280",
+                      fontWeight: "700", fontSize: 13 }}>{label}</Text>
+                    {unit.gramsBySize && (
+                      <Text style={{ color: size === value ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
+                        {unit.gramsBySize[value]}g
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Resolved grams badge */}
+          <Text style={{ color: "#4b5563", fontSize: 12, textAlign: "center" }}>
+            = {g}g total
+          </Text>
+        </View>
+      ) : (
+        /* ── Grams mode ── */
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>
+            SERVING SIZE (grams)
+          </Text>
+          <TextInput
+            style={{ height: 52, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+              backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 22,
+              textAlign: "center", color: "#eceef2" }}
+            value={grams} onChangeText={onGramsChange} keyboardType="numeric" selectTextOnFocus
+          />
+        </View>
+      )}
+
+      {/* Macro summary */}
       <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
         borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", padding: 16 }}>
         {[
@@ -1061,9 +1163,13 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
           </View>
         ))}
       </View>
+
       <TouchableOpacity onPress={onConfirm} disabled={isPending}
-        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
-        {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
+        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12,
+          alignItems: "center", justifyContent: "center" }}>
+        {isPending
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
       </TouchableOpacity>
       <TouchableOpacity onPress={onBack} style={{ alignItems: "center", padding: 12 }}>
         <Text style={{ color: "#6b7280" }}>← Back</Text>
