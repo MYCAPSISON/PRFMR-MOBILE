@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
   KeyboardAvoidingView,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -802,6 +803,289 @@ function FightCampHero({ date }: { date: string }) {
     </>
   );
 }
+
+// ─────────────────────────────────────────
+// Morning Check-In Gate — "Start your day" modal
+// ─────────────────────────────────────────
+function MorningCheckInGate({ date }: { date: string }) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const colors = useColors();
+  const qc = useQueryClient();
+
+  const [visible, setVisible] = useState(false);
+  const [seenLoaded, setSeenLoaded] = useState(false);
+
+  // Sleep form state
+  const [showSleepForm, setShowSleepForm] = useState(false);
+  const [gateSlH, setGateSlH] = useState("");
+  const [gateSlQ, setGateSlQ] = useState<number | null>(null);
+
+  // Weight form state
+  const [showWeightForm, setShowWeightForm] = useState(false);
+  const [gateWtVal, setGateWtVal] = useState("");
+
+  const today = format(new Date(), "yyyy-MM-dd");
+  const storageKey = `morningGate:${user?.id ?? "anon"}:${today}`;
+
+  const { data: status } = useQuery<MorningStatus>({
+    queryKey: ["morning-status", date],
+    queryFn: () => apiFetch(`/me/morning-status/${date}`),
+  });
+
+  // Load seen state once on mount
+  useEffect(() => {
+    AsyncStorage.getItem(storageKey).then(val => {
+      setSeenLoaded(true);
+      if (!val) setVisible(true);
+    });
+  }, [storageKey]);
+
+  // Auto-dismiss when allDone
+  const allDone = !!(status?.hasSleep && status?.hasWeight && status?.hasPlannedTraining);
+  useEffect(() => {
+    if (allDone && visible) markSeen();
+  }, [allDone]);
+
+  function markSeen() {
+    AsyncStorage.setItem(storageKey, "1");
+    setVisible(false);
+    setShowSleepForm(false);
+    setShowWeightForm(false);
+  }
+
+  const sleepMut = useMutation({
+    mutationFn: (d: { hoursSlept: number; sleepQuality: number | null }) =>
+      apiFetch(`/me/sleep/${date}`, { method: "PUT", body: d }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["morning-status", date] });
+      qc.invalidateQueries({ queryKey: ["readiness", date] });
+      qc.invalidateQueries({ queryKey: ["fuel", date] });
+      setShowSleepForm(false); setGateSlH(""); setGateSlQ(null);
+    },
+  });
+
+  const weightMut = useMutation({
+    mutationFn: (w: number) => apiFetch("/weights", { method: "POST", body: { date, weight: w } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["morning-status", date] });
+      qc.invalidateQueries({ queryKey: ["weight-cut"] });
+      qc.invalidateQueries({ queryKey: ["weights-range"] });
+      qc.invalidateQueries({ queryKey: ["readiness", date] });
+      qc.invalidateQueries({ queryKey: ["fuel", date] });
+      setShowWeightForm(false); setGateWtVal("");
+    },
+  });
+
+  // Only show on today's date, after seen-state is loaded
+  if (date !== today || !seenLoaded || !visible || !status) return null;
+
+  const incomplete = !allDone;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={markSeen}
+      statusBarTranslucent
+    >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <View style={{
+          flex: 1, backgroundColor: "rgba(0,0,0,0.7)",
+          justifyContent: "center", alignItems: "center", padding: 20,
+        }}>
+          <View style={{
+            backgroundColor: "#13161d", borderRadius: 20, width: "100%", maxWidth: 400,
+            borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden",
+          }}>
+            {/* Header */}
+            <View style={{ padding: 20, paddingBottom: 0 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>Start your day</Text>
+                <TouchableOpacity onPress={markSeen} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Feather name="x" size={20} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: "#6b7280", fontSize: 13, lineHeight: 18 }}>
+                Complete your check-in to get accurate readiness and fuel targets
+              </Text>
+            </View>
+
+            <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ padding: 16 }}>
+              {/* ── SLEEP ROW ── */}
+              {status.hasSleep ? (
+                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
+                  <Feather name="moon" size={16} color="#ff7a00" />
+                  <Text style={{ color: "#6b7280", fontSize: 14, flex: 1, marginLeft: 10 }}>Sleep logged</Text>
+                  <Feather name="check" size={16} color="#4ade80" />
+                </View>
+              ) : showSleepForm ? (
+                <View style={{ backgroundColor: "#0f1117", borderRadius: 12, padding: 12,
+                  borderWidth: 1, borderColor: "#ff7a0040", marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+                    <Feather name="moon" size={14} color="#ff7a00" />
+                    <Text style={{ color: "#6b7280", fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Hours slept</Text>
+                  </View>
+                  <TextInput
+                    style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28",
+                      borderRadius: 8, color: "#eceef2", padding: 10, fontSize: 15, marginBottom: 10 }}
+                    placeholder="e.g. 7.5"
+                    placeholderTextColor="#6b7280"
+                    keyboardType="decimal-pad"
+                    value={gateSlH}
+                    onChangeText={setGateSlH}
+                    autoFocus
+                  />
+                  <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Quality</Text>
+                  <View style={{ flexDirection: "row", gap: 6, marginBottom: 12 }}>
+                    {[1, 2, 3, 4, 5].map(q => (
+                      <TouchableOpacity key={q} onPress={() => setGateSlQ(q)}
+                        style={{ flex: 1, alignItems: "center", padding: 6 }}>
+                        <Text style={{ fontSize: 20 }}>
+                          {(gateSlQ ?? 0) >= q ? "⭐" : "☆"}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => { const h = parseFloat(gateSlH); if (!isNaN(h) && h > 0) sleepMut.mutate({ hoursSlept: h, sleepQuality: gateSlQ }); }}
+                      disabled={sleepMut.isPending || !gateSlH}
+                      style={{ flex: 1, backgroundColor: "#ff7a00", borderRadius: 8, padding: 10, alignItems: "center",
+                        opacity: (!gateSlH || sleepMut.isPending) ? 0.5 : 1 }}>
+                      <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
+                        {sleepMut.isPending ? "Saving…" : "Save"}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => { setShowSleepForm(false); setGateSlH(""); setGateSlQ(null); }}
+                      style={{ paddingHorizontal: 14, justifyContent: "center" }}>
+                      <Text style={{ color: "#6b7280", fontSize: 13 }}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={[gateRow, { borderColor: "#1a1e28", marginBottom: 8 }]}>
+                  <Feather name="moon" size={16} color="#ff7a00" />
+                  <Text style={{ color: "#eceef2", fontSize: 14, flex: 1, marginLeft: 10, fontWeight: "500" }}>
+                    Log last night's sleep
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowSleepForm(true)}
+                    style={{ borderWidth: 1, borderColor: "#ff7a00", borderRadius: 6,
+                      paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "700" }}>Log</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* ── WEIGHT ROW ── */}
+              {status.hasWeight ? (
+                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
+                  <Feather name="activity" size={16} color="#ff7a00" />
+                  <Text style={{ color: "#6b7280", fontSize: 14, flex: 1, marginLeft: 10 }}>Weight logged</Text>
+                  <Feather name="check" size={16} color="#4ade80" />
+                </View>
+              ) : showWeightForm ? (
+                <View style={{ backgroundColor: "#0f1117", borderRadius: 12, padding: 12,
+                  borderWidth: 1, borderColor: "#ff7a0040", marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+                    <Feather name="activity" size={14} color="#ff7a00" />
+                    <Text style={{ color: "#6b7280", fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Morning weight (kg)</Text>
+                  </View>
+                  <TextInput
+                    style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28",
+                      borderRadius: 8, color: "#eceef2", padding: 10, fontSize: 15, marginBottom: 10 }}
+                    placeholder="e.g. 77.2"
+                    placeholderTextColor="#6b7280"
+                    keyboardType="decimal-pad"
+                    value={gateWtVal}
+                    onChangeText={setGateWtVal}
+                    autoFocus
+                  />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => { const w = parseFloat(gateWtVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}
+                      disabled={weightMut.isPending || !gateWtVal}
+                      style={{ flex: 1, backgroundColor: "#ff7a00", borderRadius: 8, padding: 10, alignItems: "center",
+                        opacity: (!gateWtVal || weightMut.isPending) ? 0.5 : 1 }}>
+                      <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
+                        {weightMut.isPending ? "Saving…" : "Save"}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => { setShowWeightForm(false); setGateWtVal(""); }}
+                      style={{ paddingHorizontal: 14, justifyContent: "center" }}>
+                      <Text style={{ color: "#6b7280", fontSize: 13 }}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={[gateRow, { borderColor: "#1a1e28", marginBottom: 8 }]}>
+                  <Feather name="activity" size={16} color="#ff7a00" />
+                  <Text style={{ color: "#eceef2", fontSize: 14, flex: 1, marginLeft: 10, fontWeight: "500" }}>
+                    Log today's weight
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowWeightForm(true)}
+                    style={{ borderWidth: 1, borderColor: "#ff7a0060", borderRadius: 6,
+                      paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "700" }}>Log</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* ── TRAINING ROW ── */}
+              {status.hasPlannedTraining ? (
+                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
+                  <Feather name="zap" size={16} color="#ff7a00" />
+                  <Text style={{ color: "#6b7280", fontSize: 14, flex: 1, marginLeft: 10 }}>Session created</Text>
+                  <Feather name="check" size={16} color="#4ade80" />
+                </View>
+              ) : (
+                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
+                  <Feather name="zap" size={16} color="#ff7a00" />
+                  <Text style={{ color: "#eceef2", fontSize: 14, flex: 1, marginLeft: 10, fontWeight: "500" }}>
+                    Create today's session
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => { markSeen(); router.push("/(tabs)/training" as any); }}
+                    style={{ borderWidth: 1, borderColor: "#ff7a00", borderRadius: 6,
+                      paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "700" }}>Add</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Incomplete notice */}
+              {incomplete && (
+                <Text style={{ color: "#6b7280", fontSize: 12, textAlign: "center", marginTop: 12, lineHeight: 17 }}>
+                  Your macro and fuel targets will be less accurate
+                </Text>
+              )}
+
+              {/* Continue button */}
+              <TouchableOpacity
+                onPress={markSeen}
+                style={{ backgroundColor: "#ff7a00", borderRadius: 12, padding: 14,
+                  alignItems: "center", marginTop: 12 }}>
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// Shared style for gate rows (inline so it can reference styles obj not yet defined)
+const gateRow: object = {
+  flexDirection: "row" as const,
+  alignItems: "center" as const,
+  padding: 12,
+  borderRadius: 10,
+  borderWidth: 1,
+  marginBottom: 8,
+  backgroundColor: "#0f111780",
+};
 
 // ─────────────────────────────────────────
 // Morning Check-In
@@ -2623,6 +2907,9 @@ export default function DashboardScreen() {
       </View>
 
       <ScrollView style={styles.flex} contentContainerStyle={styles.scrollPad} showsVerticalScrollIndicator={false}>
+        {/* Morning Check-In Gate ("Start your day" modal) */}
+        {isToday && <MorningCheckInGate date={selectedDate} />}
+
         {/* Fight Camp Hero */}
         {isToday && <FightCampHero date={selectedDate} />}
 
