@@ -53,10 +53,47 @@ interface ProvisionalCheckin {
   trainedYesterday: boolean | null;
 }
 
+interface ReadinessComponent {
+  name: string;
+  score: number;
+  maxPoints: number;
+  detail: string;
+}
+
+interface ProvisionalReadiness {
+  score: number;
+  label: string;
+  feelScore: number;
+  fuelScore: number;
+  intensityScore: number;
+  message: string;
+  suggestedFix: string;
+}
+
 interface ReadinessData {
+  total: number;
+  label: "High" | "Moderate" | "Low" | "Poor" | "Provisional";
+  primaryLimiter: string;
+  suggestedFix: string;
+  components: ReadinessComponent[];
   provisional: boolean;
+  hasPlannedTraining: boolean;
   hasYesterdayTraining: boolean;
+  bodyweightKg: number | null;
+  bodyweightSource: string | null;
   checkin: ProvisionalCheckin | null;
+  provisionalReadiness: ProvisionalReadiness | null;
+  backToBackHardDays: boolean;
+  highLoadCluster: boolean;
+  threeDayStreak: boolean;
+  crossSignal: string | null;
+  missingData: string[];
+}
+
+interface FuelSummary {
+  fuelStatus: "High" | "Adequate" | "Low";
+  provisional: boolean;
+  provisionalFuel: { fuelStatus: "Adequate" | "Low" } | null;
 }
 
 interface Targets {
@@ -585,6 +622,99 @@ function MorningCheckIn({ date }: { date: string }) {
 }
 
 // ─────────────────────────────────────────
+// Readiness Summary Card (dashboard compact row)
+// ─────────────────────────────────────────
+function readinessBadgeStyle(label: string): { text: string; bg: string; border: string } {
+  switch (label) {
+    case "High":     return { text: "#4ade80", bg: "rgba(74,222,128,0.1)",  border: "rgba(74,222,128,0.3)" };
+    case "Moderate": return { text: "#facc15", bg: "rgba(250,204,21,0.1)",  border: "rgba(250,204,21,0.3)" };
+    case "Low":      return { text: "#fb923c", bg: "rgba(251,146,60,0.1)",  border: "rgba(251,146,60,0.3)" };
+    case "Poor":     return { text: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.3)" };
+    default:         return { text: "#93c5fd", bg: "rgba(147,197,253,0.1)", border: "rgba(147,197,253,0.3)" };
+  }
+}
+
+function fuelBadgeStyle(status: string): { text: string; bg: string; border: string } {
+  if (status === "Low") return { text: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.3)" };
+  return { text: "#4ade80", bg: "rgba(74,222,128,0.1)", border: "rgba(74,222,128,0.3)" };
+}
+
+function ReadinessSummaryCard({ date }: { date: string }) {
+  const colors = useColors();
+  const router = useRouter();
+
+  const { data: readiness } = useQuery<ReadinessData>({
+    queryKey: ["readiness", date],
+    queryFn: () => apiFetch(`/me/readiness/${date}`),
+  });
+
+  const { data: fuel } = useQuery<FuelSummary>({
+    queryKey: ["fuel", date],
+    queryFn: () => apiFetch(`/me/fuel/${date}`),
+  });
+
+  if (!readiness && !fuel) return null;
+
+  // Display label for readiness badge
+  const pr = readiness?.provisionalReadiness ?? null;
+  const isProvR = !!(readiness?.provisional);
+  const rLabel   = isProvR ? (pr ? pr.label : "Estimated") : (readiness?.label ?? "…");
+  const rBadge   = isProvR ? { text: "#93c5fd", bg: "rgba(147,197,253,0.1)", border: "rgba(147,197,253,0.3)" }
+                           : readinessBadgeStyle(rLabel);
+
+  // Display label for fuel badge
+  const isProvFWithCheckin = !!(fuel?.provisional && fuel?.provisionalFuel);
+  const fLabel = fuel?.provisional && !fuel?.provisionalFuel
+    ? "Estimated"
+    : isProvFWithCheckin ? fuel!.provisionalFuel!.fuelStatus : (fuel?.fuelStatus ?? "…");
+  const fBadge = fuel?.provisional && !fuel?.provisionalFuel
+    ? { text: "#93c5fd", bg: "rgba(147,197,253,0.1)", border: "rgba(147,197,253,0.3)" }
+    : fuelBadgeStyle(fLabel);
+
+  return (
+    <Card>
+      <View style={styles.rowBetween}>
+        {/* READINESS column */}
+        <View style={{ flex: 1 }}>
+          <View style={[styles.row, { marginBottom: 6 }]}>
+            <Feather name="zap" size={12} color={colors.mutedForeground} />
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4, letterSpacing: 0.5, fontSize: 10 }]}>
+              READINESS
+            </Text>
+          </View>
+          <View style={[styles.badge, { backgroundColor: rBadge.bg, borderColor: rBadge.border, alignSelf: "flex-start" }]}>
+            <Text style={[styles.badgeText, { color: rBadge.text }]}>{rLabel}</Text>
+          </View>
+        </View>
+
+        {/* FUEL column */}
+        <View style={{ flex: 1 }}>
+          <View style={[styles.row, { marginBottom: 6 }]}>
+            <Feather name="droplet" size={12} color={colors.mutedForeground} />
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4, letterSpacing: 0.5, fontSize: 10 }]}>
+              FUEL
+            </Text>
+          </View>
+          <View style={[styles.badge, { backgroundColor: fBadge.bg, borderColor: fBadge.border, alignSelf: "flex-start" }]}>
+            <Text style={[styles.badgeText, { color: fBadge.text }]}>{fLabel}</Text>
+          </View>
+        </View>
+
+        {/* Details link */}
+        <TouchableOpacity
+          style={[styles.row, { paddingLeft: 8 }]}
+          onPress={() => router.push({ pathname: "/readiness-detail" as any, params: { date } })}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.xs, { color: colors.mutedForeground }]}>Details</Text>
+          <Feather name="chevron-right" size={13} color={colors.mutedForeground} />
+        </TouchableOpacity>
+      </View>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────
 // Provisional Check-In
 // ─────────────────────────────────────────
 function ProvisionalCheckIn({ date }: { date: string }) {
@@ -595,79 +725,135 @@ function ProvisionalCheckIn({ date }: { date: string }) {
   const [intensity, setIntensity] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
+  // Reads from the shared readiness query (already fetched by ReadinessSummaryCard)
   const { data: readiness } = useQuery<ReadinessData>({
     queryKey: ["readiness", date],
     queryFn: () => apiFetch(`/me/readiness/${date}`),
   });
 
   const submitMut = useMutation({
-    mutationFn: () => apiFetch("/me/provisional-checkin", {
-      method: "POST",
-      body: { feelToday: feel, fueledToday: fuel, plannedIntensity: intensity, date },
+    mutationFn: () => apiFetch(`/me/provisional-checkin/${date}`, {
+      method: "PUT",
+      body: { feelToday: feel, fueledToday: fuel, plannedIntensity: intensity },
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["readiness", date] }); setEditing(false); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["readiness", date] });
+      qc.invalidateQueries({ queryKey: ["fuel", date] });
+      setEditing(false);
+    },
   });
 
-  if (!readiness) return null;
+  // Gate: only render when sleep is not logged (provisional=true) per §8.5.1
+  if (!readiness?.provisional) return null;
+
   const ci = readiness.checkin;
 
+  // ── Completed state (§8.5.7) ──
   if (ci && !editing) {
+    const feelOpt      = FEEL_OPTIONS.find(o => o.value === ci.feelToday);
+    const fuelOpt      = FUEL_OPTIONS.find(o => o.value === ci.fueledToday);
+    const intensityOpt = INTENSITY_OPTIONS.find(o => o.value === ci.plannedIntensity);
     return (
       <Card>
         <View style={styles.rowBetween}>
-          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Quick Check-In</Text>
-          <TouchableOpacity onPress={() => { setFeel(ci.feelToday); setFuel(ci.fueledToday); setIntensity(ci.plannedIntensity); setEditing(true); }}>
+          <View style={styles.row}>
+            <Feather name="check-circle" size={15} color="#4ade80" />
+            <Text style={[styles.cardTitle, { color: colors.foreground, marginLeft: 7 }]}>Quick Check-in</Text>
+            <View style={[styles.badge, { backgroundColor: "rgba(147,197,253,0.1)", borderColor: "rgba(147,197,253,0.3)", marginLeft: 8 }]}>
+              <Text style={[styles.badgeText, { color: "#93c5fd" }]}>Estimated</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={() => { setFeel(ci.feelToday); setFuel(ci.fueledToday); setIntensity(ci.plannedIntensity); setEditing(true); }}
+          >
             <Feather name="edit-2" size={14} color={colors.mutedForeground} />
           </TouchableOpacity>
         </View>
-        <View style={styles.row}>
-          <Text style={{ fontSize: 20 }}>{FEEL_OPTIONS.find(o => o.value === ci.feelToday)?.emoji}</Text>
-          <Text style={{ fontSize: 20, marginHorizontal: 8 }}>{FUEL_OPTIONS.find(o => o.value === ci.fueledToday)?.emoji}</Text>
-          <Text style={{ fontSize: 20 }}>{INTENSITY_OPTIONS.find(o => o.value === ci.plannedIntensity)?.emoji}</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 8 }]}>Check-in saved ✓</Text>
+
+        {/* 3-column summary grid */}
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+          {[
+            { emoji: feelOpt?.emoji ?? "💪",      category: "Feeling",      answer: feelOpt?.label ?? ci.feelToday },
+            { emoji: fuelOpt?.emoji ?? "🟢",      category: "Fueled",       answer: fuelOpt?.label ?? ci.fueledToday },
+            { emoji: intensityOpt?.emoji ?? "🏃", category: "Today's plan", answer: intensityOpt?.label ?? ci.plannedIntensity },
+          ].map(item => (
+            <View key={item.category} style={[styles.ciSummaryCol, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+              <Text style={{ fontSize: 22 }}>{item.emoji}</Text>
+              <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 4, textAlign: "center" }]}>{item.category}</Text>
+              <Text style={[styles.xs, { color: colors.foreground, fontWeight: "700", textAlign: "center", marginTop: 2 }]}>{item.answer}</Text>
+            </View>
+          ))}
         </View>
+
+        {/* Footer disclaimer */}
+        <Text style={[styles.xs, { color: colors.mutedForeground, fontStyle: "italic", marginTop: 10, lineHeight: 16, fontSize: 10 }]}>
+          Readiness and fuel status are estimated from your self-report — not objective data. Log yesterday's food and training for a complete assessment.
+        </Text>
       </Card>
     );
   }
 
-  if (!readiness.provisional && !editing) return null;
-
+  // ── Form state ──
   return (
     <Card>
-      <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Quick Check-In</Text>
-        <SmallBadge label="Estimated" color={colors.mutedForeground} bg={"rgba(107,114,128,0.1)"} />
+      {/* Header */}
+      <View style={styles.row}>
+        <Feather name="clipboard" size={15} color={colors.primary} />
+        <View style={{ flex: 1, marginLeft: 8 }}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Quick Check-in</Text>
+          <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 1 }]}>
+            3 questions — drives estimated readiness & fuel status
+          </Text>
+        </View>
       </View>
 
+      {/* Q1 — How do you feel today? */}
       {([
-        { label: "How do you feel today?", options: FEEL_OPTIONS, val: feel, set: setFeel },
-        { label: "Did you fuel well?", options: FUEL_OPTIONS, val: fuel, set: setFuel },
-        { label: "Planned session intensity?", options: INTENSITY_OPTIONS, val: intensity, set: setIntensity },
+        { label: "How do you feel today?",     options: FEEL_OPTIONS,      val: feel,      set: setFeel },
+        { label: "Did you fuel well yesterday?", options: FUEL_OPTIONS,    val: fuel,      set: setFuel },
+        { label: "Planned session intensity",   options: INTENSITY_OPTIONS, val: intensity, set: setIntensity },
       ] as const).map(({ label, options, val, set }) => (
-        <View key={label} style={{ marginTop: 10 }}>
-          <Text style={[styles.xs, { color: colors.mutedForeground, fontWeight: "600", marginBottom: 6 }]}>{label}</Text>
+        <View key={label} style={{ marginTop: 14 }}>
+          <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginBottom: 8 }]}>{label}</Text>
           <View style={styles.ciRow}>
             {options.map(o => (
-              <TouchableOpacity key={o.value} style={[styles.ciBtn, {
-                borderColor: val === o.value ? colors.primary : colors.border,
-                backgroundColor: val === o.value ? "rgba(255,122,0,0.1)" : colors.secondary,
-              }]} onPress={() => (set as any)(o.value)}>
-                <Text style={{ fontSize: 20 }}>{o.emoji}</Text>
-                <Text style={[styles.xs, { color: val === o.value ? colors.primary : colors.mutedForeground, fontWeight: "600" }]}>{o.label}</Text>
+              <TouchableOpacity
+                key={o.value}
+                style={[styles.ciBtn, {
+                  borderColor:       val === o.value ? colors.primary : "rgba(255,255,255,0.12)",
+                  backgroundColor:   val === o.value ? "rgba(255,122,0,0.1)" : "rgba(255,255,255,0.04)",
+                }]}
+                onPress={() => (set as any)(o.value)}
+              >
+                <Text style={{ fontSize: 22 }}>{o.emoji}</Text>
+                <Text style={[styles.xs, {
+                  color:      val === o.value ? colors.primary : colors.mutedForeground,
+                  fontWeight: "600",
+                  marginTop:  4,
+                }]}>
+                  {o.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
       ))}
 
+      {/* Submit */}
       <TouchableOpacity
-        style={[styles.fullBtn, { backgroundColor: colors.primary, opacity: (feel && fuel && intensity) ? 1 : 0.4, marginTop: 14 }]}
+        style={[styles.fullBtn, {
+          backgroundColor: colors.primary,
+          opacity: (feel && fuel && intensity) ? 1 : 0.4,
+          marginTop: 16,
+        }]}
         disabled={!feel || !fuel || !intensity || submitMut.isPending}
         onPress={() => submitMut.mutate()}
       >
         {submitMut.isPending
           ? <ActivityIndicator color="#fff" size="small" />
-          : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Submit Check-In</Text>}
+          : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
+              {readiness.checkin ? "Update" : "Submit check-in"}
+            </Text>}
       </TouchableOpacity>
     </Card>
   );
@@ -2088,7 +2274,10 @@ export default function DashboardScreen() {
         {/* Morning Check-In */}
         {isToday && <MorningCheckIn date={selectedDate} />}
 
-        {/* Provisional Check-In */}
+        {/* Readiness + Fuel Summary Card */}
+        <ReadinessSummaryCard date={selectedDate} />
+
+        {/* Provisional Check-In (hidden when sleep is logged) */}
         {isToday && <ProvisionalCheckIn date={selectedDate} />}
 
         {/* Daily Intake Estimates */}
@@ -2221,6 +2410,7 @@ const styles = StyleSheet.create({
   btnSm: { flexDirection: "row", alignItems: "center", borderRadius: 7, paddingHorizontal: 12, paddingVertical: 8 },
   ciRow: { flexDirection: "row", gap: 6 },
   ciBtn: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, paddingVertical: 10, gap: 3 },
+  ciSummaryCol: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 4 },
   fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
   macroRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   macroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
