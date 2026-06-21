@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   Modal,
   View,
@@ -150,6 +150,86 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
   const [activitySuggestions, setActivitySuggestions] = useState<any[]>([]);
   const [suppItems, setSuppItems] = useState<SuppReviewItem[]>([]);
 
+  // Voice recognition
+  const [isListening, setIsListening] = useState(false);
+  const [interimText, setInterimText] = useState("");
+  const recognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Check Web Speech API availability
+  const speechSupported = Platform.OS === "web" && typeof window !== "undefined" &&
+    !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
+
+  function stopListening() {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+      recognitionRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    setIsListening(false);
+    setInterimText("");
+  }
+
+  function startListening() {
+    if (Platform.OS !== "web") {
+      Alert.alert("Voice input", "Voice input is available in the web version at app.prfmr.link.");
+      return;
+    }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      Alert.alert("Not supported", "Your browser doesn't support voice input. Try Chrome or Edge.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      let final = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      if (final) {
+        setInputText(prev => (prev.trim() ? prev.trim() + " " + final.trim() : final.trim()));
+        setInterimText("");
+      } else {
+        setInterimText(interim);
+      }
+      // Reset silence timer on any speech activity
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(stopListening, 3000);
+    };
+
+    recognition.onerror = () => stopListening();
+    recognition.onend = () => { setIsListening(false); setInterimText(""); };
+
+    try {
+      recognition.start();
+      setIsListening(true);
+      // Auto-stop after 3s of initial silence
+      silenceTimerRef.current = setTimeout(stopListening, 3000);
+    } catch { stopListening(); }
+  }
+
+  function toggleListening() {
+    if (isListening) stopListening();
+    else startListening();
+  }
+
+  // Stop listening when modal closes or state changes away from input
+  useEffect(() => {
+    if (!visible || dialogState !== "input") stopListening();
+  }, [visible, dialogState]);
+
   const { data: supplements = [] } = useQuery<any[]>({
     queryKey: ["supplements"],
     queryFn: () => apiFetch("/me/supplements"),
@@ -157,6 +237,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
   });
 
   function reset() {
+    stopListening();
     setDialogState("input");
     setInputText("");
     setParsed(null);
@@ -380,8 +461,8 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
               <View style={{ position: "relative" }}>
                 <TextInput
                   style={{
-                    backgroundColor: "#0f1117",
-                    borderColor: "#1a1e28",
+                    backgroundColor: isListening ? "#0f1117" : "#0f1117",
+                    borderColor: isListening ? "rgba(248,113,113,0.4)" : "#1a1e28",
                     borderWidth: 1,
                     borderRadius: 10,
                     padding: 12,
@@ -397,12 +478,40 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                   placeholder={"e.g. '2 eggs and toast for breakfast' · 'Morning weight 71.8' · 'Pads 60 min at 7pm'"}
                   placeholderTextColor="#4b5563"
                   multiline
-                  autoFocus
+                  autoFocus={!isListening}
                 />
-                <View style={{ position: "absolute", right: 10, top: 10 }}>
-                  <Feather name="mic" size={18} color="#6b7280" />
-                </View>
+                <TouchableOpacity
+                  onPress={toggleListening}
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: 8,
+                    padding: 4,
+                    borderRadius: 14,
+                    backgroundColor: isListening ? "rgba(248,113,113,0.12)" : "transparent",
+                  }}
+                >
+                  <Feather
+                    name={isListening ? "mic-off" : "mic"}
+                    size={18}
+                    color={isListening ? "#f87171" : "#6b7280"}
+                  />
+                </TouchableOpacity>
               </View>
+
+              {/* Listening indicator */}
+              {isListening && (
+                <View style={{ marginTop: 6, gap: 2 }}>
+                  <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "600" }}>
+                    ● Listening — speak naturally, stops after 3s silence
+                  </Text>
+                  {interimText ? (
+                    <Text style={{ color: "#6b7280", fontSize: 12, fontStyle: "italic" }}>
+                      {interimText}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
 
               <TouchableOpacity
                 style={{
