@@ -28,6 +28,8 @@ import {
   FoodItem,
   TimeOfDay,
 } from "../lib/quickLogParser";
+import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,6 +157,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
   const [interimText, setInterimText] = useState("");
   const recognitionRef = useRef<any>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
 
   // Check Web Speech API availability
   const speechSupported = Platform.OS === "web" && typeof window !== "undefined" &&
@@ -169,13 +172,65 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    // Abort any in-progress native recording without transcribing
+    if (recordingRef.current) {
+      const r = recordingRef.current;
+      recordingRef.current = null;
+      r.stopAndUnloadAsync().catch(() => {});
+    }
     setIsListening(false);
     setInterimText("");
   }
 
+  async function startNativeRecording() {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Microphone Access", "Please enable microphone access in Settings to use voice input.");
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      recordingRef.current = recording;
+      setIsListening(true);
+      setInterimText("Recording... tap mic to stop");
+      // Auto-stop after 30 seconds
+      silenceTimerRef.current = setTimeout(() => { void stopNativeRecording(); }, 30000);
+    } catch {
+      Alert.alert("Error", "Could not start recording. Check microphone permissions.");
+      stopListening();
+    }
+  }
+
+  async function stopNativeRecording() {
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    const rec = recordingRef.current;
+    if (!rec) { setIsListening(false); setInterimText(""); return; }
+    recordingRef.current = null;
+    setIsListening(false);
+    setInterimText("Transcribing...");
+    try {
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      if (!uri) { setInterimText(""); return; }
+      const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      const data = await apiFetch<{ text: string }>("/transcribe", {
+        method: "POST",
+        body: { audio: b64, format: "m4a" },
+      });
+      if (data?.text) {
+        setInputText(prev => prev.trim() ? prev.trim() + " " + data.text.trim() : data.text.trim());
+      }
+    } catch {
+      Alert.alert("Transcription failed", "Could not transcribe audio. Please try typing instead.");
+    } finally {
+      setInterimText("");
+    }
+  }
+
   function startListening() {
     if (Platform.OS !== "web") {
-      Alert.alert("Voice input", "Voice input is available in the web version at app.prfmr.link.");
+      // Native uses expo-av recording — should be routed through toggleListening
       return;
     }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -221,8 +276,13 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
   }
 
   function toggleListening() {
-    if (isListening) stopListening();
-    else startListening();
+    if (Platform.OS !== "web") {
+      if (isListening) void stopNativeRecording();
+      else void startNativeRecording();
+    } else {
+      if (isListening) stopListening();
+      else startListening();
+    }
   }
 
   // Stop listening when modal closes or state changes away from input
@@ -266,10 +326,21 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
       const r = result as ParsedFood;
       setFoodItems(r.items.map(item => {
         const match = matchIngredient(item.normalizedName);
+        let grams: number;
+        if (item.gramsHint) {
+          grams = item.gramsHint;
+        } else if (match && item.count) {
+          // Counted items: use per-unit grams from ingredient catalog × count
+          grams = Math.round(match.ingredient.defaultGrams * item.count);
+        } else if (match) {
+          grams = getDefaultGrams(item);
+        } else {
+          grams = item.count ? item.count * 100 : 100;
+        }
         return {
           ...item,
           match,
-          grams: String(match ? getDefaultGrams(item) : 100),
+          grams: String(grams),
           confirmed: match !== null,
         };
       }));
@@ -327,6 +398,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
       }
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
+      qc.invalidateQueries({ queryKey: ["amqs-micros", date] });
       setDialogState("done");
     } catch (e: any) {
       setDialogState("review");
@@ -359,16 +431,22 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
         method: "POST",
         body: { date, timeOfDay, title: activityName, intensity: "moderate" },
       });
-      let metValue = 6;
+      const parserMet = (parsed as ParsedTraining).metValue ?? 6;
+      let metValue = parserMet;
       let activityCatalogId: number | undefined;
+      let catalogName: string | undefined;
       try {
         const acts = await apiFetch<any[]>(`/activities?query=${encodeURIComponent(activityName)}`);
-        if (acts?.length) { metValue = acts[0].metValue ?? 6; activityCatalogId = acts[0].id; }
+        if (acts?.length) {
+          metValue = acts[0].metValue ?? parserMet;
+          activityCatalogId = acts[0].id;
+          catalogName = acts[0].name;
+        }
       } catch {}
       await apiFetch(`/workouts/sessions/${session.id}/activities`, {
         method: "POST",
         body: {
-          name: activityName,
+          name: catalogName ?? activityName,
           durationMinutes: duration,
           intensity: "moderate",
           activityType: "cardio",
@@ -499,13 +577,21 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                 </TouchableOpacity>
               </View>
 
-              {/* Listening indicator */}
-              {isListening && (
+              {/* Listening / Recording / Transcribing indicator */}
+              {(isListening || !!interimText) && (
                 <View style={{ marginTop: 6, gap: 2 }}>
-                  <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "600" }}>
-                    ● Listening — speak naturally, stops after 3s silence
+                  <Text style={{
+                    color: isListening ? "#f87171" : "#6b7280",
+                    fontSize: 12,
+                    fontWeight: isListening ? "600" : "400",
+                  }}>
+                    {isListening
+                      ? (Platform.OS === "web"
+                        ? "● Listening — speak naturally, stops after 3s silence"
+                        : `● ${interimText || "Recording... tap mic to stop"}`)
+                      : `● ${interimText}`}
                   </Text>
-                  {interimText ? (
+                  {isListening && Platform.OS === "web" && interimText ? (
                     <Text style={{ color: "#6b7280", fontSize: 12, fontStyle: "italic" }}>
                       {interimText}
                     </Text>

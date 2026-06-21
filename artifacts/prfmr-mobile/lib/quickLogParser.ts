@@ -29,6 +29,7 @@ export interface ParsedTraining {
   activityName: string;
   durationMinutes: number;
   timeOfDay: TimeOfDay;
+  metValue: number;
   rawInput: string;
 }
 
@@ -258,6 +259,7 @@ export function parseQuickLog(input: string): ParseResult {
       activityName: trainingHit?.canonical ?? "General Training",
       durationMinutes: extractDuration(text) ?? 60,
       timeOfDay: extractTimeOfDay(text),
+      metValue: trainingHit?.met ?? 6,
       rawInput: text,
     };
   }

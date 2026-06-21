@@ -56,7 +56,9 @@
   },
   "dependencies": {
     "date-fns": "^3.6.0",
+    "expo-av": "^16.0.8",
     "expo-camera": "^16.0.18",
+    "expo-file-system": "^56.0.8",
     "expo-secure-store": "^15.0.8"
   }
 }
