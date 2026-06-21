@@ -28,12 +28,18 @@ interface WeightCutData {
   daysUntil: number;
   weeksUntil: number;
   totalToLose: number;
+  fatLossRequired: number;
+  tempCut: number;
+  tempCutDisplayed: number;
+  dayMinus4Target: number | null;
   weeklyRate: number;
   weeklyRatePct: number;
   status: string;
   statusLabel: string;
   weeklyTargets: Array<{ week: number; targetWeight: number }>;
   suggestedDeficitKcal: number;
+  weighInTiming: "same_day" | "day_before";
+  manualTempReductionKg: number | null;
 }
 
 interface MorningStatus {
@@ -166,9 +172,36 @@ interface WeightEntry {
 // Helpers
 // ─────────────────────────────────────────
 function getPaceInfo(weeklyRatePct: number) {
-  if (weeklyRatePct < 0.5) return { label: "Easy pace", color: "#6b7280" };
-  if (weeklyRatePct <= 0.75) return { label: "Moderate pace", color: "#ff7a00" };
-  return { label: "Aggressive pace", color: "#fb923c" };
+  if (weeklyRatePct < 0.5) return { label: "Easy pace", color: "#6b7280", note: "Comfortable pace — you have time." };
+  if (weeklyRatePct <= 0.75) return { label: "Moderate pace", color: "#ff7a00", note: "Steady sustainable deficit." };
+  return { label: "Aggressive pace", color: "#fb923c", note: "High deficit — monitor energy and recovery." };
+}
+
+const STATUS_COLORS: Record<string, { text: string; bg: string; border: string }> = {
+  on_track:        { text: "#4ade80", bg: "#4ade8019", border: "#4ade8030" },
+  aggressive:      { text: "#facc15", bg: "#facc1519", border: "#facc1530" },
+  very_aggressive: { text: "#fb923c", bg: "#fb923c19", border: "#fb923c30" },
+  unrealistic:     { text: "#f87171", bg: "#f8717119", border: "#f8717130" },
+  complete:        { text: "#4ade80", bg: "#4ade8019", border: "#4ade8030" },
+  past_date:       { text: "#6b7280", bg: "#6b728019", border: "#6b728030" },
+};
+
+function getTrendMessage(weights: Array<{ date: string; weight: number }>, status: string) {
+  if (weights.length < 2) return { text: "Trend forming — keep logging daily", isUp: false };
+  if (status === "complete") return { text: "At fight weight — well done 🏆", isUp: false };
+  if (status === "past_date") return { text: "Fight date passed", isUp: false };
+  const sorted = [...weights].sort((a, b) => a.date.localeCompare(b.date));
+  const change = sorted[sorted.length - 1].weight - sorted[0].weight;
+  if (change < -0.2) return { text: "On trend ↓ — moving in the right direction", isUp: false };
+  if (change <= 0.3) return { text: "Fluctuations are normal — trends take time", isUp: false };
+  return { text: "Weight naturally fluctuates — stay consistent", isUp: true };
+}
+
+function getConsistencyLabel(count: number) {
+  if (count >= 6) return { label: "Great momentum", color: "#4ade80", bg: "#4ade8019" };
+  if (count >= 4) return { label: "Building rhythm", color: "#facc15", bg: "#facc1519" };
+  if (count >= 2) return { label: "Getting started", color: "#6b7280", bg: "#6b728019" };
+  return null;
 }
 
 const FEEL_OPTIONS = [
@@ -292,14 +325,36 @@ function MacroCard({ label, value, unit, target, color, emoji }: {
 function FightCampHero({ date }: { date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
+
+  // Inline weight logging
   const [showWeight, setShowWeight] = useState(false);
   const [weightVal, setWeightVal] = useState("");
-  const [showPlan, setShowPlan] = useState(false);
+
+  // Breakdown dialog
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  // Create/edit modal
+  const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
+  const [formCW, setFormCW] = useState("");
+  const [formTW, setFormTW] = useState("");
+  const [formDate, setFormDate] = useState("");
+  const [formTiming, setFormTiming] = useState<"same_day" | "day_before">("same_day");
+  const [formManualTemp, setFormManualTemp] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // 7-day start for trend/consistency
+  const sevenDayStart = format(subDays(new Date(date + "T12:00:00"), 6), "yyyy-MM-dd");
 
   const { data: plan } = useQuery<WeightCutData | null>({
     queryKey: ["weight-cut"],
     queryFn: () => apiFetch<WeightCutData | null>("/me/weight-cut").catch(() => null),
     retry: false,
+  });
+
+  const { data: recentWeights = [] } = useQuery<Array<{ date: string; weight: number }>>({
+    queryKey: ["weights-range-7d", sevenDayStart, date],
+    queryFn: () => apiFetch(`/me/weights/range?start=${sevenDayStart}&end=${date}`),
+    enabled: !!plan,
   });
 
   const weightMut = useMutation({
@@ -308,143 +363,443 @@ function FightCampHero({ date }: { date: string }) {
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
       qc.invalidateQueries({ queryKey: ["morning-status", date] });
       qc.invalidateQueries({ queryKey: ["weights-range"] });
+      qc.invalidateQueries({ queryKey: ["weights-range-7d"] });
+      qc.invalidateQueries({ queryKey: ["readiness", date] });
+      qc.invalidateQueries({ queryKey: ["fuel", date] });
       setShowWeight(false); setWeightVal("");
     },
   });
 
-  if (!plan || plan.daysUntil <= 0) return null;
+  const createMut = useMutation({
+    mutationFn: (body: object) => apiFetch("/me/weight-cut", { method: "POST", body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["weight-cut"] });
+      setDialogMode(null);
+    },
+  });
 
-  const pace = getPaceInfo(plan.weeklyRatePct);
-  const thisWeekTarget = plan.weeklyTargets?.[0];
+  const deleteMut = useMutation({
+    mutationFn: () => apiFetch("/me/weight-cut", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["weight-cut"] }),
+  });
 
-  return (
-    <Card>
-      {/* Plan Breakdown Modal */}
-      <Modal visible={showPlan} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowPlan(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+  function openCreate() {
+    setFormCW(plan?.currentWeight?.toString() ?? "");
+    setFormTW(""); setFormDate(""); setFormTiming("same_day");
+    setFormManualTemp(""); setShowAdvanced(false);
+    setDialogMode("create");
+  }
+
+  function openEdit() {
+    if (!plan) return;
+    setFormCW(plan.currentWeight.toString());
+    setFormTW(plan.targetWeight.toString());
+    setFormDate(plan.fightDate);
+    setFormTiming(plan.weighInTiming ?? "same_day");
+    setFormManualTemp(plan.manualTempReductionKg ? plan.manualTempReductionKg.toString() : "");
+    setShowAdvanced((plan.manualTempReductionKg ?? 0) > 0);
+    setDialogMode("edit");
+  }
+
+  function handleSubmit() {
+    const cw = parseFloat(formCW);
+    const tw = parseFloat(formTW);
+    if (!cw || !tw || !formDate) return;
+    const body: any = { currentWeight: cw, targetWeight: tw, fightDate: formDate, weighInTiming: formTiming };
+    const mt = parseFloat(formManualTemp);
+    if (!isNaN(mt) && mt > 0) body.manualTempReductionKg = mt;
+    createMut.mutate(body);
+  }
+
+  // ── Derived display values ──
+  const pace = plan ? getPaceInfo(plan.weeklyRatePct) : null;
+  const thisWeekTarget = plan?.weeklyTargets?.[0];
+  const statusColor = plan ? (STATUS_COLORS[plan.status] ?? STATUS_COLORS.on_track) : null;
+  const trend = plan ? getTrendMessage(recentWeights, plan.status) : null;
+  const consistencyCount = recentWeights.length;
+  const consistencyInfo = getConsistencyLabel(consistencyCount);
+
+  // ─── CREATE / EDIT MODAL ───────────────────────────────────────
+  const formModal = (
+    <Modal visible={dialogMode !== null} animationType="slide" presentationStyle="pageSheet"
+      onRequestClose={() => setDialogMode(null)}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
             padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Fight Camp Plan</Text>
-            <TouchableOpacity onPress={() => setShowPlan(false)}><Feather name="x" size={24} color="#6b7280" /></TouchableOpacity>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-            <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#1a1e28" }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12 }}>Current</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700" }}>{plan.currentWeight} kg</Text>
-              </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12 }}>Target</Text>
-                <Text style={{ color: "#ff7a00", fontWeight: "700" }}>{plan.targetWeight} kg</Text>
-              </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12 }}>To lose</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700" }}>{plan.totalToLose.toFixed(1)} kg</Text>
-              </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12 }}>Weekly fat-loss rate</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700" }}>{plan.weeklyRate.toFixed(2)} kg/wk ({(plan.weeklyRatePct).toFixed(1)}%)</Text>
-              </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12 }}>Pace</Text>
-                <Text style={{ color: pace.color, fontWeight: "700" }}>{pace.label}</Text>
-              </View>
-              {plan.suggestedDeficitKcal > 0 && (
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ color: "#6b7280", fontSize: 12 }}>Daily deficit</Text>
-                  <Text style={{ color: "#eceef2", fontWeight: "700" }}>~{Math.round(plan.suggestedDeficitKcal)} kcal</Text>
-                </View>
-              )}
+            <View>
+              <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>
+                {dialogMode === "edit" ? "Edit Fight Camp Plan" : "Set Up Fight Camp Plan"}
+              </Text>
+              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>
+                {dialogMode === "edit"
+                  ? "Update your target or timeline — the plan recalculates automatically."
+                  : "Plan a gradual weight cut targeting 0.5–1.0% bodyweight per week."}
+              </Text>
             </View>
-            {plan.weeklyTargets?.length > 0 && (
-              <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#1a1e28" }}>
-                <Text style={{ color: "#6b7280", fontWeight: "700", fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }}>WEEKLY WEIGHT TARGETS</Text>
-                {plan.weeklyTargets.map((wt: { week: number; targetWeight: number }) => (
-                  <View key={wt.week} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-                    <Text style={{ color: "#6b7280", fontSize: 13 }}>Week {wt.week}</Text>
-                    <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 13 }}>{wt.targetWeight.toFixed(1)} kg</Text>
-                  </View>
-                ))}
+            <TouchableOpacity onPress={() => setDialogMode(null)}>
+              <Feather name="x" size={22} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
+            {/* Current Weight */}
+            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Current Weight (kg)</Text>
+            <TextInput
+              style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 10,
+                color: "#eceef2", padding: 12, fontSize: 15, marginBottom: 14 }}
+              placeholder="e.g. 77.2"
+              placeholderTextColor="#6b7280"
+              keyboardType="decimal-pad"
+              value={formCW}
+              onChangeText={setFormCW}
+            />
+            {/* Fight Weight */}
+            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Weight (kg)</Text>
+            <TextInput
+              style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 10,
+                color: "#eceef2", padding: 12, fontSize: 15, marginBottom: 14 }}
+              placeholder="e.g. 72.0"
+              placeholderTextColor="#6b7280"
+              keyboardType="decimal-pad"
+              value={formTW}
+              onChangeText={setFormTW}
+            />
+            {/* Fight Date */}
+            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Date (YYYY-MM-DD)</Text>
+            <TextInput
+              style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 10,
+                color: "#eceef2", padding: 12, fontSize: 15, marginBottom: 14 }}
+              placeholder="2025-09-15"
+              placeholderTextColor="#6b7280"
+              value={formDate}
+              onChangeText={setFormDate}
+            />
+            {/* Weigh-In Timing */}
+            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Weigh-In Timing</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 6 }}>
+              {([
+                { value: "same_day" as const, label: "Same day", sub: "Weigh in on fight day" },
+                { value: "day_before" as const, label: "Day before", sub: "Weigh in the evening prior" },
+              ] as const).map(opt => (
+                <TouchableOpacity key={opt.value} onPress={() => setFormTiming(opt.value)}
+                  style={{ flex: 1, borderWidth: 1, borderRadius: 10, padding: 10, alignItems: "center",
+                    borderColor: formTiming === opt.value ? "#ff7a00" : "#1a1e28",
+                    backgroundColor: formTiming === opt.value ? "#ff7a0019" : "#13161d" }}>
+                  <Text style={{ color: formTiming === opt.value ? "#eceef2" : "#6b7280", fontWeight: "600", fontSize: 13 }}>{opt.label}</Text>
+                  <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 2, textAlign: "center" }}>{opt.sub}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ color: "#6b7280", fontSize: 11, marginBottom: 14 }}>
+              {formTiming === "same_day"
+                ? "Same-day: plan targets fight weight by fight week."
+                : "Day-before timing: a small additional buffer is factored in."}
+            </Text>
+            {/* Advanced options */}
+            <TouchableOpacity onPress={() => setShowAdvanced(v => !v)} style={{ marginBottom: 10 }}>
+              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "600" }}>
+                {showAdvanced ? "▲" : "▼"} Advanced options
+              </Text>
+            </TouchableOpacity>
+            {showAdvanced && (
+              <View style={{ backgroundColor: "#13161d", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#1a1e28", marginBottom: 14 }}>
+                <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Manual temp. reduction override (kg)</Text>
+                <TextInput
+                  style={{ backgroundColor: "#0f1117", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 8,
+                    color: "#eceef2", padding: 10, fontSize: 14, marginBottom: 8 }}
+                  placeholder="Leave blank to use automatic estimate"
+                  placeholderTextColor="#6b7280"
+                  keyboardType="decimal-pad"
+                  value={formManualTemp}
+                  onChangeText={setFormManualTemp}
+                />
+                <Text style={{ color: "#6b7280", fontSize: 11, lineHeight: 16 }}>
+                  {"Overrides the automatic water-weight estimate (2–6% BW) with your own value.\nLeave blank to keep automatic calculation.\nThis app does not provide acute weight-cut guidance."}
+                </Text>
               </View>
             )}
-            <View style={{ height: 40 }} />
+            {/* Submit */}
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={createMut.isPending || !formCW || !formTW || !formDate}
+              style={{ backgroundColor: "#ff7a00", borderRadius: 12, padding: 14, alignItems: "center",
+                opacity: (createMut.isPending || !formCW || !formTW || !formDate) ? 0.5 : 1 }}>
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+                {createMut.isPending ? "Saving…" : dialogMode === "edit" ? "Update Plan" : "Start Camp Plan"}
+              </Text>
+            </TouchableOpacity>
+            <Text style={{ color: "#6b7280", fontSize: 10, textAlign: "center", marginTop: 10, marginBottom: 20 }}>
+              Educational tool only — not medical or nutritional advice.
+            </Text>
           </ScrollView>
-        </SafeAreaView>
-      </Modal>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+  );
 
-      <View style={styles.rowBetween}>
-        <View style={styles.row}>
-          <Feather name="target" size={13} color={colors.primary} />
-          <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>Fight Camp</Text>
+  // ─── PLAN BREAKDOWN MODAL ──────────────────────────────────────
+  const breakdownModal = plan ? (
+    <Modal visible={showBreakdown} animationType="slide" presentationStyle="pageSheet"
+      onRequestClose={() => setShowBreakdown(false)}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          <View>
+            <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>Plan breakdown</Text>
+            <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>How your weight cut is structured.</Text>
+          </View>
+          <TouchableOpacity onPress={() => setShowBreakdown(false)}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={() => setShowPlan(true)} activeOpacity={0.7}>
-          <SmallBadge label={pace.label + " ›"} color={pace.color} bg={pace.color + "1a"} />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={[styles.heroNum, { color: colors.foreground }]}>
-        {plan.daysUntil}{" "}
-        <Text style={[styles.heroSub, { color: colors.mutedForeground }]}>days to fight night</Text>
-      </Text>
-
-      <View style={[styles.weightRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={[styles.weightNum, { color: colors.foreground }]}>{plan.currentWeight}</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>current</Text>
-        </View>
-        <Feather name="arrow-right" size={14} color={colors.mutedForeground} />
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={[styles.weightNum, { color: colors.primary }]}>{plan.targetWeight}</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>fight weight</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.sm, { color: colors.mutedForeground, marginTop: 4 }]}>
-        {plan.totalToLose.toFixed(1)} kg to go · {plan.weeklyRate.toFixed(2)} kg/wk fat loss
-      </Text>
-
-      {thisWeekTarget && (
-        <View style={[styles.thisWeek, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-          <Text style={[styles.xs, { color: colors.mutedForeground, fontWeight: "700", letterSpacing: 0.5 }]}>THIS WEEK'S TARGET</Text>
-          <Text style={[styles.sm, { color: colors.foreground, fontWeight: "700", marginTop: 2 }]}>
-            {thisWeekTarget.targetWeight.toFixed(1)} kg
-            {plan.suggestedDeficitKcal > 0 && (
-              <Text style={{ color: colors.mutedForeground }}> · ~{Math.round(plan.suggestedDeficitKcal)} kcal deficit/day</Text>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <View style={{ backgroundColor: "#13161d", borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden", marginBottom: 14 }}>
+            {/* Fat loss target */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+              <Text style={{ color: "#6b7280", fontSize: 13 }}>Fat loss target</Text>
+              <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>{(plan.fatLossRequired ?? plan.totalToLose).toFixed(1)} kg</Text>
+            </View>
+            {/* Temp cut */}
+            {(plan.tempCutDisplayed ?? 0) > 0 && (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>Temporary reduction</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>~{(plan.tempCutDisplayed).toFixed(1)} kg</Text>
+              </View>
             )}
-          </Text>
-        </View>
-      )}
+            {(plan.tempCutDisplayed ?? 0) === 0 && (plan.tempCut ?? 0) > 0 && (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>Estimated temp.</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>~{(plan.tempCut).toFixed(1)} kg</Text>
+              </View>
+            )}
+            {/* D-4 row — only within 10 days */}
+            {plan.dayMinus4Target !== null && plan.daysUntil <= 10 && (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>Target by D−4</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>≤ {(plan.dayMinus4Target!).toFixed(1)} kg</Text>
+              </View>
+            )}
+            {/* Fat-loss pace */}
+            {pace && (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>Fat-loss pace</Text>
+                <View style={{ alignItems: "flex-end" }}>
+                  <View style={{ backgroundColor: pace.color + "20", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ color: pace.color, fontWeight: "700", fontSize: 12 }}>{pace.label}</Text>
+                  </View>
+                  <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 3 }}>{pace.note}</Text>
+                </View>
+              </View>
+            )}
+            {/* Daily deficit */}
+            {plan.suggestedDeficitKcal > 0 && (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13 }}>
+                <Text style={{ color: "#6b7280", fontSize: 13 }}>Daily deficit target</Text>
+                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>~{Math.round(plan.suggestedDeficitKcal)} kcal</Text>
+              </View>
+            )}
+          </View>
+          {/* Weekly targets */}
+          {plan.weeklyTargets?.length > 0 && (
+            <View style={{ backgroundColor: "#13161d", borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden" }}>
+              <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+                <Text style={{ color: "#6b7280", fontWeight: "700", fontSize: 11, letterSpacing: 0.5 }}>WEEKLY WEIGHT TARGETS</Text>
+              </View>
+              {plan.weeklyTargets.map((wt) => (
+                <View key={wt.week} style={{ flexDirection: "row", justifyContent: "space-between", padding: 11, borderBottomWidth: 1, borderBottomColor: "#1a1e2840" }}>
+                  <Text style={{ color: "#6b7280", fontSize: 13 }}>Week {wt.week}</Text>
+                  <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 13 }}>{wt.targetWeight.toFixed(1)} kg</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  ) : null;
 
-      {!showWeight ? (
-        <TouchableOpacity
-          style={[styles.logWeightRow, { borderColor: colors.border }]}
-          onPress={() => setShowWeight(true)}
-        >
-          <Feather name="plus" size={13} color={colors.mutedForeground} />
-          <Text style={[styles.sm, { color: colors.mutedForeground, marginLeft: 6 }]}>Log today's weight</Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={[styles.row, { marginTop: 10 }]}>
-          <TextInput
-            style={[styles.input, { flex: 1, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.secondary }]}
-            placeholder="Weight (kg)"
-            placeholderTextColor={colors.mutedForeground}
-            keyboardType="decimal-pad"
-            value={weightVal}
-            onChangeText={setWeightVal}
-            autoFocus
-          />
-          <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, marginLeft: 8 }]}
-            onPress={() => { const w = parseFloat(weightVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border, marginLeft: 6 }]}
-            onPress={() => { setShowWeight(false); setWeightVal(""); }}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 13, fontWeight: "600" }}>✕</Text>
-          </TouchableOpacity>
+  // ─── EMPTY STATE ───────────────────────────────────────────────
+  if (!plan) {
+    return (
+      <>
+        {formModal}
+        <Card>
+          <View style={{ alignItems: "center", paddingVertical: 10 }}>
+            <Feather name="target" size={28} color={colors.primary} />
+            <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "700", marginTop: 10 }}>Fight Camp</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center", marginTop: 4, marginBottom: 16, lineHeight: 18 }}>
+              Set a fight date to start your camp plan — track your cut and stay on pace.
+            </Text>
+            <TouchableOpacity onPress={openCreate}
+              style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 }}>
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Set a fight date</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      </>
+    );
+  }
+
+  // ─── ACTIVE PLAN ───────────────────────────────────────────────
+  return (
+    <>
+      {formModal}
+      {breakdownModal}
+      <Card>
+        {/* Header row: Fight Camp label | status badge | edit | delete */}
+        <View style={styles.rowBetween}>
+          <View style={styles.row}>
+            <Feather name="target" size={13} color={colors.primary} />
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>Fight Camp</Text>
+          </View>
+          <View style={styles.row}>
+            {statusColor && (
+              <View style={{ backgroundColor: statusColor.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+                borderWidth: 1, borderColor: statusColor.border, marginRight: 8 }}>
+                <Text style={{ color: statusColor.text, fontWeight: "700", fontSize: 11 }}>{plan.statusLabel}</Text>
+              </View>
+            )}
+            <TouchableOpacity onPress={openEdit} style={{ marginRight: 10 }}>
+              <Feather name="edit-2" size={15} color={colors.mutedForeground} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => {
+              Alert.alert("Delete plan", "Remove this fight camp plan?", [
+                { text: "Cancel", style: "cancel" },
+                { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
+              ]);
+            }}>
+              <Feather name="trash-2" size={15} color="#f87171" />
+            </TouchableOpacity>
+          </View>
         </View>
-      )}
-    </Card>
+
+        {/* Countdown */}
+        <Text style={[styles.heroNum, { color: colors.foreground, marginTop: 6 }]}>
+          {plan.daysUntil}{" "}
+          <Text style={[styles.heroSub, { color: colors.mutedForeground }]}>days to fight night</Text>
+        </Text>
+
+        {/* Inline weight logging */}
+        {!showWeight ? (
+          <TouchableOpacity
+            style={{ flexDirection: "row", alignItems: "center", marginTop: 8, marginBottom: 4,
+              backgroundColor: colors.secondary, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: colors.border }}
+            onPress={() => setShowWeight(true)}>
+            <Feather name="plus-circle" size={14} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600", marginLeft: 6 }}>Log today's weight →</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ marginTop: 8, marginBottom: 4 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+              <Feather name="activity" size={13} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 4 }}>Morning weight (kg)</Text>
+            </View>
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, { flex: 1, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.secondary }]}
+                placeholder="e.g. 77.2"
+                placeholderTextColor={colors.mutedForeground}
+                keyboardType="decimal-pad"
+                value={weightVal}
+                onChangeText={setWeightVal}
+                autoFocus
+              />
+              <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, marginLeft: 8 }]}
+                onPress={() => { const w = parseFloat(weightVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}
+                disabled={weightMut.isPending}>
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border, marginLeft: 6 }]}
+                onPress={() => { setShowWeight(false); setWeightVal(""); }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, fontWeight: "600" }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* 3-panel weight row */}
+        <View style={{ flexDirection: "row", marginTop: 10, backgroundColor: colors.secondary,
+          borderRadius: 10, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
+          <View style={{ flex: 1, alignItems: "center", padding: 12, borderRightWidth: 1, borderRightColor: colors.border }}>
+            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 17 }}>{plan.currentWeight}</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>Current</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>kg</Text>
+          </View>
+          <View style={{ flex: 1, alignItems: "center", padding: 10, justifyContent: "center",
+            borderRightWidth: 1, borderRightColor: colors.border }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 2 }}>↓</Text>
+            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>{plan.totalToLose.toFixed(1)} kg to go</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{plan.weeklyRate.toFixed(2)} kg/wk</Text>
+          </View>
+          <View style={{ flex: 1, alignItems: "center", padding: 12 }}>
+            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 17 }}>{plan.targetWeight}</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>Fight wt</Text>
+          </View>
+        </View>
+
+        {/* Pace badge row — taps to breakdown */}
+        <TouchableOpacity onPress={() => setShowBreakdown(true)} style={{ marginTop: 10 }} activeOpacity={0.7}>
+          {pace && (
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ backgroundColor: pace.color + "20", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+                borderWidth: 1, borderColor: pace.color + "40" }}>
+                <Text style={{ color: pace.color, fontWeight: "700", fontSize: 12 }}>{pace.label}</Text>
+              </View>
+              <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 2 }}>Plan breakdown</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* This week's target */}
+        {thisWeekTarget && (
+          <View style={{ marginTop: 10, backgroundColor: colors.secondary, borderRadius: 8, padding: 10,
+            borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>THIS WEEK'S TARGET</Text>
+            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14, marginTop: 2 }}>
+              {thisWeekTarget.targetWeight.toFixed(1)} kg
+              {plan.suggestedDeficitKcal > 0 && (
+                <Text style={{ color: colors.mutedForeground, fontWeight: "400" }}> · ~{Math.round(plan.suggestedDeficitKcal)} kcal deficit</Text>
+              )}
+            </Text>
+          </View>
+        )}
+
+        {/* Trend message */}
+        {trend && (
+          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
+            <Feather name={trend.isUp ? "trending-up" : "zap"} size={13}
+              color={trend.isUp ? "#fb923c" : colors.primary} style={{ marginRight: 5 }} />
+            <Text style={{ color: trend.isUp ? "#fb923c" : colors.mutedForeground, fontSize: 12, flex: 1 }}>
+              {trend.text}
+            </Text>
+          </View>
+        )}
+
+        {/* Consistency row */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+            Weight logged: {consistencyCount} of last 7 days
+          </Text>
+          {consistencyInfo && (
+            <View style={{ backgroundColor: consistencyInfo.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 }}>
+              <Text style={{ color: consistencyInfo.color, fontWeight: "700", fontSize: 11 }}>{consistencyInfo.label}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Share row */}
+        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", marginTop: 10,
+          paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border }}>
+          <Feather name="share" size={14} color={colors.mutedForeground} />
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 6 }}>Try sharing a moment</Text>
+        </TouchableOpacity>
+
+        {/* Disclaimer */}
+        <Text style={{ color: colors.mutedForeground, fontSize: 10, marginTop: 6, lineHeight: 14 }}>
+          Educational tool only. Consult a sports nutritionist for individual guidance.
+        </Text>
+      </Card>
+    </>
   );
 }
 
