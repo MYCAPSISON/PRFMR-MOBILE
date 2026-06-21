@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Modal, Alert,
+  TextInput, ActivityIndicator, Modal, Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -36,6 +36,12 @@ interface CatalogItem {
 const FORMS = ["pill", "capsule", "powder", "liquid", "tablet", "softgel", "gummy", "other"];
 const DOSE_UNITS = ["mcg", "mg", "g", "IU", "ml", "serving", "CFU"];
 
+// Shared AMQS query keys to invalidate on any supplement mutation (§6.6, §14.5, §14.6, §14.7)
+const AMQS_KEYS = [
+  { queryKey: ["/api/me/amqs/score"],      exact: false },
+  { queryKey: ["/api/me/amqs/score-range"], exact: false },
+];
+
 // ─────────────────────────────────────────
 // UI primitives
 // ─────────────────────────────────────────
@@ -49,7 +55,7 @@ function Card({ children, style }: { children: React.ReactNode; style?: any }) {
 }
 
 // ─────────────────────────────────────────
-// Add / Edit Supplement Modal
+// Add / Edit Supplement Modal  (§14.5, §14.6)
 // ─────────────────────────────────────────
 function SupplementFormModal({
   visible, supplement, onClose,
@@ -57,15 +63,18 @@ function SupplementFormModal({
   const qc = useQueryClient();
   const isEdit = !!supplement;
 
-  const [name, setName] = useState(supplement?.name ?? "");
-  const [brand, setBrand] = useState(supplement?.brand ?? "");
-  const [form, setForm] = useState(supplement?.form ?? "");
-  const [notes, setNotes] = useState(supplement?.notes ?? "");
-  const [doseAmount, setDoseAmount] = useState(supplement?.doseAmount?.toString() ?? "");
-  const [doseUnit, setDoseUnit] = useState(supplement?.doseUnit ?? "mg");
-  const [catalogSearch, setCatalogSearch] = useState("");
+  // Form state
+  const [name, setName]                   = useState(supplement?.name ?? "");
+  const [brand, setBrand]                 = useState(supplement?.brand ?? "");
+  const [form, setForm]                   = useState(supplement?.form ?? "");
+  const [notes, setNotes]                 = useState(supplement?.notes ?? "");
+  const [doseAmount, setDoseAmount]       = useState(supplement?.doseAmount?.toString() ?? "");
+  const [doseUnit, setDoseUnit]           = useState(supplement?.doseUnit ?? "mg");
+  const [reminderEnabled, setReminderEnabled] = useState(supplement?.reminderEnabled ?? false);
+  const [reminderTime, setReminderTime]   = useState(supplement?.reminderTime ?? "08:00");
   const [selectedCatalogId, setSelectedCatalogId] = useState<number | null>(supplement?.catalogId ?? null);
-  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogOpen, setCatalogOpen]     = useState(false);
 
   const { data: catalog = [], isError: catalogError } = useQuery<CatalogItem[]>({
     queryKey: ["supplement-catalog"],
@@ -74,6 +83,7 @@ function SupplementFormModal({
     retry: 2,
   });
 
+  // Reset when modal opens
   React.useEffect(() => {
     if (visible) {
       setName(supplement?.name ?? "");
@@ -82,6 +92,8 @@ function SupplementFormModal({
       setNotes(supplement?.notes ?? "");
       setDoseAmount(supplement?.doseAmount?.toString() ?? "");
       setDoseUnit(supplement?.doseUnit ?? "mg");
+      setReminderEnabled(supplement?.reminderEnabled ?? false);
+      setReminderTime(supplement?.reminderTime ?? "08:00");
       setSelectedCatalogId(supplement?.catalogId ?? null);
       setCatalogSearch("");
       setCatalogOpen(false);
@@ -89,42 +101,64 @@ function SupplementFormModal({
   }, [visible, supplement]);
 
   const selectedCatalogItem = catalog.find(c => c.id === selectedCatalogId) ?? null;
-
   const filteredCatalog = catalog
     .filter(c => c.name.toLowerCase().includes(catalogSearch.toLowerCase()))
-    .slice(0, 10);
+    .slice(0, 12);
 
+  // ── Save mutation ──
   const saveMut = useMutation({
     mutationFn: () => {
-      const body = {
-        name: name.trim(),
-        brand: brand.trim() || null,
-        form: form || null,
-        notes: notes.trim() || null,
-        catalogId: selectedCatalogId,
-        doseAmount: parseFloat(doseAmount) || null,
-        doseUnit: doseUnit || null,
-      };
       if (isEdit && supplement) {
+        // PATCH body — send null explicitly for cleared fields (§14.6)
+        const body = {
+          name: name.trim(),
+          brand: brand.trim() || null,
+          form: form || null,
+          notes: notes.trim() || null,
+          catalogId: selectedCatalogId,
+          doseAmount: parseFloat(doseAmount) || null,
+          doseUnit: doseUnit || null,
+          reminderEnabled,
+          reminderTime: reminderEnabled ? reminderTime : null,
+        };
         return apiFetch(`/supplements/${supplement.id}`, { method: "PATCH", body });
       }
+      // POST body (§14.5) — only send reminder fields when relevant
+      const body: Record<string, unknown> = {
+        name: name.trim(),
+        reminderEnabled,
+      };
+      if (brand.trim())          body.brand = brand.trim();
+      if (form)                  body.form = form;
+      if (notes.trim())          body.notes = notes.trim();
+      if (selectedCatalogId)     body.catalogId = selectedCatalogId;
+      if (parseFloat(doseAmount)) body.doseAmount = parseFloat(doseAmount);
+      if (doseUnit)              body.doseUnit = doseUnit;
+      if (reminderEnabled)       body.reminderTime = reminderTime;
       return apiFetch("/supplements", { method: "POST", body });
     },
     onSuccess: () => {
+      // Invalidate supplement list + stacks (§14.5 / §14.6)
       qc.invalidateQueries({ queryKey: ["supplements"] });
       qc.invalidateQueries({ queryKey: ["stacks-scheduled"] });
+      // Invalidate AMQS score so the card refreshes immediately (§6.6 — "4. Cache invalidation")
+      AMQS_KEYS.forEach(k => qc.invalidateQueries(k));
       onClose();
     },
   });
 
   const lbl = { color: "#6b7280", fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.5, marginBottom: 6 };
-  const inp = { borderRadius: 8, borderWidth: 1, borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", padding: 11, fontSize: 14, marginBottom: 14 } as const;
+  const inp = {
+    borderRadius: 8, borderWidth: 1, borderColor: "#1a1e28", color: "#eceef2",
+    backgroundColor: "#181c26", padding: 11, fontSize: 14, marginBottom: 14,
+  } as const;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
-        {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+        {/* ── Header ── */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
           <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17 }}>
             {isEdit ? "Edit Supplement" : "Add Supplement"}
           </Text>
@@ -134,9 +168,12 @@ function SupplementFormModal({
         </View>
 
         <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-          {/* Catalog error banner */}
+
+          {/* ── Catalog error banner ── */}
           {catalogError && (
-            <View style={{ backgroundColor: "rgba(239,68,68,0.1)", borderRadius: 8, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)", padding: 10, marginBottom: 14, flexDirection: "row", gap: 8 }}>
+            <View style={{ backgroundColor: "rgba(239,68,68,0.1)", borderRadius: 8,
+              borderWidth: 1, borderColor: "rgba(239,68,68,0.3)", padding: 10, marginBottom: 14,
+              flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
               <Feather name="alert-circle" size={14} color="#f87171" />
               <Text style={{ color: "#f87171", fontSize: 12, flex: 1 }}>
                 Catalog unavailable — you can still add a custom supplement.
@@ -144,10 +181,9 @@ function SupplementFormModal({
             </View>
           )}
 
-          {/* ── Catalog selector (shown for both Add and Edit) ── */}
+          {/* ── Field 1: Catalog selector (§14.5 / §14.9) ── */}
           <Text style={lbl}>SELECT FROM CATALOG (OPTIONAL)</Text>
 
-          {/* Current selection or placeholder */}
           <TouchableOpacity
             onPress={() => setCatalogOpen(o => !o)}
             style={{ flexDirection: "row", alignItems: "center", height: 46,
@@ -163,7 +199,6 @@ function SupplementFormModal({
           {catalogOpen && (
             <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
               backgroundColor: "#181c26", marginBottom: 4, overflow: "hidden" }}>
-              {/* Search */}
               <View style={{ flexDirection: "row", alignItems: "center", padding: 10,
                 borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
                 <Feather name="search" size={13} color="#6b7280" />
@@ -174,10 +209,14 @@ function SupplementFormModal({
                   autoFocus
                 />
               </View>
+
               {/* Custom option */}
               <TouchableOpacity
                 onPress={() => {
                   setSelectedCatalogId(null);
+                  // Add mode: clear doseUnit per spec §14.5
+                  // Edit mode: preserve existing doseUnit per spec §14.6
+                  if (!isEdit) setDoseUnit("mg");
                   setCatalogOpen(false);
                   setCatalogSearch("");
                 }}
@@ -189,15 +228,18 @@ function SupplementFormModal({
                   Custom Supplement
                 </Text>
               </TouchableOpacity>
+
               {/* Catalog items */}
               {filteredCatalog.map((item, i) => (
                 <TouchableOpacity key={item.id}
                   onPress={() => {
-                    const wasSelected = selectedCatalogId === item.id;
-                    if (wasSelected) {
+                    if (selectedCatalogId === item.id) {
+                      // Deselect → treat as custom
                       setSelectedCatalogId(null);
+                      if (!isEdit) setDoseUnit("mg");
                     } else {
                       setSelectedCatalogId(item.id);
+                      // Auto-fill name (only if empty) and doseUnit (§14.5)
                       if (!name.trim()) setName(item.name);
                       setDoseUnit(item.defaultUnit);
                     }
@@ -219,6 +261,7 @@ function SupplementFormModal({
                   )}
                 </TouchableOpacity>
               ))}
+
               {filteredCatalog.length === 0 && catalogSearch.length > 0 && (
                 <View style={{ padding: 14 }}>
                   <Text style={{ color: "#6b7280", fontSize: 13 }}>No matches — add as custom.</Text>
@@ -227,38 +270,34 @@ function SupplementFormModal({
             </View>
           )}
 
-          {/* Catalog hint box */}
-          {selectedCatalogItem && (
+          {/* ── Catalog hint box (§14.9 — shown only when catalog item selected) ── */}
+          {selectedCatalogItem ? (
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8,
-              backgroundColor: "rgba(147,197,253,0.06)", borderRadius: 8,
-              borderWidth: 1, borderColor: "rgba(147,197,253,0.15)", padding: 10, marginBottom: 14, marginTop: 4 }}>
-              <Feather name="info" size={13} color="#93c5fd" style={{ marginTop: 1 }} />
-              <Text style={{ color: "#93c5fd", fontSize: 12, flex: 1, lineHeight: 17 }}>
+              backgroundColor: "rgba(107,114,128,0.12)", borderRadius: 8,
+              padding: 10, marginBottom: 14, marginTop: 4 }}>
+              <Feather name="info" size={12} color="#9ca3af" style={{ marginTop: 1 }} />
+              <Text style={{ color: "#9ca3af", fontSize: 12, flex: 1, lineHeight: 17 }}>
                 {selectedCatalogItem.notes ?? "This supplement's micronutrients will be tracked for AMQS."}
               </Text>
             </View>
+          ) : (
+            <View style={{ height: 14 }} />
           )}
-          {!selectedCatalogItem && <View style={{ height: 14 }} />}
 
-          {/* ── Name ── */}
+          {/* ── Field 2: Name (§14.5) ── */}
           <Text style={lbl}>SUPPLEMENT NAME *</Text>
           <TextInput style={inp}
             placeholder="e.g. Vitamin D3" placeholderTextColor="#6b7280"
             value={name} onChangeText={setName} />
 
-          {/* ── Brand ── */}
-          <Text style={lbl}>BRAND (optional)</Text>
-          <TextInput style={inp}
-            placeholder="e.g. Nature Made" placeholderTextColor="#6b7280"
-            value={brand} onChangeText={setBrand} />
-
-          {/* ── Dose ── */}
+          {/* ── Fields 3 + 4: Dose (§14.5) ── */}
           <Text style={lbl}>DOSE</Text>
           <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
             <TextInput
               style={{ ...inp, flex: 1, marginBottom: 0 }}
               placeholder="Amount (e.g. 25)" placeholderTextColor="#6b7280"
-              keyboardType="decimal-pad" value={doseAmount} onChangeText={setDoseAmount} />
+              keyboardType="decimal-pad" value={doseAmount} onChangeText={setDoseAmount}
+            />
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {DOSE_UNITS.map(u => (
                 <TouchableOpacity key={u} style={[s.chip, {
@@ -271,32 +310,72 @@ function SupplementFormModal({
             </ScrollView>
           </View>
 
-          {/* ── Form ── */}
-          <Text style={lbl}>FORM (optional)</Text>
+          {/* ── Field 5: Brand (§14.5) ── */}
+          <Text style={lbl}>BRAND (OPTIONAL)</Text>
+          <TextInput style={inp}
+            placeholder="e.g. Nature Made" placeholderTextColor="#6b7280"
+            value={brand} onChangeText={setBrand} />
+
+          {/* ── Field 6: Form (§14.5) ── */}
+          <Text style={lbl}>FORM (OPTIONAL)</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
             {FORMS.map(f => (
               <TouchableOpacity key={f} style={[s.chip, {
                 borderColor: form === f ? "#ff7a00" : "#1a1e28",
                 backgroundColor: form === f ? "rgba(255,122,0,0.1)" : "#181c26",
               }]} onPress={() => setForm(form === f ? "" : f)}>
-                <Text style={{ color: form === f ? "#ff7a00" : "#6b7280", fontSize: 12, fontWeight: "700", textTransform: "capitalize" }}>{f}</Text>
+                <Text style={{ color: form === f ? "#ff7a00" : "#6b7280",
+                  fontSize: 12, fontWeight: "700", textTransform: "capitalize" }}>{f}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-          {/* ── Notes ── */}
-          <Text style={lbl}>NOTES (optional)</Text>
+          {/* ── Field 7: Notes (§14.5) ── */}
+          <Text style={lbl}>NOTES (OPTIONAL)</Text>
           <TextInput
-            style={{ ...inp, height: 80, textAlignVertical: "top" }}
+            style={{ ...inp, height: 72, textAlignVertical: "top" }}
             placeholder="Any personal notes..." placeholderTextColor="#6b7280"
             value={notes} onChangeText={setNotes} multiline />
 
-          {/* ── Submit ── */}
+          {/* ── Field 8: Daily Reminder toggle (§14.5) ── */}
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+            marginBottom: reminderEnabled ? 10 : 14 }}>
+            <View>
+              <Text style={{ color: "#eceef2", fontSize: 14, fontWeight: "600" }}>Daily Reminder</Text>
+              <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 2 }}>
+                Get a daily reminder to take this supplement
+              </Text>
+            </View>
+            <Switch
+              value={reminderEnabled}
+              onValueChange={setReminderEnabled}
+              trackColor={{ false: "#1a1e28", true: "#ff7a00" }}
+              thumbColor="#ffffff"
+            />
+          </View>
+
+          {reminderEnabled && (
+            <View style={{ marginBottom: 14 }}>
+              <Text style={lbl}>REMINDER TIME</Text>
+              <TextInput
+                style={inp}
+                placeholder="HH:MM (e.g. 08:00)"
+                placeholderTextColor="#6b7280"
+                value={reminderTime}
+                onChangeText={setReminderTime}
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
+          )}
+
+          {/* ── Error ── */}
           {saveMut.isError && (
             <Text style={{ color: "#f87171", fontSize: 12, marginBottom: 8 }}>
               {(saveMut.error as Error).message ?? "Failed to save. Try again."}
             </Text>
           )}
+
+          {/* ── Submit ── */}
           <TouchableOpacity
             style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: name.trim() ? 1 : 0.4 }]}
             disabled={!name.trim() || saveMut.isPending}
@@ -307,6 +386,7 @@ function SupplementFormModal({
                   {isEdit ? "Save Changes" : "Add Supplement"}
                 </Text>}
           </TouchableOpacity>
+
           <View style={{ height: 40 }} />
         </ScrollView>
       </SafeAreaView>
@@ -315,45 +395,42 @@ function SupplementFormModal({
 }
 
 // ─────────────────────────────────────────
-// Supplement Row (§14.8)
+// Supplement Row  (§14.7, §14.8)
 // ─────────────────────────────────────────
 function SupplementRow({ supplement }: { supplement: Supplement }) {
   const colors = useColors();
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
 
+  // §14.7: no confirmation dialog — immediate delete
   const deleteMut = useMutation({
     mutationFn: () => apiFetch(`/supplements/${supplement.id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["supplements"] });
       qc.invalidateQueries({ queryKey: ["stacks-scheduled"] });
+      // Invalidate AMQS score (§6.6 — "4. Cache invalidation on supplement mutations")
+      AMQS_KEYS.forEach(k => qc.invalidateQueries(k));
     },
   });
 
-  const handleDelete = () => {
-    Alert.alert(
-      "Delete supplement?",
-      `Remove "${supplement.name}" from your list?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
-      ]
-    );
-  };
-
   return (
     <>
-      <View style={[s.suppRow, { borderColor: colors.border }]}>
+      {/* §14.8 — exact row layout */}
+      <View style={[s.suppRow, { borderColor: colors.border }]} testID={`supplement-item-${supplement.id}`}>
+
         {/* Icon */}
         <View style={[s.suppIcon, { backgroundColor: "rgba(255,122,0,0.1)", borderColor: "rgba(255,122,0,0.2)" }]}>
           <MaterialCommunityIcons name="pill" size={18} color={colors.primary} />
         </View>
 
-        {/* Content */}
+        {/* Left column (flex-1) */}
         <View style={{ flex: 1 }}>
+
           {/* Row 1: name + badges */}
           <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 5, marginBottom: 1 }}>
             <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>{supplement.name}</Text>
+
+            {/* Dose badge (outline variant) */}
             {supplement.doseAmount != null && supplement.doseUnit && (
               <View style={[s.microBadge, { borderColor: colors.border }]}>
                 <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700" }}>
@@ -361,6 +438,8 @@ function SupplementRow({ supplement }: { supplement: Supplement }) {
                 </Text>
               </View>
             )}
+
+            {/* Form badge (secondary variant) */}
             {supplement.form && (
               <View style={[s.microBadge, { borderColor: colors.border, backgroundColor: "rgba(107,114,128,0.1)" }]}>
                 <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700", textTransform: "capitalize" }}>
@@ -368,23 +447,30 @@ function SupplementRow({ supplement }: { supplement: Supplement }) {
                 </Text>
               </View>
             )}
+
+            {/* "AMQS tracked" badge — shown whenever catalogId is non-null (§6.6 §14.2 §14.8)
+                Note: supplements with empty microsPerUnit (e.g. Creatine) still show this badge
+                because the badge means "linked to catalog", not "moves the score" (§6.6 nuance) */}
             {supplement.catalogId != null && (
-              <View style={[s.microBadge, { borderColor: "rgba(255,122,0,0.3)", backgroundColor: "rgba(255,122,0,0.1)" }]}>
+              <View style={[s.microBadge, {
+                borderColor: "rgba(255,122,0,0.3)",
+                backgroundColor: "rgba(255,122,0,0.1)",
+              }]}>
                 <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>AMQS tracked</Text>
               </View>
             )}
           </View>
 
-          {/* Row 2: AMQS sub-line */}
+          {/* Row 2: "Contributing to your AMQS score" — shown when catalogId set (§14.8) */}
           {supplement.catalogId != null && (
-            <Text style={{ color: colors.mutedForeground, fontSize: 11, opacity: 0.7, marginTop: 1 }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11, opacity: 0.6, marginTop: 1 }}>
               Contributing to your AMQS score
             </Text>
           )}
 
-          {/* Row 3: reminder */}
+          {/* Row 3: reminder line */}
           {supplement.reminderEnabled && supplement.reminderTime && (
-            <Text style={{ color: colors.primary, fontSize: 11, opacity: 0.8, marginTop: 2 }}>
+            <Text style={{ color: colors.primary, fontSize: 11, opacity: 0.7, marginTop: 2 }}>
               ⏰ Daily reminder at {supplement.reminderTime}
             </Text>
           )}
@@ -402,12 +488,18 @@ function SupplementRow({ supplement }: { supplement: Supplement }) {
           )}
         </View>
 
-        {/* Actions */}
+        {/* Right column: action buttons */}
         <View style={{ flexDirection: "row" }}>
-          <TouchableOpacity style={{ padding: 8 }} onPress={() => setEditOpen(true)}>
+          <TouchableOpacity
+            style={{ padding: 8 }}
+            testID={`button-edit-supplement-${supplement.id}`}
+            onPress={() => setEditOpen(true)}>
             <Feather name="edit-2" size={15} color={colors.mutedForeground} />
           </TouchableOpacity>
-          <TouchableOpacity style={{ padding: 8 }} onPress={handleDelete}>
+          <TouchableOpacity
+            style={{ padding: 8 }}
+            testID={`button-delete-supplement-${supplement.id}`}
+            onPress={() => deleteMut.mutate()}>
             {deleteMut.isPending
               ? <ActivityIndicator size="small" color="#f87171" />
               : <Feather name="trash-2" size={15} color={colors.mutedForeground} />}
@@ -436,25 +528,33 @@ export default function SupplementsScreen() {
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={[s.header, { borderBottomColor: colors.border }]}>
         <Text style={[s.pageTitle, { color: colors.foreground }]}>My Supplements</Text>
-        <TouchableOpacity style={[s.addBtn, { backgroundColor: colors.primary }]} onPress={() => setAddOpen(true)}>
+        <TouchableOpacity
+          style={[s.addBtn, { backgroundColor: colors.primary }]}
+          testID="button-add-supplement"
+          onPress={() => setAddOpen(true)}>
           <Feather name="plus" size={16} color="#fff" />
           <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13, marginLeft: 4 }}>Add</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
-        {/* Info Card */}
+
+        {/* Info card */}
         <Card style={{ borderColor: "rgba(147,197,253,0.2)", backgroundColor: "rgba(147,197,253,0.04)" }}>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
             <Feather name="info" size={14} color="#93c5fd" />
-            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 14, marginLeft: 8 }}>How Supplements Work</Text>
+            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 14, marginLeft: 8 }}>
+              How Supplements Work
+            </Text>
           </View>
           <Text style={[s.xs, { color: colors.mutedForeground, lineHeight: 18 }]}>
-            Add your supplements here, then create stacks and set reminders to see them on your daily dashboard. Supplements linked to the catalog automatically track micronutrients for your AMQS score.
+            Add supplements to your shelf. Those linked to the catalog automatically contribute
+            micronutrients to your <Text style={{ color: "#ff7a00", fontWeight: "700" }}>AMQS score</Text>.
+            Group them into stacks and set daily reminders to track them on your dashboard.
           </Text>
         </Card>
 
-        {/* Supplements List */}
+        {/* Supplement list */}
         <Card>
           <View style={[s.rowBetween, { marginBottom: 8 }]}>
             <Text style={[s.cardTitle, { color: colors.foreground }]}>Your Supplements</Text>
@@ -470,29 +570,31 @@ export default function SupplementsScreen() {
           ) : supplements.length === 0 ? (
             <View style={{ alignItems: "center", paddingVertical: 24 }}>
               <MaterialCommunityIcons name="pill" size={40} color={colors.mutedForeground} style={{ opacity: 0.4 }} />
-              <Text style={{ color: colors.mutedForeground, textAlign: "center", marginTop: 10, fontSize: 14, lineHeight: 20 }}>
+              <Text style={{ color: colors.mutedForeground, textAlign: "center", marginTop: 10,
+                fontSize: 14, lineHeight: 20 }}>
                 No supplements yet.{"\n"}Tap "+ Add" to get started.
               </Text>
             </View>
           ) : (
-            <View>
-              {supplements.map(supp => <SupplementRow key={supp.id} supplement={supp} />)}
-            </View>
+            supplements.map(supp => <SupplementRow key={supp.id} supplement={supp} />)
           )}
         </Card>
 
-        {/* Stacks Hint */}
+        {/* Stacks hint */}
         {supplements.length > 0 && (
           <Card style={{ borderColor: "rgba(255,122,0,0.15)" }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Feather name="layers" size={14} color={colors.primary} />
-              <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>Stacks & Reminders</Text>
+              <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>
+                Stacks & Reminders
+              </Text>
             </View>
             <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 6, lineHeight: 18 }]}>
-              Group your supplements into stacks (e.g. Morning Stack, Pre-Workout) and set reminders to track them on your daily dashboard.
+              Group supplements into stacks (e.g. Morning Stack, Pre-Workout) and set reminders
+              to track them on your daily dashboard.
             </Text>
             <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 6 }]}>
-              Manage stacks from the web app at app.prfmr.link for full control.
+              Manage stacks at app.prfmr.link for full control.
             </Text>
           </Card>
         )}
@@ -505,21 +607,29 @@ export default function SupplementsScreen() {
   );
 }
 
+// ─────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────
 const s = StyleSheet.create({
-  flex: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  pageTitle: { fontSize: 20, fontWeight: "800" },
-  scrollPad: { padding: 12, gap: 10 },
-  card: { borderRadius: 9, borderWidth: 1, padding: 14 },
-  cardTitle: { fontSize: 15, fontWeight: "700" },
+  flex:       { flex: 1 },
+  header:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  pageTitle:  { fontSize: 20, fontWeight: "800" },
+  scrollPad:  { padding: 12, gap: 10 },
+  card:       { borderRadius: 9, borderWidth: 1, padding: 14 },
+  cardTitle:  { fontSize: 15, fontWeight: "700" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  badge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
-  microBadge: { borderRadius: 4, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: "transparent" },
-  xs: { fontSize: 12, fontWeight: "500" },
-  sm: { fontSize: 13 },
-  addBtn: { flexDirection: "row", alignItems: "center", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-  suppRow: { flexDirection: "row", alignItems: "flex-start", borderRadius: 9, borderWidth: 1, padding: 12, marginTop: 6, gap: 10 },
-  suppIcon: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", marginTop: 1 },
-  fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
-  chip: { borderRadius: 7, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
+  badge:      { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
+  microBadge: { borderRadius: 4, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2,
+                backgroundColor: "transparent" },
+  xs:         { fontSize: 12, fontWeight: "500" },
+  sm:         { fontSize: 13 },
+  addBtn:     { flexDirection: "row", alignItems: "center", borderRadius: 8,
+                paddingHorizontal: 14, paddingVertical: 8 },
+  suppRow:    { flexDirection: "row", alignItems: "flex-start", borderRadius: 9, borderWidth: 1,
+                padding: 12, marginTop: 6, gap: 10 },
+  suppIcon:   { width: 36, height: 36, borderRadius: 8, borderWidth: 1,
+                alignItems: "center", justifyContent: "center", marginTop: 1 },
+  fullBtn:    { borderRadius: 9, padding: 14, alignItems: "center" },
+  chip:       { borderRadius: 7, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
 });
