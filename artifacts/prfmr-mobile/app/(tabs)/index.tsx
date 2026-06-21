@@ -17,6 +17,7 @@ import { useRouter } from "expo-router";
 import Svg, { Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText } from "react-native-svg";
 import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
 import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/coreFoodUnits";
+import { QuickLogModal } from "../../components/QuickLogModal";
 
 // ─────────────────────────────────────────
 // Types
@@ -2425,23 +2426,12 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
 // ─────────────────────────────────────────
 // Meals Section
 // ─────────────────────────────────────────
-function MealsSection({ date, externalTrigger }: {
-  date: string;
-  externalTrigger?: { open: boolean; onConsumed: () => void };
-}) {
+function MealsSection({ date }: { date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
   const { user } = useAuth();
   const [modal, setModal] = useState(false);
   const [mealType, setMealType] = useState<string>("breakfast");
-
-  // Open modal when FAB fires
-  useEffect(() => {
-    if (externalTrigger?.open) {
-      setModal(true);
-      externalTrigger.onConsumed();
-    }
-  }, [externalTrigger?.open]);
   const [activeTab, setActiveTab] = useState<TabId>("search");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
@@ -2880,7 +2870,7 @@ export default function DashboardScreen() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [updateWeightModal, setUpdateWeightModal] = useState(false);
   const [weightVal, setWeightVal] = useState("");
-  const [fabOpen, setFabOpen] = useState(false);
+  const [quickLogVisible, setQuickLogVisible] = useState(false);
 
   const isToday = selectedDate === format(new Date(), "yyyy-MM-dd");
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
@@ -2957,7 +2947,8 @@ export default function DashboardScreen() {
             <Feather name="activity" size={14} color={colors.primary} />
             <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Update Weight</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => setQuickLogVisible(true)}>
             <Feather name="plus-circle" size={14} color={colors.primary} />
             <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Quick Log</Text>
           </TouchableOpacity>
@@ -2991,10 +2982,7 @@ export default function DashboardScreen() {
         <WeightTrend date={selectedDate} />
 
         {/* Meals */}
-        <MealsSection
-          date={selectedDate}
-          externalTrigger={{ open: fabOpen, onConsumed: () => setFabOpen(false) }}
-        />
+        <MealsSection date={selectedDate} />
 
         {/* Current Weight */}
         <CurrentWeightCard date={selectedDate} />
@@ -3013,9 +3001,9 @@ export default function DashboardScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Floating Action Button — Add Food */}
+      {/* Floating Action Button — Quick Log */}
       <TouchableOpacity
-        onPress={() => setFabOpen(true)}
+        onPress={() => setQuickLogVisible(true)}
         style={{
           position: "absolute",
           bottom: 90,
@@ -3037,6 +3025,13 @@ export default function DashboardScreen() {
       >
         <Feather name="plus" size={26} color="#fff" />
       </TouchableOpacity>
+
+      {/* Quick Log Modal */}
+      <QuickLogModal
+        visible={quickLogVisible}
+        onClose={() => setQuickLogVisible(false)}
+        date={selectedDate}
+      />
 
       {/* Update Weight Modal */}
       <Modal visible={updateWeightModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setUpdateWeightModal(false)}>
