@@ -291,24 +291,23 @@ function SupplementFormModal({
             value={name} onChangeText={setName} />
 
           {/* ── Fields 3 + 4: Dose (§14.5) ── */}
-          <Text style={lbl}>DOSE</Text>
-          <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
-            <TextInput
-              style={{ ...inp, flex: 1, marginBottom: 0 }}
-              placeholder="Amount (e.g. 25)" placeholderTextColor="#6b7280"
-              keyboardType="decimal-pad" value={doseAmount} onChangeText={setDoseAmount}
-            />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {DOSE_UNITS.map(u => (
-                <TouchableOpacity key={u} style={[s.chip, {
-                  borderColor: doseUnit === u ? "#ff7a00" : "#1a1e28",
-                  backgroundColor: doseUnit === u ? "rgba(255,122,0,0.1)" : "#181c26",
-                }]} onPress={() => setDoseUnit(u)}>
-                  <Text style={{ color: doseUnit === u ? "#ff7a00" : "#6b7280", fontSize: 12, fontWeight: "700" }}>{u}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+          <Text style={lbl}>DOSE AMOUNT</Text>
+          <TextInput
+            style={inp}
+            placeholder="e.g. 25" placeholderTextColor="#6b7280"
+            keyboardType="decimal-pad" value={doseAmount} onChangeText={setDoseAmount}
+          />
+          <Text style={lbl}>DOSE UNIT</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+            {DOSE_UNITS.map(u => (
+              <TouchableOpacity key={u} style={[s.chip, {
+                borderColor: doseUnit === u ? "#ff7a00" : "#1a1e28",
+                backgroundColor: doseUnit === u ? "rgba(255,122,0,0.1)" : "#181c26",
+              }]} onPress={() => setDoseUnit(u)}>
+                <Text style={{ color: doseUnit === u ? "#ff7a00" : "#6b7280", fontSize: 12, fontWeight: "700" }}>{u}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
           {/* ── Field 5: Brand (§14.5) ── */}
           <Text style={lbl}>BRAND (OPTIONAL)</Text>
