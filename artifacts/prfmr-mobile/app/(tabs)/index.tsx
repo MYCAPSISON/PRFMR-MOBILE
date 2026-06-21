@@ -86,9 +86,9 @@ interface FoodEntry {
 }
 
 interface ScheduledSlot {
-  stackId: number;
-  stackName: string;
-  reminderId: number;
+  stackId: number | null;       // null for direct-reminder supplements (not in a stack)
+  stackName: string | null;     // null for direct-reminder supplements
+  reminderId: number | null;    // null for direct-reminder supplements
   time: string;
   supplementId: number;
   supplementName: string;
@@ -744,8 +744,15 @@ function SupplementsToday({ date }: { date: string }) {
   const takenSet = new Set(intakes.filter(i => i.taken).map(iKey));
 
   const toggleMut = useMutation({
-    mutationFn: (d: { supplementId: number; stackId: number; reminderId: number; taken: boolean }) =>
-      apiFetch("/supplement-intakes", { method: "POST", body: { ...d, date } }),
+    // stackId/reminderId must be 0 (not null) in the POST body per spec §23.6
+    mutationFn: (d: { supplementId: number; stackId: number | null; reminderId: number | null; taken: boolean }) =>
+      apiFetch("/supplement-intakes", { method: "POST", body: {
+        supplementId: d.supplementId,
+        stackId: d.stackId ?? 0,
+        reminderId: d.reminderId ?? 0,
+        taken: d.taken,
+        date,
+      }}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["supplement-intakes", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
@@ -777,9 +784,16 @@ function SupplementsToday({ date }: { date: string }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]}>{slot.supplementName}</Text>
-                {slot.doseAmount && <Text style={[styles.xs, { color: colors.mutedForeground }]}>{slot.doseAmount} {slot.doseUnit}</Text>}
+                {/* Sub-line: "StackName at HH:MM" for stack slots, "at HH:MM" for direct reminders (§23.6) */}
+                <Text style={[styles.xs, { color: colors.mutedForeground }]}>
+                  {slot.stackName ? `${slot.stackName} at ${slot.time}` : `at ${slot.time}`}
+                </Text>
+                {slot.doseAmount != null && slot.doseUnit && (
+                  <Text style={[styles.xs, { color: colors.mutedForeground, opacity: 0.7 }]}>
+                    {slot.doseAmount} {slot.doseUnit}
+                  </Text>
+                )}
               </View>
-              <Text style={[styles.xs, { color: colors.mutedForeground }]}>{slot.time}</Text>
             </TouchableOpacity>
           );
         })
