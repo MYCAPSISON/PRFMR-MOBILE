@@ -727,6 +727,7 @@ function DailyIntakeCard({ date }: { date: string }) {
 function SupplementsToday({ date }: { date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const router = useRouter();
   const displayDate = format(new Date(date + "T12:00:00"), "MMM d");
 
   const { data: slots = [] } = useQuery<ScheduledSlot[]>({
@@ -755,7 +756,9 @@ function SupplementsToday({ date }: { date: string }) {
     <Card>
       <View style={styles.rowBetween}>
         <Text style={[styles.cardTitle, { color: colors.foreground }]}>Supplements — {displayDate}</Text>
-        <SmallBadge label="Manage" color={colors.mutedForeground} bg={colors.secondary} />
+        <TouchableOpacity onPress={() => router.push("/(tabs)/supplements" as any)}>
+          <SmallBadge label="Manage" color={colors.mutedForeground} bg={colors.secondary} />
+        </TouchableOpacity>
       </View>
       {slots.length === 0 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground }]}>

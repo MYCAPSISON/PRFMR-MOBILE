@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Modal, Switch,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -138,10 +139,9 @@ function SupplementFormModal({
       return apiFetch("/supplements", { method: "POST", body });
     },
     onSuccess: () => {
-      // Invalidate supplement list + stacks (§14.5 / §14.6)
       qc.invalidateQueries({ queryKey: ["supplements"] });
-      qc.invalidateQueries({ queryKey: ["stacks-scheduled"] });
-      // Invalidate AMQS score so the card refreshes immediately (§6.6 — "4. Cache invalidation")
+      // exact: false catches ["stacks-scheduled", date] variants on the dashboard
+      qc.invalidateQueries({ queryKey: ["stacks-scheduled"], exact: false });
       AMQS_KEYS.forEach(k => qc.invalidateQueries(k));
       onClose();
     },
@@ -167,7 +167,11 @@ function SupplementFormModal({
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}>
+        <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
           {/* ── Catalog error banner ── */}
           {catalogError && (
@@ -388,6 +392,7 @@ function SupplementFormModal({
 
           <View style={{ height: 40 }} />
         </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
