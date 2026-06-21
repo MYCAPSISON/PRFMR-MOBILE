@@ -2425,12 +2425,23 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
 // ─────────────────────────────────────────
 // Meals Section
 // ─────────────────────────────────────────
-function MealsSection({ date }: { date: string }) {
+function MealsSection({ date, externalTrigger }: {
+  date: string;
+  externalTrigger?: { open: boolean; onConsumed: () => void };
+}) {
   const colors = useColors();
   const qc = useQueryClient();
   const { user } = useAuth();
   const [modal, setModal] = useState(false);
   const [mealType, setMealType] = useState<string>("breakfast");
+
+  // Open modal when FAB fires
+  useEffect(() => {
+    if (externalTrigger?.open) {
+      setModal(true);
+      externalTrigger.onConsumed();
+    }
+  }, [externalTrigger?.open]);
   const [activeTab, setActiveTab] = useState<TabId>("search");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
@@ -2869,6 +2880,7 @@ export default function DashboardScreen() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [updateWeightModal, setUpdateWeightModal] = useState(false);
   const [weightVal, setWeightVal] = useState("");
+  const [fabOpen, setFabOpen] = useState(false);
 
   const isToday = selectedDate === format(new Date(), "yyyy-MM-dd");
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
@@ -2979,7 +2991,10 @@ export default function DashboardScreen() {
         <WeightTrend date={selectedDate} />
 
         {/* Meals */}
-        <MealsSection date={selectedDate} />
+        <MealsSection
+          date={selectedDate}
+          externalTrigger={{ open: fabOpen, onConsumed: () => setFabOpen(false) }}
+        />
 
         {/* Current Weight */}
         <CurrentWeightCard date={selectedDate} />
@@ -2997,6 +3012,31 @@ export default function DashboardScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Floating Action Button — Add Food */}
+      <TouchableOpacity
+        onPress={() => setFabOpen(true)}
+        style={{
+          position: "absolute",
+          bottom: 24,
+          right: 20,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          backgroundColor: "#ff7a00",
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: "#ff7a00",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.45,
+          shadowRadius: 8,
+          elevation: 8,
+          zIndex: 100,
+        }}
+        activeOpacity={0.85}
+      >
+        <Feather name="plus" size={26} color="#fff" />
+      </TouchableOpacity>
 
       {/* Update Weight Modal */}
       <Modal visible={updateWeightModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setUpdateWeightModal(false)}>
