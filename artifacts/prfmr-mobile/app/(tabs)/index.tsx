@@ -730,43 +730,14 @@ function SupplementsToday({ date }: { date: string }) {
   const router = useRouter();
   const displayDate = format(new Date(date + "T12:00:00"), "MMM d");
 
-  const { data: stackSlots = [] } = useQuery<ScheduledSlot[]>({
+  const { data: slots = [] } = useQuery<ScheduledSlot[]>({
     queryKey: ["stacks-scheduled", date],
     queryFn: () => apiFetch(`/me/stacks/scheduled?date=${date}`),
-  });
-  // Also fetch the full shelf so we can surface direct-reminder supplements
-  // that the backend doesn't yet include in stacks/scheduled
-  const { data: allSupplements = [] } = useQuery<Array<{
-    id: number; name: string; reminderEnabled: boolean; reminderTime: string | null;
-    doseAmount: number | null; doseUnit: string | null;
-  }>>({
-    queryKey: ["supplements"],
-    queryFn: () => apiFetch("/me/supplements"),
   });
   const { data: intakes = [] } = useQuery<RawIntake[]>({
     queryKey: ["supplement-intakes", date],
     queryFn: () => apiFetch(`/me/supplement-intakes/${date}`),
   });
-
-  // Build synthetic slots for direct-reminder supplements not already in stackSlots
-  const stackSuppIds = new Set(stackSlots.map(s => s.supplementId));
-  const directSlots: ScheduledSlot[] = allSupplements
-    .filter(s => s.reminderEnabled && s.reminderTime && !stackSuppIds.has(s.id))
-    .map(s => ({
-      stackId: null,
-      stackName: null,
-      reminderId: null,
-      time: s.reminderTime!,
-      supplementId: s.id,
-      supplementName: s.name,
-      doseAmount: s.doseAmount,
-      doseUnit: s.doseUnit,
-    }));
-
-  // Merge and sort by time
-  const slots = [...stackSlots, ...directSlots].sort((a, b) =>
-    a.time.localeCompare(b.time)
-  );
 
   const iKey = (i: { supplementId: number; stackId: number | null; reminderId: number | null }) =>
     `${i.stackId ?? 0}-${i.reminderId ?? 0}-${i.supplementId}`;
