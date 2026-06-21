@@ -3018,7 +3018,7 @@ export default function DashboardScreen() {
         onPress={() => setFabOpen(true)}
         style={{
           position: "absolute",
-          bottom: 24,
+          bottom: 90,
           right: 20,
           width: 56,
           height: 56,
