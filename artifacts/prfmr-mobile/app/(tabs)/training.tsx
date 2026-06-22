@@ -453,8 +453,8 @@ function AddActivityModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.removeQueries({ queryKey: ["targets", date] });
-      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
       onClose();
       reset();
@@ -644,8 +644,8 @@ function EditActivityModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.removeQueries({ queryKey: ["targets", date] });
-      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
       onClose();
       onActivityMutated?.(date);
@@ -764,8 +764,8 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
     mutationFn: () => apiFetch(`/workouts/sessions/${session.id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.removeQueries({ queryKey: ["targets", date] });
-      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
     },
   });
 
@@ -773,8 +773,8 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
     mutationFn: (id: number) => apiFetch(`/workouts/activities/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.removeQueries({ queryKey: ["targets", date] });
-      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
     },
   });
@@ -861,8 +861,8 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
     mutationFn: () => apiFetch("/workouts/sessions", { method: "POST", body: { date, timeOfDay: section.key } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.removeQueries({ queryKey: ["targets", date] });
-      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
     },
   });
 
@@ -928,7 +928,11 @@ export default function TrainingScreen() {
   const restMut = useMutation({
     mutationFn: (mark: boolean) =>
       apiFetch(`/me/rest-day/${selectedDate}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["morning-status", selectedDate] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["morning-status", selectedDate] });
+      qc.invalidateQueries({ queryKey: ["targets", selectedDate] });
+      qc.invalidateQueries({ queryKey: ["training-summary", selectedDate] });
+    },
   });
 
   const { data: loadData, refetch: refetchLoad } = useQuery<TrainingLoad>({

@@ -1145,8 +1145,8 @@ function MorningCheckIn({ date }: { date: string }) {
       apiFetch(`/me/rest-day/${date}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["morning-status", date] });
-      qc.removeQueries({ queryKey: ["targets", date] });
-      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
     },
   });
 
