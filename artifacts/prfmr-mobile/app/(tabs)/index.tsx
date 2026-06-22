@@ -1145,7 +1145,8 @@ function MorningCheckIn({ date }: { date: string }) {
       apiFetch(`/me/rest-day/${date}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["morning-status", date] });
-      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["training-summary", date] });
     },
   });
 
@@ -3076,6 +3077,13 @@ export default function DashboardScreen() {
   });
 
   const isFightCamp = targets?.mode === "fight_camp";
+
+  // Training summary for non-fight-camp add-back (§9.15.5)
+  const { data: trainingSummary } = useQuery<{ totalKcal: number; totalKcalAdjusted: number; isRestDay: boolean }>({
+    queryKey: ["training-summary", selectedDate],
+    queryFn: () => apiFetch(`/me/training/summary/${selectedDate}`),
+    enabled: !isFightCamp,
+  });
   const fcOverride = useFightCampOverride({
     userId: user?.id,
     date: selectedDate,
@@ -3102,20 +3110,41 @@ export default function DashboardScreen() {
     return () => clearTimeout(timer);
   }, [isFightCamp, selectedDate, targets?.isBelowPerformanceCarb, targets?.performanceCarbWarning, fcOverride.shouldShowPerfToast]);
 
-  // Compute adjusted targets (spec §9.14.3)
+  // Compute adjusted targets (spec §9.14.3 fight-camp, §9.15.5 standard)
   const adjustedCalories = (() => {
-    if (!isFightCamp) return targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
-    return fcOverride.overrideCalories ?? targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+    if (isFightCamp) {
+      // Fight camp: server bakes training in; apply consent override on top
+      return fcOverride.overrideCalories ?? targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+    }
+    // Standard: client adds training credit on top of server base
+    const baseCalories = targets?.targetCalories ?? 2000;
+    const goal = user?.goal ?? "maintenance";
+    const creditPct: Record<string, number> = { fat_loss: 0.5, maintenance: 0.75, weight_gain: 1.0 };
+    const pct = creditPct[goal] ?? 0.75;
+    const trainingKcal = trainingSummary?.totalKcalAdjusted ?? trainingSummary?.totalKcal ?? 0;
+    let cal = baseCalories + Math.round(trainingKcal * pct);
+    // Fat-loss cap: deficit ≤ 1% BW/week (§9.15.5)
+    if (goal === "fat_loss" && user?.weight) {
+      const maxDailyDeficit = Math.round((0.01 * user.weight * 7700) / 7);
+      const tdee = (targets as any)?.tdee ?? baseCalories + 500;
+      if (tdee - cal > maxDailyDeficit) cal = tdee - maxDailyDeficit;
+    }
+    return cal;
   })();
   const adjustedCarbs = (() => {
-    if (!isFightCamp) return targets?.targetCarbs ?? 200;
-    if (fcOverride.overrideCarbs != null) return fcOverride.overrideCarbs;
-    if (fcOverride.overrideCalories != null) {
-      const p = targets?.targetProtein ?? 150;
-      const f = targets?.targetFat ?? 70;
-      return Math.round(Math.max(0, fcOverride.overrideCalories - p * 4 - f * 9) / 4);
+    if (isFightCamp) {
+      if (fcOverride.overrideCarbs != null) return fcOverride.overrideCarbs;
+      if (fcOverride.overrideCalories != null) {
+        const p = targets?.targetProtein ?? 150;
+        const f = targets?.targetFat ?? 70;
+        return Math.round(Math.max(0, fcOverride.overrideCalories - p * 4 - f * 9) / 4);
+      }
+      return targets?.targetCarbs ?? 200;
     }
-    return targets?.targetCarbs ?? 200;
+    // Standard: extra calories from training credit go to carbs
+    const baseCalories = targets?.targetCalories ?? 2000;
+    const baseCarbs = targets?.targetCarbs ?? 200;
+    return baseCarbs + Math.round(Math.max(0, adjustedCalories - baseCalories) / 4);
   })();
 
   const weightMut = useMutation({

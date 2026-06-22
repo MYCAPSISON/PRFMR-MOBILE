@@ -9,6 +9,7 @@ export interface User {
   weight?: number;
   height?: number;
   age?: number;
+  goal?: "fat_loss" | "maintenance" | "weight_gain";
   sport?: string;
   weightClass?: string;
   createdAt?: string;

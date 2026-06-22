@@ -453,6 +453,9 @@ function AddActivityModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
+      qc.removeQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["training-load", date] });
       onClose();
       reset();
       onActivityMutated?.(date);
@@ -641,6 +644,9 @@ function EditActivityModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
+      qc.removeQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["training-load", date] });
       onClose();
       onActivityMutated?.(date);
     },
@@ -756,12 +762,21 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
 
   const deleteSessionMut = useMutation({
     mutationFn: () => apiFetch(`/workouts/sessions/${session.id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", date] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions", date] });
+      qc.removeQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["training-summary", date] });
+    },
   });
 
   const deleteActivityMut = useMutation({
     mutationFn: (id: number) => apiFetch(`/workouts/activities/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", date] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions", date] });
+      qc.removeQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["training-summary", date] });
+      qc.invalidateQueries({ queryKey: ["training-load", date] });
+    },
   });
 
   const totalCal = session.activities.reduce((s, a) => s + (a.estimatedKcal || 0), 0);
@@ -844,7 +859,11 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
 
   const createSessionMut = useMutation({
     mutationFn: () => apiFetch("/workouts/sessions", { method: "POST", body: { date, timeOfDay: section.key } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", date] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions", date] });
+      qc.removeQueries({ queryKey: ["targets", date] });
+      qc.removeQueries({ queryKey: ["training-summary", date] });
+    },
   });
 
   return (
