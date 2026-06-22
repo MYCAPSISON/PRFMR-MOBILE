@@ -92,7 +92,7 @@ export function useFightCampOverride(opts: UseFightCampOverrideOptions): FCOverr
     if (!isFightCamp || !loaded) return;
     if (isLowEA && !stored.ea) setEaModalOpen(true);
     else if (isLowCarb && !stored.carb) setCarbModalOpen(true);
-  }, [isFightCamp, loaded, storageKey]);
+  }, [isFightCamp, loaded, storageKey, isLowEA, isLowCarb]);
 
   const writeStorage = useCallback(async (update: Partial<OverrideStorage>) => {
     const next = { ...stored, ...update };

@@ -1642,99 +1642,6 @@ function DailyIntakeCard({
         </View>
       )}
 
-      {/* EA Modal */}
-      {fcOverride && (
-        <Modal visible={fcOverride.eaModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeEAModal}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeEAModal}>
-            <TouchableOpacity activeOpacity={1}>
-              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low energy availability</Text>
-                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
-                  Your current intake appears to be below the level typically used to support recovery and performance
-                  {" "}(&lt;30 kcal/kg FFM).{"\n\n"}
-                  Increasing your intake may help improve energy levels, training quality, and recovery.
-                  This may slightly slow weight loss, but can better support performance.{"\n\n"}
-                  This is general performance guidance, not medical advice.
-                </Text>
-                <View style={{ gap: 8, marginBottom: 8 }}>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current EA</Text>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
-                        {t.eaValue} kcal/kg FFM
-                      </Text>
-                      <Text style={[styles.xs, { color: colors.mutedForeground }]}>
-                        {t.adjustedCalories || t.targetCalories} kcal/day
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Calories needed for EA 30</Text>
-                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
-                      {t.eaRecommendedCalories} kcal
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { marginBottom: 8 }]}
-                  onPress={fcOverride.acceptEA}>
-                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
-                    Adjust target to {t.eaRecommendedCalories} kcal
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.outlineBtn, { borderColor: colors.border }]}
-                  onPress={fcOverride.declineEA}>
-                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
-      )}
-
-      {/* Carb Modal */}
-      {fcOverride && (
-        <Modal visible={fcOverride.carbModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeCarbModal}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeCarbModal}>
-            <TouchableOpacity activeOpacity={1}>
-              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low carbohydrate intake</Text>
-                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
-                  Carbohydrate intake is below the minimum recommended for athletes (~3 g/kg bodyweight).
-                  This may impact training performance and recovery (IOC / ISSN guidelines).
-                </Text>
-                <View style={{ gap: 8, marginBottom: 8 }}>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current carbs</Text>
-                    <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
-                      {rd1(t.carbsPerKg ?? 0)} g/kg
-                    </Text>
-                  </View>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Suggested minimum</Text>
-                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
-                      {t.carbRecommendedG}g (3 g/kg)
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { marginBottom: 8 }]}
-                  onPress={fcOverride.acceptCarb}>
-                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
-                    Adjust carbs to {t.carbRecommendedG}g
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.outlineBtn, { borderColor: colors.border }]}
-                  onPress={fcOverride.declineCarb}>
-                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
-      )}
     </Card>
   );
 }
@@ -3324,6 +3231,92 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </SafeAreaView>
       </Modal>
+
+      {/* EA Modal — owned by DashboardScreen so state updates show immediately */}
+      {isFightCamp && targets && (
+        <Modal visible={fcOverride.eaModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeEAModal}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeEAModal}>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low energy availability</Text>
+                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
+                  Your current intake appears to be below the level typically used to support recovery and performance
+                  {" "}{"(<"}30 kcal/kg FFM).{"\n\n"}
+                  Increasing your intake may help improve energy levels, training quality, and recovery.
+                  This may slightly slow weight loss, but can better support performance.{"\n\n"}
+                  This is general performance guidance, not medical advice.
+                </Text>
+                <View style={{ gap: 8, marginBottom: 8 }}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current EA</Text>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
+                        {targets.eaValue} kcal/kg FFM
+                      </Text>
+                      <Text style={[styles.xs, { color: colors.mutedForeground }]}>
+                        {targets.adjustedCalories || targets.targetCalories} kcal/day
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Calories needed for EA 30</Text>
+                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
+                      {targets.eaRecommendedCalories} kcal
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity style={[styles.primaryBtn, { marginBottom: 8 }]} onPress={fcOverride.acceptEA}>
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+                    Adjust target to {targets.eaRecommendedCalories} kcal
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={fcOverride.declineEA}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {/* Carb Modal */}
+      {isFightCamp && targets && (
+        <Modal visible={fcOverride.carbModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeCarbModal}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeCarbModal}>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low carbohydrate intake</Text>
+                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
+                  Carbohydrate intake is below the minimum recommended for athletes (~3 g/kg bodyweight).
+                  This may impact training performance and recovery (IOC / ISSN guidelines).
+                </Text>
+                <View style={{ gap: 8, marginBottom: 8 }}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current carbs</Text>
+                    <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
+                      {targets.carbsPerKg != null ? targets.carbsPerKg.toFixed(1) : "—"} g/kg
+                    </Text>
+                  </View>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Suggested minimum</Text>
+                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
+                      {targets.carbRecommendedG}g (3 g/kg)
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity style={[styles.primaryBtn, { marginBottom: 8 }]} onPress={fcOverride.acceptCarb}>
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+                    Adjust carbs to {targets.carbRecommendedG}g
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={fcOverride.declineCarb}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
