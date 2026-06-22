@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api";
 import { useRouter } from "expo-router";
 import Svg, { Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText } from "react-native-svg";
 import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
+import { useFightCampOverride, type FCOverrideState } from "../../hooks/useFightCampOverride";
 import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/coreFoodUnits";
 import { QuickLogModal } from "../../components/QuickLogModal";
 
@@ -111,6 +112,19 @@ interface Targets {
   targetFat: number;
   adjustedCalories: number;
   trainingCaloriesEarned: number;
+  mode?: string;
+  ffmKg?: number;
+  eaValue?: number;
+  isLowEA?: boolean;
+  isLowCarb?: boolean;
+  carbsPerKg?: number;
+  eaRecommendedCalories?: number;
+  carbRecommendedG?: number;
+  isBelowPerformanceCarb?: boolean;
+  performanceCarbWarning?: string | null;
+  planId?: number;
+  planFightDate?: string;
+  planTargetWeight?: number;
 }
 
 interface FoodEntry {
@@ -1502,47 +1516,224 @@ function ProvisionalCheckIn({ date }: { date: string }) {
 // ─────────────────────────────────────────
 // Daily Intake Card
 // ─────────────────────────────────────────
-function DailyIntakeCard({ date }: { date: string }) {
+function DailyIntakeCard({
+  date,
+  targets: targetsProp,
+  adjustedCalories: adjCalProp,
+  adjustedCarbs: adjCarbsProp,
+  fcOverride,
+}: {
+  date: string;
+  targets?: Targets;
+  adjustedCalories?: number;
+  adjustedCarbs?: number;
+  fcOverride?: FCOverrideState;
+}) {
   const colors = useColors();
-  const { data: targets } = useQuery<Targets>({
+  const { data: localTargets } = useQuery<Targets>({
     queryKey: ["targets", date],
     queryFn: () => apiFetch(`/me/targets/effective?date=${date}`),
-  });
-  const { data: plan } = useQuery<WeightCutData | null>({
-    queryKey: ["weight-cut"],
-    queryFn: () => apiFetch<WeightCutData | null>("/me/weight-cut").catch(() => null),
-    retry: false,
+    enabled: !targetsProp,
   });
 
-  if (!targets) return null;
-  const cal = Math.round(targets.adjustedCalories || targets.targetCalories);
+  const t = targetsProp ?? localTargets;
+  if (!t) return null;
+
+  const isFightCamp = t.mode === "fight_camp";
+  const cal = adjCalProp ?? Math.round(t.adjustedCalories || t.targetCalories);
+  const carbs = adjCarbsProp ?? Math.round(t.targetCarbs);
+
+  const eaDecision = fcOverride?.eaDecision;
+  const carbDecision = fcOverride?.carbDecision;
+  const originallyLowEA = fcOverride?.originallyLowEA ?? false;
+  const originallyLowCarb = fcOverride?.originallyLowCarb ?? false;
+
+  // Re-compute effective EA after override (spec §9.14.3)
+  const ffmKg = t.ffmKg;
+  const serverCals = t.adjustedCalories || t.targetCalories;
+  const exerciseKcal = ffmKg && t.eaValue != null ? serverCals - t.eaValue * ffmKg : 0;
+  const effectiveEA = ffmKg && ffmKg > 0 ? Math.round((cal - exerciseKcal) / ffmKg) : t.eaValue;
+
+  // Re-compute isLowCarb after override (spec §9.14.3)
+  const bodyWeightKg = t.carbsPerKg && t.carbsPerKg > 0 ? t.targetCarbs / t.carbsPerKg : null;
+  const postOverrideIsLowCarb = bodyWeightKg && exerciseKcal > 0 ? (carbs / bodyWeightKg) < 3 : false;
+
+  const showEARow = isFightCamp && t.eaValue != null && fcOverride != null;
+  const showCarbRow = isFightCamp && fcOverride != null && (originallyLowCarb || postOverrideIsLowCarb);
+
+  // EA row styling
+  const eaIsWarn = (effectiveEA != null ? effectiveEA < 30 : originallyLowEA) && eaDecision !== "accepted";
+  const eaIsAccepted = originallyLowEA && eaDecision === "accepted";
 
   return (
     <Card>
       <View style={styles.rowBetween}>
         <Text style={[styles.cardTitle, { color: colors.foreground }]}>Daily Intake Estimates</Text>
-        {plan && plan.daysUntil > 0 && (
+        {isFightCamp && (
           <SmallBadge label="Fight Camp" color={colors.primary} bg={"rgba(255,122,0,0.1)"} />
         )}
       </View>
+
       <View style={styles.macroRow}>
         <View style={{ alignItems: "center", flex: 1 }}>
           <Text style={[styles.heroNum, { color: colors.foreground, fontSize: 22 }]}>{cal}</Text>
           <Text style={[styles.xs, { color: colors.mutedForeground }]}>cal</Text>
         </View>
         <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: "#93c5fd", fontSize: 22 }]}>{Math.round(targets.targetProtein)}g</Text>
+          <Text style={[styles.heroNum, { color: "#93c5fd", fontSize: 22 }]}>{Math.round(t.targetProtein)}g</Text>
           <Text style={[styles.xs, { color: colors.mutedForeground }]}>protein</Text>
         </View>
         <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: "#f59e0b", fontSize: 22 }]}>{Math.round(targets.targetCarbs)}g</Text>
+          <Text style={[styles.heroNum, { color: "#f59e0b", fontSize: 22 }]}>{carbs}g</Text>
           <Text style={[styles.xs, { color: colors.mutedForeground }]}>carbs</Text>
         </View>
         <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: "#facc15", fontSize: 22 }]}>{Math.round(targets.targetFat)}g</Text>
+          <Text style={[styles.heroNum, { color: "#facc15", fontSize: 22 }]}>{Math.round(t.targetFat)}g</Text>
           <Text style={[styles.xs, { color: colors.mutedForeground }]}>fat</Text>
         </View>
       </View>
+
+      {/* EA row */}
+      {showEARow && (
+        <View style={[
+          styles.eaRow,
+          eaIsWarn
+            ? { backgroundColor: "rgba(249,115,22,0.1)", borderColor: "rgba(249,115,22,0.3)", borderWidth: 1 }
+            : { backgroundColor: colors.secondary + "80" },
+        ]}>
+          <Text style={[styles.xs, { color: eaIsWarn ? "#fb923c" : colors.mutedForeground, flex: 1 }]}>
+            Energy Availability
+          </Text>
+          <Text style={[styles.xs, { color: eaIsWarn ? "#fb923c" : colors.mutedForeground, fontVariant: ["tabular-nums"] }]}>
+            {effectiveEA ?? t.eaValue} kcal/kg FFM
+          </Text>
+          {eaIsAccepted && (
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>· adjusted ✓</Text>
+          )}
+          {(eaIsWarn || eaIsAccepted) && (
+            <TouchableOpacity onPress={fcOverride!.openEAModal} style={{ marginLeft: 6 }}>
+              <Text style={[styles.xs, { color: "#fb923c", textDecorationLine: "underline" }]}>
+                {eaDecision === "declined" ? "Review" : eaIsAccepted ? "Review" : "Review →"}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Low carb row */}
+      {showCarbRow && !postOverrideIsLowCarb && originallyLowCarb && carbDecision === "accepted" && (
+        <View style={[styles.eaRow, { backgroundColor: colors.secondary + "80" }]}>
+          <Text style={[styles.xs, { color: colors.mutedForeground, flex: 1 }]}>Carbs adjusted to 3 g/kg</Text>
+          <Text style={[styles.xs, { color: colors.mutedForeground }]}>· adjusted ✓</Text>
+          <TouchableOpacity onPress={fcOverride!.openCarbModal} style={{ marginLeft: 6 }}>
+            <Text style={[styles.xs, { color: colors.mutedForeground, textDecorationLine: "underline" }]}>Review</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {showCarbRow && postOverrideIsLowCarb && carbDecision !== "accepted" && (
+        <View style={[styles.eaRow, { backgroundColor: "rgba(234,179,8,0.1)", borderColor: "rgba(234,179,8,0.3)", borderWidth: 1 }]}>
+          <Text style={[styles.xs, { color: "#facc15", flex: 1 }]}>Carbs below 3 g/kg</Text>
+          <TouchableOpacity onPress={fcOverride!.openCarbModal}>
+            <Text style={[styles.xs, { color: "#facc15", textDecorationLine: "underline" }]}>
+              {carbDecision === "declined" ? "Review" : "Review →"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* EA Modal */}
+      {fcOverride && (
+        <Modal visible={fcOverride.eaModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeEAModal}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeEAModal}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low energy availability</Text>
+                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
+                  Your current intake appears to be below the level typically used to support recovery and performance
+                  {" "}(&lt;30 kcal/kg FFM).{"\n\n"}
+                  Increasing your intake may help improve energy levels, training quality, and recovery.
+                  This may slightly slow weight loss, but can better support performance.{"\n\n"}
+                  This is general performance guidance, not medical advice.
+                </Text>
+                <View style={{ gap: 8, marginBottom: 8 }}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current EA</Text>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
+                        {t.eaValue} kcal/kg FFM
+                      </Text>
+                      <Text style={[styles.xs, { color: colors.mutedForeground }]}>
+                        {t.adjustedCalories || t.targetCalories} kcal/day
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Calories needed for EA 30</Text>
+                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
+                      {t.eaRecommendedCalories} kcal
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { marginBottom: 8 }]}
+                  onPress={fcOverride.acceptEA}>
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+                    Adjust target to {t.eaRecommendedCalories} kcal
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.outlineBtn, { borderColor: colors.border }]}
+                  onPress={fcOverride.declineEA}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {/* Carb Modal */}
+      {fcOverride && (
+        <Modal visible={fcOverride.carbModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeCarbModal}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeCarbModal}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low carbohydrate intake</Text>
+                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
+                  Carbohydrate intake is below the minimum recommended for athletes (~3 g/kg bodyweight).
+                  This may impact training performance and recovery (IOC / ISSN guidelines).
+                </Text>
+                <View style={{ gap: 8, marginBottom: 8 }}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current carbs</Text>
+                    <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
+                      {rd1(t.carbsPerKg ?? 0)} g/kg
+                    </Text>
+                  </View>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Suggested minimum</Text>
+                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
+                      {t.carbRecommendedG}g (3 g/kg)
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { marginBottom: 8 }]}
+                  onPress={fcOverride.acceptCarb}>
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+                    Adjust carbs to {t.carbRecommendedG}g
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.outlineBtn, { borderColor: colors.border }]}
+                  onPress={fcOverride.declineCarb}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </Card>
   );
 }
@@ -2884,6 +3075,49 @@ export default function DashboardScreen() {
     queryFn: () => apiFetch(`/me/targets/effective?date=${selectedDate}`),
   });
 
+  const isFightCamp = targets?.mode === "fight_camp";
+  const fcOverride = useFightCampOverride({
+    userId: user?.id,
+    date: selectedDate,
+    planId: targets?.planId,
+    planFightDate: targets?.planFightDate,
+    planTargetWeight: targets?.planTargetWeight,
+    isLowEA: targets?.isLowEA ?? false,
+    isLowCarb: targets?.isLowCarb ?? false,
+    eaRecommendedCalories: targets?.eaRecommendedCalories,
+    carbRecommendedG: targets?.carbRecommendedG,
+    serverCalories: targets?.adjustedCalories ?? targets?.targetCalories ?? 2000,
+    serverProtein: targets?.targetProtein ?? 150,
+    serverFat: targets?.targetFat ?? 70,
+    isFightCamp,
+  });
+
+  // Performance toast (spec §9.14.7)
+  useEffect(() => {
+    if (!isFightCamp || !targets?.isBelowPerformanceCarb || !targets?.performanceCarbWarning || !fcOverride.shouldShowPerfToast) return;
+    const timer = setTimeout(() => {
+      Alert.alert("Performance note", targets.performanceCarbWarning ?? "");
+      fcOverride.markPerfToastShown();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [isFightCamp, selectedDate, targets?.isBelowPerformanceCarb, targets?.performanceCarbWarning, fcOverride.shouldShowPerfToast]);
+
+  // Compute adjusted targets (spec §9.14.3)
+  const adjustedCalories = (() => {
+    if (!isFightCamp) return targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+    return fcOverride.overrideCalories ?? targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+  })();
+  const adjustedCarbs = (() => {
+    if (!isFightCamp) return targets?.targetCarbs ?? 200;
+    if (fcOverride.overrideCarbs != null) return fcOverride.overrideCarbs;
+    if (fcOverride.overrideCalories != null) {
+      const p = targets?.targetProtein ?? 150;
+      const f = targets?.targetFat ?? 70;
+      return Math.round(Math.max(0, fcOverride.overrideCalories - p * 4 - f * 9) / 4);
+    }
+    return targets?.targetCarbs ?? 200;
+  })();
+
   const weightMut = useMutation({
     mutationFn: (w: number) => apiFetch("/weights", { method: "POST", body: { date: selectedDate, weight: w } }),
     onSuccess: () => {
@@ -2899,6 +3133,9 @@ export default function DashboardScreen() {
     { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 }
   );
   const t = targets || { targetCalories: 2000, targetProtein: 150, targetCarbs: 200, targetFat: 70, adjustedCalories: 2000, trainingCaloriesEarned: 0 };
+  // Use override-adjusted values for progress tracking
+  const effectiveTargetCalories = adjustedCalories;
+  const effectiveTargetCarbs = adjustedCarbs;
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={["top"]}>
@@ -2925,7 +3162,13 @@ export default function DashboardScreen() {
         {isToday && <ProvisionalCheckIn date={selectedDate} />}
 
         {/* Daily Intake Estimates */}
-        <DailyIntakeCard date={selectedDate} />
+        <DailyIntakeCard
+          date={selectedDate}
+          targets={targets}
+          adjustedCalories={effectiveTargetCalories}
+          adjustedCarbs={effectiveTargetCarbs}
+          fcOverride={isFightCamp ? fcOverride : undefined}
+        />
 
         {/* Date Navigation */}
         <View style={[styles.dateNav, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -2962,9 +3205,9 @@ export default function DashboardScreen() {
 
         {/* Macro Cards */}
         <View style={styles.macroGrid}>
-          <MacroCard label="Calories" value={totals.calories} unit=" kcal" target={t.adjustedCalories || t.targetCalories} color={colors.primary} emoji="🔥" />
+          <MacroCard label="Calories" value={totals.calories} unit=" kcal" target={effectiveTargetCalories} color={colors.primary} emoji="🔥" />
           <MacroCard label="Protein" value={totals.protein} unit="g" target={t.targetProtein} color="#93c5fd" emoji="🥩" />
-          <MacroCard label="Carbs" value={totals.carbs} unit="g" target={t.targetCarbs} color="#f59e0b" emoji="🌾" />
+          <MacroCard label="Carbs" value={totals.carbs} unit="g" target={effectiveTargetCarbs} color="#f59e0b" emoji="🌾" />
           <MacroCard label="Fat" value={totals.fat} unit="g" target={t.targetFat} color="#facc15" emoji="🥑" />
           <MacroCard label="Fibre" value={totals.fibre} unit="g" target={30} color="#4ade80" emoji="🥦" />
         </View>
@@ -3090,6 +3333,11 @@ const styles = StyleSheet.create({
   ciSummaryCol: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 4 },
   fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
   macroRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
+  eaRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginTop: 8, gap: 4 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 20 },
+  alertCard: { width: "100%", maxWidth: 380, borderRadius: 14, borderWidth: 1, padding: 20 },
+  primaryBtn: { borderRadius: 10, paddingVertical: 14, alignItems: "center", backgroundColor: "#ff7a00" },
+  outlineBtn: { borderRadius: 10, paddingVertical: 13, alignItems: "center", borderWidth: 1 },
   macroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   macroCard: { width: "47.5%", padding: 12 },
   macroEmoji: { fontSize: 15, marginRight: 4 },
