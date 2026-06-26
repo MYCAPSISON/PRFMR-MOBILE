@@ -1523,12 +1523,14 @@ function DailyIntakeCard({
   adjustedCalories: adjCalProp,
   adjustedCarbs: adjCarbsProp,
   fcOverride,
+  isRestDay = false,
 }: {
   date: string;
   targets?: Targets;
   adjustedCalories?: number;
   adjustedCarbs?: number;
   fcOverride?: FCOverrideState;
+  isRestDay?: boolean;
 }) {
   const colors = useColors();
   const { data: localTargets } = useQuery<Targets>({
@@ -1555,12 +1557,12 @@ function DailyIntakeCard({
   const exerciseKcal = ffmKg && t.eaValue != null ? serverCals - t.eaValue * ffmKg : 0;
   const effectiveEA = ffmKg && ffmKg > 0 ? Math.round((cal - exerciseKcal) / ffmKg) : t.eaValue;
 
-  // Re-compute isLowCarb after override (spec §9.14.3)
+  // Re-compute isLowCarb after override (spec §9.14.3) — suppress on rest days
   const bodyWeightKg = t.carbsPerKg && t.carbsPerKg > 0 ? t.targetCarbs / t.carbsPerKg : null;
-  const postOverrideIsLowCarb = bodyWeightKg && exerciseKcal > 0 ? (carbs / bodyWeightKg) < 3 : false;
+  const postOverrideIsLowCarb = !isRestDay && bodyWeightKg && exerciseKcal > 0 ? (carbs / bodyWeightKg) < 3 : false;
 
   const showEARow = isFightCamp && t.eaValue != null && fcOverride != null;
-  const showCarbRow = isFightCamp && fcOverride != null && (originallyLowCarb || postOverrideIsLowCarb);
+  const showCarbRow = isFightCamp && !isRestDay && fcOverride != null && (originallyLowCarb || postOverrideIsLowCarb);
 
   // EA row styling
   const eaIsWarn = (effectiveEA != null ? effectiveEA < 30 : originallyLowEA) && eaDecision !== "accepted";
@@ -2985,12 +2987,16 @@ export default function DashboardScreen() {
 
   const isFightCamp = targets?.mode === "fight_camp";
 
-  // Training summary for non-fight-camp add-back (§9.15.5)
+  // Training summary for rest-day guard + non-fight-camp add-back (§9.15.5)
   const { data: trainingSummary } = useQuery<{ totalKcal: number; totalKcalAdjusted: number; isRestDay: boolean }>({
     queryKey: ["training-summary", selectedDate],
     queryFn: () => apiFetch(`/me/training/summary/${selectedDate}`),
-    enabled: !isFightCamp,
   });
+
+  // Spec §9.14 / §9.11: isLowCarb must not fire on rest days
+  const isRestDay = trainingSummary?.isRestDay ?? false;
+  const effectiveIsLowCarb = (targets?.isLowCarb ?? false) && !isRestDay;
+
   const fcOverride = useFightCampOverride({
     userId: user?.id,
     date: selectedDate,
@@ -2998,7 +3004,7 @@ export default function DashboardScreen() {
     planFightDate: targets?.planFightDate,
     planTargetWeight: targets?.planTargetWeight,
     isLowEA: targets?.isLowEA ?? false,
-    isLowCarb: targets?.isLowCarb ?? false,
+    isLowCarb: effectiveIsLowCarb,
     eaRecommendedCalories: targets?.eaRecommendedCalories,
     carbRecommendedG: targets?.carbRecommendedG,
     serverCalories: targets?.adjustedCalories ?? targets?.targetCalories ?? 2000,
@@ -3104,6 +3110,7 @@ export default function DashboardScreen() {
           adjustedCalories={effectiveTargetCalories}
           adjustedCarbs={effectiveTargetCarbs}
           fcOverride={isFightCamp ? fcOverride : undefined}
+          isRestDay={isRestDay}
         />
 
         {/* Date Navigation */}
