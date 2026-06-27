@@ -32,13 +32,16 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (!isLoading) {
-      if (isAuthenticated) {
-        router.replace("/(tabs)");
-      } else {
+      if (!isAuthenticated) {
         router.replace("/(auth)/login");
+      } else if (!user?.displayName) {
+        // User hasn't completed onboarding — no displayName set yet
+        router.replace("/onboarding");
+      } else {
+        router.replace("/(tabs)");
       }
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, user?.displayName]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

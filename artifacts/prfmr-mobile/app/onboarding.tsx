@@ -172,7 +172,7 @@ function StepInput({ label, value, onChange, placeholder, keyboardType = "defaul
 // ─────────────────────────────────────────
 export default function OnboardingScreen() {
   const colors = useColors();
-  const { user, refreshUser } = useAuth() as any;
+  const { user, refetchUser } = useAuth();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<WizardData>(INITIAL);
   const [submitting, setSubmitting] = useState(false);
@@ -207,7 +207,7 @@ export default function OnboardingScreen() {
         if (data.fightWeightClass) payload.fightWeightClass = data.fightWeightClass;
       }
       await apiFetch("/user/me", { method: "PATCH", body: payload });
-      if (refreshUser) await refreshUser();
+      await refetchUser();
       router.replace("/(tabs)");
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong");
