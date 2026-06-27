@@ -1,0 +1,578 @@
+# PRFMR — UI Replication Guide
+
+> A concise reference for any agent or developer rebuilding the PRFMR interface. Covers theme tokens, typography, icons, layout shell, card/modal sizing, and per-page component patterns.
+
+---
+
+## 1. Design Philosophy
+
+- **Dark-only.** No light mode exists — the `:root` block is the single source of truth. Never add a `.dark` toggle.
+- **Mobile-first, max-width capped at desktop.** The app is designed for 375–430 px phone widths. Cards stack vertically. On desktop, content sits inside a `max-w-5xl` container centred on the page.
+- **Orange on near-black.** The brand accent is a vivid orange (`hsl(24 100% 50%)`). Everything else is desaturated slate.
+- **Conservative and informational.** No decorative illustrations inside the app (except the onboarding splash). Data is always front-and-centre. Cards carry disclaimers where relevant.
+- **Framer Motion for all transitions** — page entries, card mounts, and number changes all animate softly. Nothing snaps in instantly.
+
+---
+
+## 2. Colour Tokens
+
+All defined in `client/src/index.css` as CSS custom properties in H S% L% format (no `hsl()` wrapper). Tailwind reads them through `tailwind.config.ts`.
+
+```css
+/* Backgrounds */
+--background:          220 20%  7%;   /* near-black slate — page background */
+--card:                220 16% 11%;   /* slightly lighter — card surface */
+--secondary:           220 15% 13%;   /* inputs, pills, secondary surfaces */
+--muted:               220 12% 17%;   /* dividers, subtle backgrounds */
+
+/* Foregrounds */
+--foreground:          210 10% 95%;   /* primary text */
+--secondary-foreground: 210 10% 90%;
+--muted-foreground:    215 10% 50%;   /* captions, placeholders */
+
+/* Brand */
+--primary:              24 100% 50%;  /* orange — hsl(24,100%,50%) = #FF7A00 approx */
+--primary-foreground:    0  0% 100%;
+--accent:               24 100% 50%;  /* identical to primary */
+--accent-foreground:     0  0% 100%;
+
+/* Semantic */
+--destructive:           0 62% 50%;   /* red for errors/delete */
+--border:              220 10% 15%;
+--input:               220 10% 15%;
+--ring:                 24 100% 50%;  /* orange focus ring */
+
+/* Sidebar (desktop nav uses these) */
+--sidebar-background:  220 18%  8%;
+--sidebar-border:      220 12% 14%;
+--sidebar-accent:      220 12% 15%;
+```
+
+### Semantic colour usage patterns
+
+| Context | Class / value |
+|---|---|
+| Active nav tab | `text-primary bg-secondary` |
+| Warning callout | `bg-amber-500/10 border-amber-500/20` |
+| Fight Camp callout | `bg-orange-500/8 border-orange-500/20` |
+| Success / good | `text-emerald-400 bg-emerald-500/10 border-emerald-500/20` |
+| Danger | `text-red-400 bg-red-500/10` |
+| Low EA warning | `bg-yellow-500/10 border-yellow-500/20 text-yellow-400` |
+| Macro stat border (calories) | `border-l-4 border-l-primary` (orange) |
+| Macro stat border (protein) | `border-l-4 border-l-blue-500` |
+| Macro stat border (carbs) | `border-l-4 border-l-amber-500` |
+| Macro stat border (fat) | `border-l-4 border-l-yellow-500` |
+| Macro stat border (fibre) | `border-l-4 border-l-emerald-500` |
+
+---
+
+## 3. Typography
+
+Three fonts, loaded via Google Fonts (`index.css` line 1) plus a base CSS rule.
+
+### Font families
+
+| Role | Family | Tailwind class | Weight loaded |
+|---|---|---|---|
+| Body / UI text | **Inter** | `font-sans` | 300, 400, 500, 600 |
+| All `h1`–`h6` headings | **Space Grotesk** | `font-display` | Applied in base CSS rule |
+| Monospace numbers | **JetBrains Mono** | `font-mono` | 400, 500 |
+
+> Space Grotesk is **not** in the Google Fonts `@import` line — it is applied directly in the `h1–h6` base rule as `font-family: 'Space Grotesk', sans-serif`. Load it separately (add to the Google Fonts URL or self-host).
+
+### Text size patterns (copy these exactly)
+
+| Context | Classes |
+|---|---|
+| Page title / hero heading | `text-3xl font-display font-bold` |
+| Card section heading | `text-lg font-display font-semibold` |
+| Large numeric stat (macro target) | `text-3xl font-extrabold font-mono` |
+| Weight / large chart number | `text-4xl font-mono font-bold tracking-tight` |
+| Body copy | `text-sm` (Inter, default weight) |
+| Secondary description | `text-xs text-muted-foreground` |
+| Micro label / unit | `text-[10px] text-muted-foreground/70 tracking-wide uppercase` |
+| Disclaimer text | `text-[10px] italic text-muted-foreground` |
+| Version watermark | `text-[10px] font-mono opacity-35` |
+
+---
+
+## 4. Border Radius
+
+Defined in `tailwind.config.ts` — these override Tailwind defaults:
+
+| Token | Value | Pixels |
+|---|---|---|
+| `rounded-sm` | 0.1875 rem | 3 px |
+| `rounded-md` | 0.375 rem | 6 px |
+| `rounded-lg` | 0.5625 rem | 9 px |
+| `rounded-xl` | Tailwind default (0.75 rem) | 12 px |
+| `rounded-2xl` | Tailwind default (1 rem) | 16 px |
+| `rounded-full` | 9999 px | pill shape |
+
+Cards almost always use `rounded-xl`. Buttons use `rounded-md`. Pill badges use `rounded-full`.
+
+---
+
+## 5. Icons
+
+**All icons come from `lucide-react`** — no other icon library is used inside app pages (except sport badge images which are PNG files, see §10).
+
+### Standard icon sizes
+
+| Context | Size class |
+|---|---|
+| Nav bar tab icons (mobile) | `h-5 w-5` |
+| Card header icons | `h-4 w-4` or `h-5 w-5` |
+| Inline text icons | `h-3 w-3` or `h-3.5 w-3.5` |
+| Alert / badge icons | `h-3 w-3` |
+| Done / success state | `h-12 w-12` |
+| Floating action button | `h-5 w-5` |
+
+### Commonly used icons and where
+
+| Icon (lucide-react name) | Used in |
+|---|---|
+| `Flame` | Calories stat card |
+| `Beef` | Protein stat card |
+| `Wheat` | Carbs stat card |
+| `Droplets` | Fat stat card |
+| `Leaf` | Fibre stat card |
+| `ShieldCheck` | AMQS / micronutrient score row |
+| `Sparkles` | Quick Log (AI) button |
+| `Edit2` | "Review" button in AI log dialog |
+| `Mic` / `MicOff` | Voice input toggle |
+| `CheckCircle2` | Done/success state, food item confirmed |
+| `XCircle` | Food item rejected |
+| `ChevronRight` | Navigation row cues |
+| `ChevronDown` | Collapsible sections |
+| `Info` | Info popover trigger (ⓘ) |
+| `Dumbbell` | Training sessions |
+| `Clock` | Duration / time |
+| `Scale` | Weight logging |
+| `Moon` | Sleep logging |
+| `Zap` | Energy / readiness score |
+| `AlertTriangle` | Warnings (low EA, low carb) |
+| `TrendingDown` / `TrendingUp` | Weight trend arrows |
+| `CalendarDays` | Date picker / training block |
+| `Plus` | Add food FAB |
+| `Copy` | Copy food entry |
+| `Trash2` | Delete actions |
+| `Share2` | Share moment sheet |
+| `LogOut` | Logout button |
+| `Camera` / `Barcode` | Barcode scanner |
+
+---
+
+## 6. Layout Shell
+
+Defined in `client/src/components/layout.tsx`.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ HEADER  sticky top-0 z-50                               │
+│  h-16 (64 px) · bg-background/80 backdrop-blur          │
+│  container px-4 sm:px-6 · flex justify-between          │
+│                                                          │
+│  [PRFMR logo img h-9 w-auto]   [Desktop nav — hidden    │
+│                                  on mobile, gap-6]       │
+│                                  Dashboard Training …    │
+├─────────────────────────────────────────────────────────┤
+│ MAIN                                                     │
+│  container px-4 py-8 sm:px-6 lg:py-10                   │
+│  max-w-5xl mx-auto                                       │
+│  {page content}                                          │
+├─────────────────────────────────────────────────────────┤
+│ FOOTER (hidden on mobile, md:block)                      │
+│  border-t py-4 px-6 text-center                         │
+│  text-[11px] text-muted-foreground max-w-3xl mx-auto    │
+│  Disclaimer text · Shown only if VITE_SHOW_FOOTER_TAGLINE│
+└─────────────────────────────────────────────────────────┘
+│ MOBILE BOTTOM NAV  md:hidden fixed bottom-0 z-50        │
+│  bg-background border-t px-1 py-2 pb-safe               │
+│  flex justify-around                                     │
+│  Each tab: flex-col items-center gap-0.5 p-1.5 rounded-lg│
+│  Icon h-5 w-5 + label text-[9px]                        │
+│  Active: text-primary bg-secondary rounded-lg            │
+│  Tabs: Dashboard · Training · Supplements ·              │
+│        Playbook · Profile · Feedback · Log out           │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Mobile spacer:** `<div className="md:hidden h-20" />` is inserted after the main content to prevent the fixed bottom nav overlapping content.
+
+**Version watermark** (desktop only): `fixed bottom-[6px] right-[8px] text-[10px] font-mono opacity-35 z-40 pointer-events-none` — shows `v{version} • {env}`.
+
+---
+
+## 7. Card & Surface Anatomy
+
+All content cards use **shadcn `<Card>`** with these consistent patterns:
+
+### Standard data card
+```
+rounded-xl border bg-card
+CardHeader: flex-row items-center justify-between gap-1 space-y-0 pb-2
+  CardTitle: text-sm font-medium flex items-center gap-2
+CardContent: (varies by card)
+```
+
+### Elevated card (chart / macro cards)
+```
++ className="card-elevated"
+  → box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.15)
+  → border-color: hsl(220 12% 18% / 0.5)
+```
+
+### Interactive hover card (add `.card-hover` to an elevated card)
+```
+transition: box-shadow 0.2s ease, transform 0.2s ease
+hover: translateY(-1px) + deeper shadow
+```
+
+### Inner section cell (e.g. macro target grid)
+```
+p-4 bg-secondary/50 rounded-lg text-center
+Number: text-3xl font-extrabold font-mono
+Label:  text-[10px] text-muted-foreground/70 tracking-wide
+```
+
+### AMQS card (custom, not shadcn Card)
+```
+bg-card rounded-xl p-6 amqs-card-glow space-y-6
+  amqs-card-glow = box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.1)
+                   border: 1px solid hsl(var(--border) / 0.25)
+```
+
+---
+
+## 8. Modal / Dialog Sizes
+
+All dialogs use shadcn `<Dialog>` + `<DialogContent>`. Sizes on mobile are always full-width with safe margins; the `sm:max-w-*` class controls the capped width on larger screens.
+
+| Dialog | `sm:max-w-*` | Notes |
+|---|---|---|
+| Quick Log (AI) | `sm:max-w-md` (448 px) | Full-screen feel on mobile |
+| Add Food | `sm:max-w-[425px]` | `flex flex-col max-h-[90vh] p-0 overflow-visible` |
+| AMQS nutrient detail | `sm:max-w-[400px] max-h-[85vh] overflow-y-auto` | Scrollable |
+| AMQS food suggestion | `sm:max-w-[420px] max-h-[85vh] overflow-y-auto` | Scrollable |
+| EA warning | `sm:max-w-sm` (384 px) | |
+| Carb warning | `sm:max-w-sm` | |
+| Weight update | `sm:max-w-[425px]` | |
+| Weight cut stat | `max-w-sm mx-4` | |
+| Training Block | `max-w-lg max-h-[90vh] overflow-y-auto p-0` | Multi-step wizard |
+| Log Entry (manual) | `sm:max-w-[425px]` | |
+| Copy food | `sm:max-w-[360px]` | |
+| Feedback | `sm:max-w-md` | |
+| Stacks | `max-w-md` | |
+
+---
+
+## 9. Custom CSS Utility Classes
+
+Defined in `@layer components` in `client/src/index.css`.
+
+| Class | Effect |
+|---|---|
+| `.card-elevated` | Depth shadow + slightly lighter border |
+| `.card-hover` | Lift on hover (pointer devices only) — `translateY(-1px)` |
+| `.progress-bar-animated` | `transition: width 0.8s cubic-bezier(0.4,0,0.2,1)` |
+| `.number-animate` | `transition: all 0.3s ease-out` |
+| `.fab-shadow` | Orange glow: `0 3px 10px rgba(255,122,0,0.3)` — used on the Add Food FAB |
+| `.amqs-glow` | Orange text shadow on AMQS score number |
+| `.amqs-card-glow` | Subtle card shadow with thin border |
+| `.amqs-card-interactive` | Hover + press transitions for AMQS nutrient cards |
+| `.amqs-highlight` | One-shot orange pulse animation (2 s) |
+| `.pb-safe` | `padding-bottom: env(safe-area-inset-bottom)` — mobile home indicator |
+
+**Scrollbar:**
+```css
+::-webkit-scrollbar { width: 6px }
+::-webkit-scrollbar-track { background: transparent }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px }
+```
+
+---
+
+## 10. Buttons
+
+Using shadcn `<Button>`. The variants in use:
+
+| Variant | Appearance | Use |
+|---|---|---|
+| `default` | Filled orange (`bg-primary text-white`) | Primary CTA, confirm |
+| `outline` | Transparent + border | Secondary actions |
+| `ghost` | Transparent, no border | Tertiary / icon buttons |
+| `destructive` | Red fill | Delete actions |
+| `secondary` | Dark slate fill | Neutral actions |
+
+**Size:** `size="sm"` for compact actions (within cards), default size for main CTAs, `size="icon"` for icon-only buttons.
+
+**FAB (floating Add Food button, mobile only):**
+```
+fixed bottom-24 right-4 z-40 rounded-full h-14 w-14
+fab-shadow class  +  bg-primary text-white
+Plus icon h-6 w-6
+```
+
+---
+
+## 11. Badges
+
+Using shadcn `<Badge>`. Common combinations:
+
+| Badge | Variant | Extra classes |
+|---|---|---|
+| Fight Camp | default | `bg-orange-500/20 text-orange-400 border-orange-500/30` |
+| AI confidence: high | — | `bg-emerald-500/20 text-emerald-400` |
+| AI confidence: medium | — | `bg-yellow-500/20 text-yellow-400` |
+| AI confidence: low | — | `bg-red-500/20 text-red-400` |
+| AMQS tier: Elite/Optimal | — | emerald |
+| AMQS tier: Good | — | blue |
+| AMQS tier: Fair | — | yellow |
+| AMQS tier: Basic | — | red |
+| "AMQS tracked" (supplements) | default | standard |
+
+---
+
+## 12. Page-by-Page UI Summary
+
+### 12.1 `/` and `/login` — Login Page
+
+- Full-page centred layout (no `<Layout>` shell)
+- Card: `max-w-md mx-auto` with `bg-card rounded-xl p-6 sm:p-8`
+- PRFMR logo centred above the card
+- Form fields use shadcn `Input` + `Label`
+- Google OAuth button (rendered only after source selection — "join" vs "google")
+
+---
+
+### 12.2 `/start` — Invite / Landing Page
+
+- Uses a **full-viewport hero image** (`attached_assets/stock_images/fight_action_1.jpg`) as a background or hero
+- Text overlay: "PRFMR" in large `font-display font-bold` heading
+- Invite code entry field below
+- Dark overlay (`bg-background/70`) over the image for readability
+
+---
+
+### 12.3 `/onboarding` — Onboarding Wizard (22 steps)
+
+**Step 0 — Splash:**
+- Full-screen background image: `onboarding-splash-bg.jpeg` (fills 100vw × 100vh, `object-cover`)
+- No other UI — the image has a CTA button baked into the design
+- An orange `<Button>` is absolutely positioned at `bottom: 4%` over the baked-in button area of the image
+- `data-testid="button-splash-cta"`
+
+**Steps 1–22 — Survey/profile steps:**
+- Card: `border-0 shadow-none bg-transparent` (borderless, no shadow)
+- Progress bar track: `bg-white/5` (very subtle)
+- `OptionBtn` (choice options): `ring-1 ring-primary/50` when selected, `bg-secondary/60` when unselected — no `border-2`
+- Logo at top: `no_back_logo_1777367768475.png` at `height: 34px`
+- Wrestling action photo used in the fight-camp intro step: `onboarding-wrestling-photo.jpg`
+
+---
+
+### 12.4 `/dashboard` — Main Dashboard
+
+Page body: `<div className="space-y-8">` — all sections separated by `2rem` vertical gap.
+
+Component order (top → bottom):
+
+1. `<CelebrationBurst />` — Framer Motion confetti, globally overlaid
+2. `<AILogDialog />` — full-screen modal, triggers from Quick Log button
+3. `<EmailVerificationBanner />` — orange top bar if email unverified
+4. `<WeightCutHero />` — fight camp card (conditional). Full-width `bg-card` with orange accents
+5. `<MorningCheckIn />` — prompts sleep, weight, session. `rounded-xl border bg-card`
+6. `<ReadinessSummaryCard />` — readiness score 0–100. Wrapped in `pt-2`
+7. `<ProvisionalCheckIn />` — conditional, when data gaps detected
+8. **Daily Intake Estimates card** — `rounded-xl border bg-card`
+   - `CardHeader` with title, optional "Fight Camp" badge, training kcal badge, info popover
+   - 2×4 macro grid: `grid-cols-2 sm:grid-cols-4 gap-4`
+   - Each cell: `p-4 bg-secondary/50 rounded-lg text-center`
+   - Number: `text-3xl font-extrabold font-mono`
+   - Label: `text-[10px] text-muted-foreground/70 tracking-wide`
+   - Conditional fight-camp callout row: `bg-orange-500/8 border-orange-500/20`
+   - Conditional low-EA warning row: `bg-yellow-500/10`
+   - Conditional low-carb warning row: `bg-yellow-500/10`
+   - Disclaimer: `text-[10px] italic text-muted-foreground`
+   - Collapsible "How estimates are calculated" section
+
+9. **Date navigation bar** — `flex-col sm:flex-row justify-between`
+   - Left: ← prev · `<input type="date">` · next → · "Today" ghost button
+   - Right: weight log btn · Add Food btn (primary) · Quick Log btn (Sparkles) · Log Entry btn
+
+10. **Greeting header** — `h1 text-3xl font-display font-bold` "Hello, {username}"
+
+11. **Macro stats grid** — `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4`
+    - Each `<StatCard>`: `border-l-4` with colour per macro (see §2)
+    - Flame / Beef / Wheat / Droplets / Leaf icons
+
+12. **Macro warning banner** (conditional, one or none)
+    - Over-target: `bg-amber-500/10 border-amber-500/20 rounded-xl px-4 py-3`
+    - Under-calories but over a macro: `bg-card/60 border-border/40 rounded-xl px-4 py-3`
+
+13. **AMQS mini CTA row** — `rounded-xl border border-border/50 bg-card p-4` — clickable → `/micronutrients`
+    - Left: ShieldCheck + "Micronutrient Score" + score text
+    - Right: ChevronRight icon
+
+14. **Today's Supplements checklist** — `rounded-xl border bg-card`
+
+15. **Food diary** — one `<Card>` per meal section (breakfast / lunch / dinner / snacks)
+    - Meal header: label + total kcal badge
+    - Per-item rows with inline edit / delete
+    - "Add food to {meal}" button at bottom of each section
+
+16. **Weight trend mini-chart** — Recharts `LineChart` with area fill
+
+---
+
+### 12.5 `/training` — Training Log
+
+- Date selector at top (same style as dashboard)
+- Active training block chip: `bg-secondary/50 rounded-full px-3 py-1 text-xs`
+- Session cards: `rounded-xl border bg-card p-4`
+  - Each session: title, time of day, estimated kcal, activity list
+  - Activity rows: exercise name, duration, MET value, optional sets table
+- "Add Session" FAB-style button at bottom
+- Load insight panel: coloured border based on ACWR risk level
+
+---
+
+### 12.6 `/supplements` — Supplement Tracker
+
+- Grid of supplement shelf cards: `grid grid-cols-1 gap-3`
+- Each card: `rounded-xl border bg-card p-4`
+- "AMQS tracked" badge (default variant) on supplements with a catalog ID
+- Reminder time shown as `text-xs text-muted-foreground`
+- "Add Supplement" button (primary, full width on mobile)
+
+---
+
+### 12.7 `/micronutrients` — AMQS Detail
+
+- Top: AMQS score (large `font-mono` number) + tier badge + `.amqs-glow` class
+- Grid of nutrient cards: `grid grid-cols-2 gap-3` on mobile
+- Each nutrient: `amqs-card-glow amqs-card-interactive rounded-xl p-3`
+- Progress bar: `progress-bar-animated` class
+- Gap/goal rows: `text-xs flex flex-col gap-1 p-2 rounded bg-secondary/15`
+
+---
+
+### 12.8 `/profile` — Profile Page
+
+- Avatar: circular, `h-20 w-20 rounded-full` — uses Replit Object Storage upload
+- Profile fields in a `<Card>` with form layout
+- Danger zone section at bottom with destructive styling
+
+---
+
+### 12.9 `/playbook` — Educational Content
+
+- Accordion-based layout (shadcn `<Accordion>`)
+- Section headers: `font-display font-semibold`
+- Content: `prose prose-invert text-sm` (Tailwind typography plugin)
+
+---
+
+## 13. Animations
+
+All via **Framer Motion**.
+
+| Animation | Usage |
+|---|---|
+| `initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}` | Standard card/page entry |
+| `transition={{ duration: 0.3 }}` | Default timing |
+| `AnimatePresence` | Conditional cards (fight camp hero, morning check-in) |
+| Spring physics | Confetti (`CelebrationBurst`) |
+| CSS `transition: width 0.8s` | Progress bars (`.progress-bar-animated`) |
+| CSS `transition: all 0.3s ease-out` | Numeric value changes (`.number-animate`) |
+
+---
+
+## 14. Forms
+
+All forms use **shadcn `useForm` + `react-hook-form` + `zodResolver`**.
+
+- Inputs: `bg-input border border-border rounded-md h-10 px-3 text-sm`
+- Labels: `text-sm font-medium`
+- Error messages: `text-xs text-destructive`
+- Submit button: full-width, `default` variant, shows "Saving…" text during mutation
+
+---
+
+## 15. Asset Reference (all files in `PRFMR Theme/`)
+
+### Logos
+
+| File | Used in | Size |
+|---|---|---|
+| `logo-main.png` | Header nav (`layout.tsx`) | Displayed at `h-9` (36 px height) |
+| `logo-onboarding.png` | Onboarding step headers | Displayed at `height: 34px` |
+
+### Hero / background images
+
+| File | Used in |
+|---|---|
+| `onboarding-splash-bg.jpeg` | Onboarding step 0 — full-screen splash background |
+| `onboarding-wrestling-photo.jpg` | Onboarding fight camp intro step |
+| `stock-images/fight_action_1.jpg` | `/start` page hero background |
+
+### Additional stock images (in `stock-images/`)
+
+Available for use as hero/background images on auth pages, marketing sections, or future screens. All are dark, high-contrast combat sports photography.
+
+```
+fight_action_1.jpg  fight_action_2.jpg  fight_action_3.jpg
+fight_action_4.jpg  fight_action_5.jpg
+boxer_bag_hero_1.jpg  boxer_bag_hero_2.jpg  boxer_bag_hero_3.jpg
+fighter_real_1.jpg  fighter_real_2.jpg  fighter_real_3.jpg
+fighter_real_4.jpg  fighter_real_5.jpg
+```
+
+### Sport badge icons (in `sport-icons/`)
+
+PNG icons used in the `<SportBadge>` component. All are displayed at approximately `h-8 w-8` (32×32 px) inside a rounded container.
+
+```
+boxing.png        mma.png         muay-thai.png
+kickboxing.png    bjj.png         wrestling.png
+traditional.png
+```
+
+### Favicons (in `favicon/`)
+
+```
+favicon.svg              — SVG, used in HTML <link>
+favicon.ico              — Multi-size ICO
+favicon-96x96.png        — 96×96 PNG
+apple-touch-icon.png     — 180×180 PNG for iOS
+web-app-manifest-192x192.png
+web-app-manifest-512x512.png
+```
+
+---
+
+## 16. Key Spacing Conventions
+
+| Pattern | Value |
+|---|---|
+| Page section gap | `space-y-8` (2 rem) |
+| Card internal padding | `p-4` (1 rem) or `p-6` (1.5 rem) |
+| Card header bottom padding | `pb-2` |
+| Inline row gap | `gap-2` (0.5 rem) or `gap-3` (0.75 rem) |
+| Grid gap (macro grid) | `gap-4` (1 rem) |
+| Stat cell padding | `p-4` |
+| Warning/callout padding | `px-4 py-3` or `px-3 py-2.5` |
+| Bottom nav padding | `px-1 py-2` + `pb-safe` |
+| Dialog padding | Default shadcn (`p-6`), some use `p-0` with inner scroll areas |
+
+---
+
+## 17. Vite Asset Alias
+
+In `vite.config.ts`:
+```typescript
+"@assets": path.resolve(import.meta.dirname, "attached_assets")
+```
+
+So `import logo from "@assets/no_back_logo_1775476772001.png"` resolves to `attached_assets/no_back_logo_1775476772001.png`. When replicating, keep this alias or update all import paths accordingly.
