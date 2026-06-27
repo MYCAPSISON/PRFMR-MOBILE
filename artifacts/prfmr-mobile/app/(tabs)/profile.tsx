@@ -203,7 +203,7 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={[s.header, { borderBottomColor: colors.border }]}>
-        <Text style={[s.pageTitle, { color: colors.foreground }]}>Profile</Text>
+        <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>Profile</Text>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
@@ -212,19 +212,19 @@ export default function ProfileScreen() {
           <View style={[s.row, { alignItems: "flex-start", gap: 14 }]}>
             <Avatar username={user.username} />
             <View style={{ flex: 1 }}>
-              <Text style={[s.lg, { color: colors.foreground }]}>{displayName}</Text>
-              <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 2 }]}>@{user.username}</Text>
+              <Text style={[s.lg, { color: colors.foreground, fontFamily: colors.fonts.display }]}>{displayName}</Text>
+              <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 2, fontFamily: colors.fonts.sans }]}>@{user.username}</Text>
               <View style={[s.row, { marginTop: 8, flexWrap: "wrap", gap: 6 }]}>
                 {user.activityLevel && (
                   <View style={[s.badge, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                    <Text style={[s.xs, { color: colors.mutedForeground }]}>
+                    <Text style={[s.xs, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
                       {ACTIVITY_LABELS[user.activityLevel] ?? user.activityLevel}
                     </Text>
                   </View>
                 )}
                 {user.goalType && (
                   <View style={[s.badge, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                    <Text style={[s.xs, { color: colors.mutedForeground }]}>
+                    <Text style={[s.xs, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
                       {GOAL_LABELS[user.goalType] ?? user.goalType}
                     </Text>
                   </View>
@@ -232,7 +232,7 @@ export default function ProfileScreen() {
                 {fightCampActive && (
                   <View style={[s.badge, { backgroundColor: "rgba(255,122,0,0.1)", borderColor: "rgba(255,122,0,0.3)" }]}>
                     <Feather name="target" size={10} color={colors.primary} />
-                    <Text style={[s.xs, { color: colors.primary, marginLeft: 4, fontWeight: "700" }]}>
+                    <Text style={[s.xs, { color: colors.primary, marginLeft: 4, fontWeight: "700", fontFamily: colors.fonts.sansBd }]}>
                       Fight Camp · {weightCutPlan!.daysUntil}d
                     </Text>
                   </View>
@@ -244,7 +244,7 @@ export default function ProfileScreen() {
 
         {/* Current Metrics */}
         <Card>
-          <Text style={[s.cardTitle, { color: colors.foreground, marginBottom: 8 }]}>Current Metrics</Text>
+          <Text style={[s.cardTitle, { color: colors.foreground, marginBottom: 8, fontFamily: colors.fonts.sansSb }]}>Current Metrics</Text>
           <MetricRow label="Height" value={user.height ? `${user.height} cm` : null} />
           <MetricRow label="Weight" value={user.weight ? `${user.weight} kg` : null} />
           <MetricRow label="Age" value={user.age} />

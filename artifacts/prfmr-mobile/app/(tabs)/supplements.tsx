@@ -531,13 +531,13 @@ export default function SupplementsScreen() {
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={[s.header, { borderBottomColor: colors.border }]}>
-        <Text style={[s.pageTitle, { color: colors.foreground }]}>My Supplements</Text>
+        <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
         <TouchableOpacity
           style={[s.addBtn, { backgroundColor: colors.primary }]}
           testID="button-add-supplement"
           onPress={() => setAddOpen(true)}>
           <Feather name="plus" size={16} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13, marginLeft: 4 }}>Add</Text>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13, marginLeft: 4, fontFamily: colors.fonts.sansBd }}>Add</Text>
         </TouchableOpacity>
       </View>
 
@@ -547,11 +547,11 @@ export default function SupplementsScreen() {
         <Card style={{ borderColor: "rgba(147,197,253,0.2)", backgroundColor: "rgba(147,197,253,0.04)" }}>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
             <Feather name="info" size={14} color="#93c5fd" />
-            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 14, marginLeft: 8 }}>
+            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 14, marginLeft: 8, fontFamily: colors.fonts.sansSb }}>
               How Supplements Work
             </Text>
           </View>
-          <Text style={[s.xs, { color: colors.mutedForeground, lineHeight: 18 }]}>
+          <Text style={[s.xs, { color: colors.mutedForeground, lineHeight: 18, fontFamily: colors.fonts.sans }]}>
             Add supplements to your shelf. Those linked to the catalog automatically contribute
             micronutrients to your <Text style={{ color: "#ff7a00", fontWeight: "700" }}>AMQS score</Text>.
             Group them into stacks and set daily reminders to track them on your dashboard.
@@ -561,7 +561,7 @@ export default function SupplementsScreen() {
         {/* Supplement list */}
         <Card>
           <View style={[s.rowBetween, { marginBottom: 8 }]}>
-            <Text style={[s.cardTitle, { color: colors.foreground }]}>Your Supplements</Text>
+            <Text style={[s.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>Your Supplements</Text>
             {supplements.length > 0 && (
               <View style={[s.badge, { backgroundColor: "rgba(255,122,0,0.1)", borderColor: "rgba(255,122,0,0.3)" }]}>
                 <Text style={[s.xs, { color: colors.primary, fontWeight: "700" }]}>{supplements.length}</Text>

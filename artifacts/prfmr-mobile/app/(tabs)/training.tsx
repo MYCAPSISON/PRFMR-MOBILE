@@ -958,8 +958,8 @@ export default function TrainingScreen() {
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={[s.header, { borderBottomColor: colors.border }]}>
-        <Text style={[s.pageTitle, { color: colors.foreground }]}>Training</Text>
-        <Text style={[s.xs, { color: colors.mutedForeground }]}>{format(new Date(), "EEE, d MMM")}</Text>
+        <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>Training</Text>
+        <Text style={[s.xs, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>{format(new Date(), "EEE, d MMM")}</Text>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>

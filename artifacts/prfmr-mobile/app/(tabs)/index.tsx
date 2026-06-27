@@ -1850,39 +1850,43 @@ function AmqsBreakdownModal({ date, score, maxScore, label, gaps, visible, onClo
 
 function AmqsCard({ date }: { date: string }) {
   const colors = useColors();
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const router = useRouter();
   const { data: amqs } = useQuery<AmqsScore>({
     queryKey: ["amqs-score", date],
     queryFn: () => apiFetch(`/me/amqs/score/${date}`),
+    retry: false,
   });
   if (!amqs) return null;
   const pct = amqs.maxScore > 0 ? Math.round((amqs.score / amqs.maxScore) * 100) : 0;
   const scoreColor = pct >= 70 ? "#4ade80" : pct >= 40 ? "#facc15" : "#f87171";
 
   return (
-    <>
-      <AmqsBreakdownModal date={date} score={amqs.score} maxScore={amqs.maxScore}
-        label={amqs.label} gaps={amqs.gaps ?? []}
-        visible={showBreakdown} onClose={() => setShowBreakdown(false)} />
-      <TouchableOpacity onPress={() => setShowBreakdown(true)} activeOpacity={0.8}>
-        <Card>
-          <View style={styles.rowBetween}>
-            <Text style={[styles.cardTitle, { color: colors.foreground }]}>Micronutrient Score</Text>
-            <View style={styles.row}>
-              <Text style={{ fontSize: 22, fontWeight: "800", color: scoreColor }}>{amqs.score}</Text>
-              <Feather name="chevron-right" size={16} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
-            </View>
+    <TouchableOpacity onPress={() => router.push("/amqs" as any)} activeOpacity={0.8}>
+      <Card style={{ borderColor: scoreColor + "30" }}>
+        <View style={styles.rowBetween}>
+          <View style={styles.row}>
+            <Feather name="shield" size={15} color={scoreColor} style={{ marginRight: 6 }} />
+            <Text style={[styles.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>
+              Micronutrient Score
+            </Text>
           </View>
-          <ProgressBar value={amqs.score} max={amqs.maxScore} color={scoreColor} />
-          <View style={[styles.rowBetween, { marginTop: 4 }]}>
-            <Text style={[styles.xs, { color: colors.mutedForeground }]}>{amqs.label}</Text>
-            {amqs.gaps?.length > 0 && (
-              <Text style={[styles.xs, { color: "#fb923c" }]}>{amqs.gaps[0]} gap</Text>
-            )}
+          <View style={styles.row}>
+            <Text style={{ fontSize: 22, fontWeight: "800", color: scoreColor, fontFamily: colors.fonts.mono }}>{amqs.score}</Text>
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 2 }]}>/{amqs.maxScore}</Text>
+            <Feather name="chevron-right" size={16} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
           </View>
-        </Card>
-      </TouchableOpacity>
-    </>
+        </View>
+        <ProgressBar value={amqs.score} max={amqs.maxScore} color={scoreColor} />
+        <View style={[styles.rowBetween, { marginTop: 6 }]}>
+          <Text style={[styles.xs, { color: colors.mutedForeground }]}>{amqs.label}</Text>
+          {amqs.gaps?.length > 0 ? (
+            <Text style={[styles.xs, { color: "#fb923c" }]}>{amqs.gaps[0]} gap · tap to view</Text>
+          ) : (
+            <Text style={[styles.xs, { color: colors.mutedForeground }]}>tap to view details →</Text>
+          )}
+        </View>
+      </Card>
+    </TouchableOpacity>
   );
 }
 
@@ -3085,7 +3089,7 @@ export default function DashboardScreen() {
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.logo, { color: colors.primary }]}>PRFMR</Text>
+        <Image source={require("@/assets/logo-main.png")} style={{ height: 28, width: 100 }} resizeMode="contain" />
         <Text style={[styles.xs, { color: colors.mutedForeground }]}>{format(new Date(), "EEE, d MMM yyyy")}</Text>
       </View>
 
@@ -3343,14 +3347,14 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   badge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
   badgeText: { fontSize: 11, fontWeight: "700" },
-  xs: { fontSize: 12, fontWeight: "500" },
-  sm: { fontSize: 13 },
-  cardTitle: { fontSize: 15, fontWeight: "700" },
-  empty: { fontSize: 13, lineHeight: 18, marginTop: 6 },
-  heroNum: { fontSize: 34, fontWeight: "900", marginVertical: 6 },
-  heroSub: { fontSize: 16, fontWeight: "500" },
+  xs: { fontSize: 12, fontWeight: "500", fontFamily: "Inter_400Regular" },
+  sm: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  cardTitle: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
+  empty: { fontSize: 13, lineHeight: 18, marginTop: 6, fontFamily: "Inter_400Regular" },
+  heroNum: { fontSize: 34, fontWeight: "900", marginVertical: 6, fontFamily: "JetBrainsMono_400Regular" },
+  heroSub: { fontSize: 16, fontWeight: "500", fontFamily: "Inter_500Medium" },
   weightRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginVertical: 8, justifyContent: "space-around" },
-  weightNum: { fontSize: 22, fontWeight: "800" },
+  weightNum: { fontSize: 22, fontWeight: "800", fontFamily: "JetBrainsMono_400Regular" },
   thisWeek: { borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 8 },
   logWeightRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 10 },
   checkRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6, gap: 10 },
@@ -3373,9 +3377,9 @@ const styles = StyleSheet.create({
   macroCard: { width: "47.5%", padding: 12 },
   macroEmoji: { fontSize: 15, marginRight: 4 },
   macroLabel: { fontSize: 11, fontWeight: "600" },
-  macroValue: { fontSize: 22, fontWeight: "800", marginVertical: 6 },
-  macroUnit: { fontSize: 13 },
-  macroMeta: { fontSize: 11, marginTop: 4 },
+  macroValue: { fontSize: 22, fontWeight: "800", marginVertical: 6, fontFamily: "JetBrainsMono_400Regular" },
+  macroUnit: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  macroMeta: { fontSize: 11, marginTop: 4, fontFamily: "Inter_400Regular" },
   progressBg: { height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.06)", overflow: "hidden" },
   progressFill: { height: 4, borderRadius: 2 },
   suppRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6, gap: 10 },
@@ -3385,10 +3389,10 @@ const styles = StyleSheet.create({
   wBar: { height: 6, borderRadius: 3 },
   dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 9, borderWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },
   dateNavBtn: { padding: 8 },
-  dateNavText: { fontSize: 15, fontWeight: "700" },
+  dateNavText: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
   actionRow: { flexDirection: "row", gap: 8 },
   actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 9, borderWidth: 1, padding: 11 },
-  greeting: { fontSize: 20, fontWeight: "800", marginTop: 2 },
+  greeting: { fontSize: 20, fontWeight: "800", marginTop: 2, fontFamily: "SpaceGrotesk_700Bold" },
   foodRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 4, gap: 8 },
   mealTypeChip: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
   searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, padding: 10, marginBottom: 8 },

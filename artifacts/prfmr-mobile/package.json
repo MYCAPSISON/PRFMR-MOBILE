@@ -55,6 +55,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@expo-google-fonts/space-grotesk": "^0.4.1",
     "date-fns": "^3.6.0",
     "expo-av": "^16.0.8",
     "expo-camera": "^16.0.18",
