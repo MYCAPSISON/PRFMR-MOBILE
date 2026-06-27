@@ -30,6 +30,14 @@ if (__DEV__) {
 // value in a custom X-CSRF-Token header if the server ever requires it.
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// Auth error callback — called on 401 so AuthContext can clear state
+// ─────────────────────────────────────────────────────────────
+let _authErrorCallback: (() => void) | null = null;
+export function setAuthErrorCallback(fn: () => void): void {
+  _authErrorCallback = fn;
+}
+
 // JS-visible cookie jar: stores cookies that aren't HttpOnly.
 // Used for debugging and for sending CSRF tokens on mutations.
 // Does NOT store connect.sid (HttpOnly — invisible to JS).
@@ -243,6 +251,11 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
       }
     } catch { /* ignore */ }
     console.error("[api] Error:", method, path, response.status, errorMessage);
+    // On 401, notify AuthContext to clear the stale session — but skip auth
+    // routes themselves to prevent infinite loops during login/logout checks.
+    if (response.status === 401 && !path.startsWith("/auth/") && path !== "/user/me") {
+      _authErrorCallback?.();
+    }
     throw new Error(errorMessage);
   }
 

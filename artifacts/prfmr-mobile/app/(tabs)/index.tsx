@@ -2987,14 +2987,15 @@ export default function DashboardScreen() {
 
   const isFightCamp = targets?.mode === "fight_camp";
 
-  // Training summary for rest-day guard + non-fight-camp add-back (§9.15.5)
-  const { data: trainingSummary } = useQuery<{ totalKcal: number; totalKcalAdjusted: number; isRestDay: boolean }>({
-    queryKey: ["training-summary", selectedDate],
-    queryFn: () => apiFetch(`/me/training/summary/${selectedDate}`),
+  // morning-status for isRestDay — same key as child components so no extra network call
+  const { data: morningStatusForRestDay } = useQuery<MorningStatus>({
+    queryKey: ["morning-status", selectedDate],
+    queryFn: () => apiFetch(`/me/morning-status/${selectedDate}`),
+    enabled: !!user?.id,
   });
 
   // Spec §9.14 / §9.11: isLowCarb must not fire on rest days
-  const isRestDay = trainingSummary?.isRestDay ?? false;
+  const isRestDay = morningStatusForRestDay?.isRestDay ?? false;
   const effectiveIsLowCarb = (targets?.isLowCarb ?? false) && !isRestDay;
 
   const fcOverride = useFightCampOverride({
@@ -3029,12 +3030,13 @@ export default function DashboardScreen() {
       // Fight camp: server bakes training in; apply consent override on top
       return fcOverride.overrideCalories ?? targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
     }
-    // Standard: client adds training credit on top of server base
+    // Standard: client adds training credit on top of server base (§9.15.5)
+    // trainingCaloriesEarned is already provided by targets/effective
     const baseCalories = targets?.targetCalories ?? 2000;
     const goal = user?.goal ?? "maintenance";
     const creditPct: Record<string, number> = { fat_loss: 0.5, maintenance: 0.75, weight_gain: 1.0 };
     const pct = creditPct[goal] ?? 0.75;
-    const trainingKcal = trainingSummary?.totalKcalAdjusted ?? trainingSummary?.totalKcal ?? 0;
+    const trainingKcal = targets?.trainingCaloriesEarned ?? 0;
     let cal = baseCalories + Math.round(trainingKcal * pct);
     // Fat-loss cap: deficit ≤ 1% BW/week (§9.15.5)
     if (goal === "fat_loss" && user?.weight) {

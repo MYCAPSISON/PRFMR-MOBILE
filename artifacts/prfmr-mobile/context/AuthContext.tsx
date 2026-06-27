@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { apiFetch, clearSession, loadSession, loginWithXhr } from "@/lib/api";
+import { apiFetch, clearSession, loadSession, loginWithXhr, setAuthErrorCallback } from "@/lib/api";
 
 export interface User {
   id: number;
@@ -48,6 +48,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     })();
   }, [fetchUser]);
+
+  // Register a 401 callback so apiFetch can clear stale sessions automatically
+  useEffect(() => {
+    setAuthErrorCallback(() => {
+      clearSession();
+      setUser(null);
+    });
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     // XHR is used here because React Native's Fetch API hides Set-Cookie
