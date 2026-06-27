@@ -9,9 +9,21 @@ export interface User {
   weight?: number;
   height?: number;
   age?: number;
+  gender?: "male" | "female";
   goal?: "fat_loss" | "maintenance" | "weight_gain";
+  activityLevel?: string;
+  experienceLevel?: string;
+  mainSport?: string;
   sport?: string;
   weightClass?: string;
+  bodyFatPct?: number;
+  onboardingComplete?: boolean;
+  fightCampActive?: boolean;
+  fightDate?: string;
+  targetCalories?: number;
+  targetProtein?: number;
+  targetCarbs?: number;
+  targetFat?: number;
   createdAt?: string;
 }
 

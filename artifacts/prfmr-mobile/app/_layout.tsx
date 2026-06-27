@@ -34,8 +34,8 @@ function RootLayoutNav() {
     if (!isLoading) {
       if (!isAuthenticated) {
         router.replace("/(auth)/login");
-      } else if (!user?.displayName) {
-        // User hasn't completed onboarding — no displayName set yet
+      } else if (!user?.onboardingComplete) {
+        // User hasn't completed onboarding yet
         router.replace("/onboarding");
       } else {
         router.replace("/(tabs)");
