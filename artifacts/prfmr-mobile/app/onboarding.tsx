@@ -91,15 +91,89 @@ const INIT: WizardData = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Sports list — wrestling uses Pexels (local file too dark)
+// Weight-cut calculation engine (mirrors shared/weight-cut.ts)
 // ─────────────────────────────────────────────────────────────
-const SPORTS = [
+interface WeightCutPlanResult {
+  totalToLose: number; weeksUntil: number; daysUntil: number;
+  fatLossRequired: number; tempCut: number;
+  requiredWeeklyRate: number; requiredWeeklyRatePct: number;
+  recommendedWeeklyRate: number; suggestedDeficitKcal: number;
+  predictedDayMinus4Weight?: number; predictedWeekMinus1Weight?: number;
+  status: "on_track" | "aggressive" | "very_aggressive" | "unrealistic" | "complete" | "past_date";
+  statusLabel: string;
+  weeklyTargets: Array<{ week: number; targetWeight: number }>;
+}
+
+function calculateWeightCutPlan(
+  currentWeight: number, targetWeight: number, fightDateStr: string,
+  weighInTiming: "same_day" | "day_before" = "same_day",
+  manualTempReductionKg?: number | null,
+): WeightCutPlanResult {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const fight = new Date(fightDateStr + "T00:00:00");
+  const daysUntil = Math.round((fight.getTime() - today.getTime()) / 86400000);
+  const weeksUntil = Math.round((daysUntil / 7) * 10) / 10;
+  const totalToLose = Math.round((currentWeight - targetWeight) * 10) / 10;
+
+  const base = { totalToLose, weeksUntil, daysUntil, weeklyTargets: [] as Array<{ week: number; targetWeight: number }> };
+  if (daysUntil <= 0) return { ...base, fatLossRequired: 0, tempCut: 0, requiredWeeklyRate: 0, requiredWeeklyRatePct: 0, recommendedWeeklyRate: 0, suggestedDeficitKcal: 0, status: "past_date", statusLabel: "Fight date has passed" };
+  if (totalToLose <= 0) return { ...base, totalToLose: 0, fatLossRequired: 0, tempCut: 0, requiredWeeklyRate: 0, requiredWeeklyRatePct: 0, recommendedWeeklyRate: 0, suggestedDeficitKcal: 0, status: "complete", statusLabel: "Already at or below target" };
+
+  let preFinal: number;
+  const acuteDays = weighInTiming === "same_day" ? 4 : 7;
+  if (weighInTiming === "same_day") {
+    preFinal = manualTempReductionKg
+      ? targetWeight + Math.min(manualTempReductionKg, targetWeight * 0.02)
+      : targetWeight / 0.99;
+  } else {
+    preFinal = manualTempReductionKg
+      ? targetWeight + Math.min(manualTempReductionKg, targetWeight * 0.10)
+      : targetWeight / 0.94;
+  }
+
+  const weeksForFatLoss = Math.max(0.5, (daysUntil - acuteDays) / 7);
+  const fatLossRequired = Math.max(0, Math.round((currentWeight - preFinal) * 10) / 10);
+  const tempCut         = Math.max(0, Math.round((preFinal - targetWeight) * 10) / 10);
+  const requiredWeeklyRate    = fatLossRequired / weeksForFatLoss;
+  const requiredWeeklyRatePct = Math.round((requiredWeeklyRate / currentWeight) * 1000) / 10;
+  const recommendedWeeklyRate = Math.min(requiredWeeklyRate, currentWeight * 0.01);
+  const suggestedDeficitKcal  = Math.round(recommendedWeeklyRate * 7700 / 7);
+
+  let status: WeightCutPlanResult["status"];
+  let statusLabel: string;
+  if (requiredWeeklyRatePct <= 0.5)       { status = "on_track";        statusLabel = "Steady pace"; }
+  else if (requiredWeeklyRatePct <= 1.0)  { status = "on_track";        statusLabel = "On track"; }
+  else if (requiredWeeklyRatePct <= 1.5)  { status = "aggressive";      statusLabel = "Quite aggressive — consider extending timeline"; }
+  else if (requiredWeeklyRatePct <= 2.0)  { status = "very_aggressive"; statusLabel = "Very aggressive — adjust target or date"; }
+  else                                     { status = "unrealistic";     statusLabel = "Timeline too tight — adjust target or date"; }
+
+  const numWeeks = Math.ceil(weeksForFatLoss);
+  const weeklyTargets: Array<{ week: number; targetWeight: number }> = [];
+  for (let w = numWeeks; w >= 1; w--) {
+    const projected = currentWeight - recommendedWeeklyRate * (numWeeks - w + 1);
+    weeklyTargets.push({ week: w, targetWeight: Math.max(preFinal, Math.round(projected * 10) / 10) });
+  }
+
+  return {
+    totalToLose, weeksUntil, daysUntil, fatLossRequired, tempCut,
+    requiredWeeklyRate: Math.round(requiredWeeklyRate * 100) / 100,
+    requiredWeeklyRatePct,
+    recommendedWeeklyRate: Math.round(recommendedWeeklyRate * 100) / 100,
+    suggestedDeficitKcal, status, statusLabel, weeklyTargets,
+    ...(weighInTiming === "same_day" ? { predictedDayMinus4Weight: Math.round(preFinal * 10) / 10 } : { predictedWeekMinus1Weight: Math.round(preFinal * 10) / 10 }),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sports list — wrestling uses local user-supplied photo
+// ─────────────────────────────────────────────────────────────
+const SPORTS: Array<{ value: string; label: string; uri?: string; local?: boolean }> = [
   { value: "Boxing",                  label: "Boxing",                  uri: "https://images.pexels.com/photos/6699106/pexels-photo-6699106.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
   { value: "MMA",                     label: "MMA",                     uri: "https://images.pexels.com/photos/5616798/pexels-photo-5616798.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
   { value: "Muay Thai",               label: "Muay Thai",               uri: "https://images.pexels.com/photos/11045334/pexels-photo-11045334.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
   { value: "Kickboxing",              label: "Kickboxing",              uri: "https://images.pexels.com/photos/13808098/pexels-photo-13808098.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
   { value: "BJJ",                     label: "BJJ",                     uri: "https://images.pexels.com/photos/8611381/pexels-photo-8611381.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
-  { value: "Wrestling",               label: "Wrestling",               uri: "https://images.pexels.com/photos/8164649/pexels-photo-8164649.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
+  { value: "Wrestling",               label: "Wrestling",               local: true },
   { value: "Traditional martial arts",label: "Traditional martial arts",uri: "https://images.pexels.com/photos/7045666/pexels-photo-7045666.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop" },
 ];
 
@@ -362,16 +436,25 @@ export default function OnboardingScreen() {
         surveyCommitment:           d.surveyCommitment || undefined,
       };
 
-      // Fight camp fields
-      if (!d.nonFightPrepMode && d.demoFightDate) {
-        payload.fightDate      = d.demoFightDate;
-        payload.targetWeight   = d.demoTargetWeight ? parseFloat(d.demoTargetWeight) : undefined;
-        payload.weighInTiming  = d.demoWeighInTiming;
-      }
-
       await apiFetch("/user/me/onboard", { method: "POST", body: payload });
 
-      // Send body fat separately (own endpoint, not part of onboard)
+      // Fight camp — separate endpoint per spec (POST /me/weight-cut)
+      if (!d.nonFightPrepMode && d.demoFightDate && d.demoTargetWeight) {
+        try {
+          await apiFetch("/me/weight-cut", {
+            method: "POST",
+            body: {
+              currentWeight:        parseFloat(d.currentWeight),
+              targetWeight:         parseFloat(d.demoTargetWeight),
+              fightDate:            d.demoFightDate,
+              weighInTiming:        d.demoWeighInTiming,
+              manualTempReductionKg: null,
+            },
+          });
+        } catch { /* non-critical — user can set fight camp later from dashboard */ }
+      }
+
+      // Body fat — separate endpoint (PATCH /me/body-composition)
       if (d.bodyFatPct) {
         try {
           await apiFetch("/me/body-composition", {
@@ -520,7 +603,7 @@ export default function OnboardingScreen() {
                   testID={`button-sport-${sp.value.toLowerCase().replace(/ /g, "-")}`}
                   onPress={() => toggleSport(sp.value)}
                   style={[spc.card, { width: full ? "100%" : "48%" }, sel ? spc.sel : spc.unsel]}>
-                  <Image source={{ uri: sp.uri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                  <Image source={sp.local ? require("@/assets/wrestling-photo.jpg") : { uri: sp.uri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
                   <View style={[spc.overlay, sel && spc.overlaySelected]} />
                   {sel && <View style={spc.checkBadge}><Feather name="check" size={10} color="#fff" /></View>}
                   <Text style={spc.label}>{sp.label}</Text>
@@ -694,14 +777,16 @@ export default function OnboardingScreen() {
             <Text style={{ fontSize: 72, fontWeight: "700", color: PRIMARY, fontFamily: "SpaceGrotesk_700Bold" }}>{d.surveyEnergyScore}</Text>
             <Text style={{ fontSize: 24, color: "#71717a", fontFamily: "Inter_400Regular" }}> / 10</Text>
           </View>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-            {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
-              <TouchableOpacity key={n} onPress={() => set("surveyEnergyScore", n)}
-                style={[s18.btn, d.surveyEnergyScore === n && s18.btnSel, { width: "18%" }]}>
-                <Text style={[s18.num, d.surveyEnergyScore === n && { color: PRIMARY }]}>{n}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {[[1,2,3,4,5],[6,7,8,9,10]].map((row, ri) => (
+            <View key={ri} style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+              {row.map(n => (
+                <TouchableOpacity key={n} onPress={() => set("surveyEnergyScore", n)}
+                  style={[s18.btn, d.surveyEnergyScore === n && s18.btnSel, { flex: 1 }]}>
+                  <Text style={[s18.num, d.surveyEnergyScore === n && { color: PRIMARY }]}>{n}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ))}
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
             <Text style={{ color: "#52525b", fontSize: 12, fontFamily: "Inter_400Regular" }}>Exhausted</Text>
             <Text style={{ color: "#52525b", fontSize: 12, fontFamily: "Inter_400Regular" }}>Bulletproof</Text>
@@ -742,116 +827,198 @@ export default function OnboardingScreen() {
         </>}
 
         {/* ── Step 22: Fight camp planner ── */}
-        {step === 22 && <>
-          <Heading text="Build your fight camp plan." />
-          <Sub text="Enter your details — PRFMR calculates the exact cut." />
-          <View style={s22.card}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular" }}>Current weight</Text>
-              <Text style={{ color: "#d4d4d8", fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>{d.currentWeight || "—"} kg</Text>
-            </View>
-            <FieldLabel text="TARGET WEIGHT (kg)" />
-            <StyledInput
-              placeholder={d.currentWeight ? `e.g. ${(parseFloat(d.currentWeight) - 2).toFixed(1)}` : "e.g. 68"}
-              value={d.demoTargetWeight}
-              onChange={v => set("demoTargetWeight", v)}
-              keyboardType="decimal-pad"
-              testID="input-demo-target-weight"
-            />
-            {targetWeightError && <Text style={{ color: "#ef4444", fontSize: 12, marginTop: 4, fontFamily: "Inter_400Regular" }}>Must be less than your current weight.</Text>}
-
-            <FieldLabel text="FIGHT DATE" />
-            <TouchableOpacity onPress={() => setShowDatePicker(true)} style={[inp.i, { justifyContent: "center" }]}>
-              <Text style={{ color: d.demoFightDate ? "#fff" : "#52525b", fontSize: 16, fontFamily: "Inter_400Regular" }}>
-                {d.demoFightDate ? new Date(d.demoFightDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Select fight date"}
-              </Text>
-            </TouchableOpacity>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={d.demoFightDate ? new Date(d.demoFightDate + "T00:00:00") : new Date(Date.now() + 30 * 86400000)}
-                mode="date"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                minimumDate={new Date(Date.now() + 7 * 86400000)}
-                themeVariant="dark"
-                onChange={(_, date) => {
-                  setShowDatePicker(Platform.OS === "ios" ? true : false);
-                  if (date) set("demoFightDate", date.toISOString().split("T")[0]);
-                }}
+        {step === 22 && (() => {
+          const cw = parseFloat(d.currentWeight) || 0;
+          const tw = parseFloat(d.demoTargetWeight) || 0;
+          const planValid = !d.nonFightPrepMode && !!d.demoFightDate && tw > 0 && tw < cw;
+          const plan: WeightCutPlanResult | null = planValid
+            ? calculateWeightCutPlan(cw, tw, d.demoFightDate, d.demoWeighInTiming)
+            : null;
+          const statusColors: Record<string, { text: string; border: string; bg: string }> = {
+            on_track:       { text: "#4ade80", border: "rgba(74,222,128,0.3)",  bg: "rgba(74,222,128,0.05)" },
+            aggressive:     { text: "#facc15", border: "rgba(250,204,21,0.3)",  bg: "rgba(250,204,21,0.05)" },
+            very_aggressive:{ text: PRIMARY,   border: "rgba(249,115,22,0.3)",  bg: "rgba(249,115,22,0.05)" },
+            unrealistic:    { text: "#ef4444", border: "rgba(239,68,68,0.3)",   bg: "rgba(239,68,68,0.05)" },
+            complete:       { text: "#71717a", border: "#27272a",               bg: "rgba(39,39,42,0.3)" },
+            past_date:      { text: "#71717a", border: "#27272a",               bg: "rgba(39,39,42,0.3)" },
+          };
+          return <>
+            <Heading text="Build your fight camp plan." />
+            <Sub text="Enter your details — PRFMR calculates the exact cut." />
+            <View style={s22.card}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular" }}>Current weight</Text>
+                <Text style={{ color: "#d4d4d8", fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>{d.currentWeight || "—"} kg</Text>
+              </View>
+              <FieldLabel text="TARGET WEIGHT (kg)" />
+              <StyledInput
+                placeholder={cw ? `e.g. ${(cw - 2).toFixed(1)}` : "e.g. 68"}
+                value={d.demoTargetWeight}
+                onChange={v => set("demoTargetWeight", v)}
+                keyboardType="decimal-pad"
+                testID="input-demo-target-weight"
               />
-            )}
-            {Platform.OS === "ios" && showDatePicker && (
-              <TouchableOpacity onPress={() => setShowDatePicker(false)}
-                style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 14 }}>
-                <Text style={{ color: PRIMARY, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>Done</Text>
+              {d.demoTargetWeight && tw >= cw && cw > 0 && (
+                <Text style={{ color: "#ef4444", fontSize: 12, marginTop: 4, fontFamily: "Inter_400Regular" }}>Must be less than your current weight.</Text>
+              )}
+
+              <FieldLabel text="FIGHT DATE" />
+              <TouchableOpacity onPress={() => setShowDatePicker(true)} style={[inp.i, { justifyContent: "center" }]}>
+                <Text style={{ color: d.demoFightDate ? "#fff" : "#52525b", fontSize: 16, fontFamily: "Inter_400Regular" }}>
+                  {d.demoFightDate ? new Date(d.demoFightDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Select fight date"}
+                </Text>
               </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={d.demoFightDate ? new Date(d.demoFightDate + "T00:00:00") : new Date(Date.now() + 30 * 86400000)}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  minimumDate={new Date(Date.now() + 7 * 86400000)}
+                  themeVariant="dark"
+                  onChange={(_, date) => {
+                    setShowDatePicker(Platform.OS === "ios");
+                    if (date) set("demoFightDate", date.toISOString().split("T")[0]);
+                  }}
+                />
+              )}
+              {Platform.OS === "ios" && showDatePicker && (
+                <TouchableOpacity onPress={() => setShowDatePicker(false)} style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 14 }}>
+                  <Text style={{ color: PRIMARY, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>Done</Text>
+                </TouchableOpacity>
+              )}
+
+              <FieldLabel text="WEIGH-IN TIMING" />
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {[{ v: "same_day" as const, l: "Same day" }, { v: "day_before" as const, l: "Day before" }].map(o => (
+                  <TouchableOpacity key={o.v} onPress={() => set("demoWeighInTiming", o.v)}
+                    style={[s22.timing, d.demoWeighInTiming === o.v && s22.timingSel]}>
+                    <Text style={[s22.timingTxt, d.demoWeighInTiming === o.v && { color: "#fff" }]}>{o.l}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Live calculation result card */}
+            {plan ? (() => {
+              const sc = statusColors[plan.status] ?? statusColors.on_track;
+              const preFinalLabel = plan.predictedDayMinus4Weight !== undefined ? "T−4 target (bodyweight)" : "T−7 target (bodyweight)";
+              const preFinalValue = (plan.predictedDayMinus4Weight ?? plan.predictedWeekMinus1Weight ?? 0).toFixed(1);
+              return (
+                <View style={{ gap: 10, marginBottom: 16 }}>
+                  {/* Status badge */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, borderColor: sc.border, backgroundColor: sc.bg, padding: 12 }}>
+                    <Feather name="trending-down" size={18} color={sc.text} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: sc.text, fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>{plan.statusLabel}</Text>
+                      <Text style={{ color: "#71717a", fontSize: 11, marginTop: 2, fontFamily: "Inter_400Regular" }}>
+                        {plan.requiredWeeklyRatePct.toFixed(1)}% BW/week required{plan.status !== "on_track" ? " — safe ceiling is 1%" : ""}
+                      </Text>
+                    </View>
+                  </View>
+                  {/* Stats 2×3 grid */}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {[
+                      { v: `${plan.totalToLose.toFixed(1)} kg`,           l: "total to lose" },
+                      { v: `${plan.weeksUntil.toFixed(1)} wks`,           l: "until fight" },
+                      { v: `${plan.fatLossRequired.toFixed(1)} kg`,        l: "fat loss phase" },
+                      { v: plan.tempCut > 0 ? `${plan.tempCut.toFixed(1)} kg` : "minimal", l: "temp cut (fluids)" },
+                      { v: `${plan.recommendedWeeklyRate.toFixed(2)} kg/wk`, l: "safe weekly rate" },
+                      { v: `−${plan.suggestedDeficitKcal} kcal`,           l: "daily deficit" },
+                    ].map(cell => (
+                      <View key={cell.l} style={{ width: "31%", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", backgroundColor: "rgba(39,39,42,0.4)", padding: 10, alignItems: "center" }}>
+                        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" }}>{cell.v}</Text>
+                        <Text style={{ color: "#71717a", fontSize: 10, marginTop: 2, textAlign: "center", fontFamily: "Inter_400Regular" }}>{cell.l}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {/* Pre-final target row */}
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", backgroundColor: "rgba(39,39,42,0.2)", paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <Text style={{ color: "#71717a", fontSize: 12, fontFamily: "Inter_400Regular" }}>{preFinalLabel}</Text>
+                    <Text style={{ color: "#d4d4d8", fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>{preFinalValue} kg</Text>
+                  </View>
+                  {/* Warning for aggressive/unrealistic */}
+                  {(plan.status === "aggressive" || plan.status === "very_aggressive" || plan.status === "unrealistic") && (
+                    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(234,179,8,0.3)", backgroundColor: "rgba(234,179,8,0.05)", padding: 12 }}>
+                      <Text style={{ color: "rgba(253,224,71,0.8)", fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 }}>
+                        {plan.status === "unrealistic"
+                          ? "⚠️ This timeline is very tight. Moving your fight date or adjusting your target weight will give PRFMR more time to work with."
+                          : "⚠️ Your pace is above the safe 1% BW/week threshold. PRFMR will cap your daily deficit to protect performance — you may need more time or a slightly higher target weight."}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })() : !d.nonFightPrepMode && (
+              <Text style={{ color: "#52525b", fontSize: 12, textAlign: "center", marginBottom: 16, fontFamily: "Inter_400Regular" }}>
+                Enter your target weight and fight date to build your plan.
+              </Text>
             )}
 
-            <FieldLabel text="WEIGH-IN TIMING" />
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              {[{ v: "same_day" as const, l: "Same day" }, { v: "day_before" as const, l: "Day before" }].map(o => (
-                <TouchableOpacity key={o.v} onPress={() => set("demoWeighInTiming", o.v)}
-                  style={[s22.timing, d.demoWeighInTiming === o.v && s22.timingSel]}>
-                  <Text style={[s22.timingTxt, d.demoWeighInTiming === o.v && { color: "#fff" }]}>{o.l}</Text>
+            <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.06)", marginVertical: 8 }} />
+            <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 10 }}>
+              Not currently in fight prep — or not focused on losing weight right now?
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {[{ v: "fat_loss", l: "General fat loss" }, { v: "maintenance", l: "Maintenance" }, { v: "weight_gain", l: "Weight gain" }].map(o => (
+                <TouchableOpacity key={o.v} onPress={() => set("nonFightPrepMode", d.nonFightPrepMode === o.v ? "" : o.v)}
+                  style={[s22.pill, d.nonFightPrepMode === o.v && s22.pillSel]}>
+                  <Text style={[s22.pillTxt, d.nonFightPrepMode === o.v && { color: "#fff" }]}>{o.l}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-          </View>
-
-          <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.06)", marginVertical: 16 }} />
-          <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular" }}>
-            Not currently in fight prep — or not focused on losing weight right now?
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-            {[{ v: "fat_loss", l: "General fat loss" }, { v: "maintenance", l: "Maintenance" }, { v: "weight_gain", l: "Weight gain" }].map(o => (
-              <TouchableOpacity key={o.v} onPress={() => set("nonFightPrepMode", d.nonFightPrepMode === o.v ? "" : o.v)}
-                style={[s22.pill, d.nonFightPrepMode === o.v && s22.pillSel]}>
-                <Text style={[s22.pillTxt, d.nonFightPrepMode === o.v && { color: "#fff" }]}>{o.l}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {d.nonFightPrepMode === "maintenance" && <Text style={s22.modeNote}>You'll start in Maintenance mode. You can switch to Fight Camp anytime from your dashboard once you have a fight booked.</Text>}
-          {d.nonFightPrepMode === "weight_gain" && <Text style={s22.modeNote}>You'll start in Weight Gain mode — calories set above TDEE to support muscle building.</Text>}
-          {d.nonFightPrepMode === "fat_loss"    && <Text style={s22.modeNote}>You'll start in General Fat Loss mode. You can switch to Fight Camp anytime from your dashboard.</Text>}
-        </>}
+            {d.nonFightPrepMode === "maintenance"  && <Text style={s22.modeNote}>You'll start in Maintenance mode. You can switch to Fight Camp anytime from your dashboard once you have a fight booked.</Text>}
+            {d.nonFightPrepMode === "weight_gain"  && <Text style={s22.modeNote}>You'll start in Weight Gain mode — calories set above TDEE to support muscle building. You can switch to Fight Camp anytime.</Text>}
+            {d.nonFightPrepMode === "fat_loss"     && <Text style={s22.modeNote}>You'll start in General Fat Loss mode. You can switch to Fight Camp anytime from your dashboard.</Text>}
+          </>;
+        })()}
 
         {/* ── Step 23: Projected cut chart ── */}
-        {step === 23 && <>
-          <Heading text="Your projected cut." />
-          <Sub text="Based on the plan you just built." />
-          {(() => {
-            const cw  = parseFloat(d.currentWeight) || 80;
-            const tw  = parseFloat(d.demoTargetWeight) || cw - 5;
-            const drop = cw - tw;
-            const weeks = d.demoFightDate
-              ? Math.max(1, Math.round((new Date(d.demoFightDate).getTime() - Date.now()) / 604800000))
-              : 8;
-            const pts = [cw, cw - drop * 0.33, cw - drop * 0.66, tw];
-            const lbls = ["Today", `Wk ${Math.round(weeks * 0.33)}`, `Wk ${Math.round(weeks * 0.66)}`, "Fight"];
-            const minW = tw, range = drop || 1;
-            const toH  = (w: number) => Math.round(((w - minW) / range) * 68 + 14);
-            return (
-              <View>
-                <View style={{ flexDirection: "row", alignItems: "flex-end", height: 120, gap: 6, marginBottom: 8 }}>
-                  {pts.map((w, i) => {
-                    const h = toH(w); const last = i === pts.length - 1;
-                    return (
-                      <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end" }}>
-                        <Text style={{ color: last ? PRIMARY : "#71717a", fontSize: 10, marginBottom: 3, fontFamily: "Inter_400Regular" }}>{w.toFixed(1)}</Text>
-                        <View style={{ height: h, width: "80%", borderRadius: 4, backgroundColor: last ? "rgba(249,115,22,0.4)" : "rgba(249,115,22,0.15)" }} />
-                        <Text style={{ color: "#52525b", fontSize: 9, marginTop: 4, fontFamily: "Inter_400Regular" }}>{lbls[i]}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-                <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
-                  <View style={s23.stat}><Text style={s23.statVal}>−{drop.toFixed(1)} kg</Text><Text style={s23.statLbl}>Projected loss</Text></View>
-                  <View style={s23.stat}><Text style={s23.statVal}>{(drop / weeks).toFixed(2)} kg</Text><Text style={s23.statLbl}>Per week</Text></View>
-                </View>
-              </View>
-            );
-          })()}
-        </>}
+        {step === 23 && (() => {
+          const cw = parseFloat(d.currentWeight) || 80;
+          const tw = parseFloat(d.demoTargetWeight) || cw - 5;
+          const plan = calculateWeightCutPlan(cw, tw, d.demoFightDate || new Date(Date.now() + 56 * 86400000).toISOString().split("T")[0], d.demoWeighInTiming);
+          // Build trend: today + up to 4 sampled interior points + fight
+          const targets = plan.weeklyTargets;
+          const interior: Array<{ weight: number; label: string }> = [];
+          const maxPts = 4;
+          if (targets.length > 0) {
+            const step_ = Math.max(1, Math.floor(targets.length / maxPts));
+            for (let i = targets.length - 1; i >= 0; i -= step_) {
+              if (interior.length >= maxPts) break;
+              const t = targets[i];
+              interior.push({ weight: t.targetWeight, label: `Wk ${plan.weeklyTargets.length - i}` });
+            }
+          }
+          const trend = [
+            { weight: cw, label: "Today" },
+            ...interior,
+            { weight: tw, label: "Fight" },
+          ];
+          const minW = tw;
+          const range = Math.max(cw - tw, 0.1);
+          const toBarH = (w: number) => Math.round(((w - minW) / range) * 68 + 14);
+          return <>
+            <Heading text="Your projected cut." />
+            <Sub text="Based on the plan you just built." />
+            <View style={{ flexDirection: "row", alignItems: "flex-end", height: 140, gap: 5, marginBottom: 8 }}>
+              {trend.map((pt, i) => {
+                const h = toBarH(pt.weight);
+                const last = i === trend.length - 1;
+                return (
+                  <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end" }}>
+                    <Text style={{ color: last ? PRIMARY : "#71717a", fontSize: 10, marginBottom: 3, fontFamily: "Inter_400Regular" }}>{pt.weight.toFixed(1)}</Text>
+                    <View style={{ height: `${h}%` as any, width: "80%", borderRadius: 4, backgroundColor: last ? "rgba(249,115,22,0.4)" : "rgba(249,115,22,0.15)" }} />
+                    <Text style={{ color: "#52525b", fontSize: 9, marginTop: 4, fontFamily: "Inter_400Regular" }}>{pt.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
+              <View style={s23.stat}><Text style={s23.statVal}>−{plan.totalToLose.toFixed(1)} kg</Text><Text style={s23.statLbl}>Projected loss</Text></View>
+              <View style={s23.stat}><Text style={s23.statVal}>{plan.recommendedWeeklyRate.toFixed(2)} kg</Text><Text style={s23.statLbl}>Per week (fat loss phase)</Text></View>
+            </View>
+          </>;
+        })()}
 
         {/* ── Step 24: Morning check-in demo ── */}
         {step === 24 && <>
@@ -1054,7 +1221,7 @@ const sh = StyleSheet.create({
   progressTrack:{ height: 1, backgroundColor: "rgba(255,255,255,0.05)" },
   progressFill: { height: 1, backgroundColor: PRIMARY },
   logoStrip:    { paddingHorizontal: 20, paddingBottom: 12 },
-  logo:         { height: 34, width: 120, marginTop: 8 },
+  logo:         { height: 37, width: 128, marginTop: 8 },
   scroll:       { padding: 20, paddingBottom: 16 },
 });
 const nav = StyleSheet.create({
