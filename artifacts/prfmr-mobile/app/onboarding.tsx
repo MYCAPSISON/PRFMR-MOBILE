@@ -419,7 +419,7 @@ export default function OnboardingScreen() {
         age:              d.age ? parseInt(d.age) : undefined,
         height:           d.height ? parseFloat(d.height) : undefined,
         currentWeight:    d.currentWeight ? parseFloat(d.currentWeight) : undefined,
-        activityLevel:    "moderately_active",
+        activityLevel:    "moderate",
         goal:             derivedGoal(d),
         experienceLevel:  mapExperience(d.competitionLevel),
         mainSport:        mainSport || undefined,
@@ -977,16 +977,15 @@ export default function OnboardingScreen() {
           const cw = parseFloat(d.currentWeight) || 80;
           const tw = parseFloat(d.demoTargetWeight) || cw - 5;
           const plan = calculateWeightCutPlan(cw, tw, d.demoFightDate || new Date(Date.now() + 56 * 86400000).toISOString().split("T")[0], d.demoWeighInTiming);
-          // Build trend: today + up to 4 sampled interior points + fight
+          // Build trend: today + up to 4 evenly-sampled interior points (forward order) + fight
           const targets = plan.weeklyTargets;
           const interior: Array<{ weight: number; label: string }> = [];
-          const maxPts = 4;
           if (targets.length > 0) {
+            const maxPts = Math.min(4, targets.length);
             const step_ = Math.max(1, Math.floor(targets.length / maxPts));
-            for (let i = targets.length - 1; i >= 0; i -= step_) {
-              if (interior.length >= maxPts) break;
+            for (let i = 0; i < targets.length && interior.length < maxPts; i += step_) {
               const t = targets[i];
-              interior.push({ weight: t.targetWeight, label: `Wk ${plan.weeklyTargets.length - i}` });
+              interior.push({ weight: t.targetWeight, label: `Wk ${t.week}` });
             }
           }
           const trend = [
@@ -1221,7 +1220,7 @@ const sh = StyleSheet.create({
   progressTrack:{ height: 1, backgroundColor: "rgba(255,255,255,0.05)" },
   progressFill: { height: 1, backgroundColor: PRIMARY },
   logoStrip:    { paddingHorizontal: 20, paddingBottom: 12 },
-  logo:         { height: 37, width: 128, marginTop: 8 },
+  logo:         { height: 39, width: 134, marginTop: 8 },
   scroll:       { padding: 20, paddingBottom: 16 },
 });
 const nav = StyleSheet.create({
