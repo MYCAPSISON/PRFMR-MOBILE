@@ -1,3 +1,2 @@
-- [PRFMR Mobile API rules](prfmr-api-rules.md) — critical POST /food field requirements and auth cookie rules for PRFMR mobile app
-- [Dashboard food modal](dashboard-food-modal.md) — Dashboard index.tsx has its own Add Food modal with CORE_FOODS array; separate from nutrition.tsx. Whole food bug fixes must target CORE_FOODS in index.tsx.
-- [React Compiler disable](react-compiler-disable.md) — Must set reactCompiler:false in app.json experiments, not just babel.config.js — app.json overrides all other settings.
+- [Onboarding spec](onboarding-spec.md) — Full 34-step wizard (0–33) now implemented; submission fires at step 29 (loading), not the final step.
+- [Expo onboarding quirks](expo-onboarding-quirks.md) — StyleSheet declared inside component body cannot be used before an early `return`; hoist to module level.

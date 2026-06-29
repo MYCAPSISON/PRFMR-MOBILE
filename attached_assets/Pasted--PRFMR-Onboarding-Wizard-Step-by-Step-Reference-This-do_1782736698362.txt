@@ -1,0 +1,1024 @@
+# PRFMR — Onboarding Wizard: Step-by-Step Reference
+
+This document is the **exact** reference for replicating the PRFMR onboarding wizard.
+Copy every heading, bullet, option label, and placeholder verbatim.
+Every step number below is the **internal** `step` integer used in `onboarding.tsx`.
+
+---
+
+## Global Shell (all steps 1–33)
+
+- Background: `#0a0a0a`
+- Fixed top progress bar: 1 px tall, track = `bg-white/5`, fill = `bg-primary` (orange `#F97316`), animated width `(step / 33) * 100%`
+- Fixed logo below bar: `no_back_logo_1777367768475.png`, height 34 px, left-aligned with 20 px padding, sits on `#0a0a0a` strip
+- Card: `border-0 shadow-none bg-transparent`
+- Step transition: Framer Motion `opacity 0→1, x 14→0` (enter), `opacity 1→0, x 0→-14` (exit), duration 0.18 s
+- Nav strip: `border-t border-white/5`, Back (ghost) left, Next right
+- Back button is hidden on steps where the user shouldn't go back (splash, step 1, step 29)
+
+**CTA button labels by step:**
+
+| Step | Button label |
+|---|---|
+| 1 | "Yeah, that's me →" |
+| 2 | "Continue →" |
+| 17 | "Let's build your plan →" |
+| 27 | "Next →" |
+| 28 | "Build my plan →" |
+| 30 | "Continue →" |
+| 31–32 | "Continue →" |
+| 33 | "Start tracking →" (full-width, with `Utensils` icon) |
+| All others | "Next →" |
+
+---
+
+## Step 0 — Splash Screen
+
+**No card. No progress bar (progress = 0%). No logo. No nav.**
+
+Full-screen layout:
+- Outer container: `bg-[#0a0a0a]`, `height: 100dvh`
+- Image container: `width: min(100%, calc(100dvh × 863 / 1665))`, `aspect-ratio: 863 / 1665`
+- Image: `BD246D36-3AE7-426E-88E2-322E8390F5AB_1777392079503.jpeg`, `object-fit: fill`, fills the entire container exactly — **no cropping, no letterbox**
+
+**CTA — transparent hit-target overlay:**
+The image has a button baked into the artwork. The invisible `<button>` is absolutely positioned on top of the artwork's button using image-relative percentages:
+- `bottom: 1.8%` — `30px / 1665px`
+- `height: 5.7%` — `95px / 1665px`
+- `left: 2.3%`, `right: 2.3%` — `20px / 863px`
+- Style: `border-0 outline-none bg-transparent cursor-pointer`
+- `data-testid="button-splash-cta"`
+
+Tapping anywhere in this rectangle advances to step 1.
+
+---
+
+## Step 1 — Problem Statement
+
+**Heading:** `Be honest.`
+**Subheading:** `Are you struggling to:`
+
+Three bullet items (each in a `bg-secondary/50` rounded-lg card with an orange bullet dot):
+1. Plan your weight cut safely?
+2. Know how much to eat?
+3. Balance training and recovery?
+
+**CTA:** "Yeah, that's me →"
+**No Back button.**
+
+---
+
+## Step 2 — Solution
+
+**Heading:** `This is where it changes.`
+**Subheading:** `PRFMR is your fight camp system.`
+
+Four checkmark items (orange `Check` icon, `text-sm`):
+1. Plans your weight cut safely
+2. Adjusts calories based on training
+3. Tracks your performance & recovery
+4. Ensures your nutrition actually fuels output
+
+**Quote block** (rounded-lg, `border-primary/20 bg-primary/5 p-4`):
+> *"You don't need to guess. You need a system."*
+
+**CTA:** "Continue →"
+
+---
+
+## Step 3 — First Name
+
+**Heading:** `What's your name?`
+**Subheading:** `We'll personalise your experience.`
+
+Single `Input`, `placeholder="First name"`, `h-12`, `autoFocus`.
+`data-testid="input-name"`
+
+**Gate:** Next disabled until `firstName.trim().length > 0`
+
+---
+
+## Step 4 — Sport Selection
+
+**Heading:** `What sport do you compete in?`
+**Subheading:** `Select all that apply.`
+
+**2-column photo-card grid.** 7 sports; the 7th card spans both columns (`col-span-2`) because 7 is odd.
+
+| Sport value | Display label | Photo |
+|---|---|---|
+| `Boxing` | Boxing | Pexels 6699106 (see URL below) |
+| `MMA` | MMA | Pexels 5616798 |
+| `Muay Thai` | Muay Thai | Pexels 11045334 |
+| `Kickboxing` | Kickboxing | Pexels 13808098 |
+| `BJJ` | BJJ | Pexels 8611381 |
+| `Wrestling` | Wrestling | **Local file** `wrestling_2_1780663494759.jpg` (in `PRFMR Theme/stock-images/wrestling-action.jpg`) |
+| `Traditional martial arts` | Traditional martial arts | Pexels 7045666 |
+
+**Pexels URL template:**
+`https://images.pexels.com/photos/{ID}/pexels-photo-{ID}.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&fit=crop`
+
+**Each card (h-24, rounded-xl, overflow-hidden):**
+- Photo fills card via `object-cover`
+- Dark overlay: `bg-black/65` → `bg-black/55` on hover; `bg-black/45` when selected
+- Selected: adds `bg-primary/15` glow layer + `border-primary ring-2 ring-primary/40`
+- Unselected: `border-transparent hover:border-primary/30`
+- Label: white bold text, `drop-shadow-md`, centred
+- Selected checkmark: small `bg-primary` circle, top-right, `Check` icon white
+
+**Indicator below grid:** `"Selected: {sport}"` (1) or `"{n} sports selected"` (2+)
+
+`data-testid="button-sport-{sport-slug}"` e.g. `button-sport-boxing`
+
+**Gate:** Next disabled until at least 1 sport selected.
+
+---
+
+## Step 5 — Competition Level + Badge Preview
+
+**Heading:** `What level do you compete at?`
+**Subheading:** `This shapes your nutrition targets.`
+
+### Primary sport picker (only shown if 2+ sports selected)
+
+Text: `What's your main sport right now?`
+Grid of buttons for each selected sport. Selected state: `border-primary bg-primary/10 ring-1 ring-primary/50`.
+
+### Competition level
+
+Label: `Competition level`
+
+Two preset pill buttons side-by-side:
+- `Amateur`
+- `Pro`
+
+Below them: free-text `Input`:
+- `placeholder="Or type your own… (e.g. Semi-pro, White collar)"`
+- `data-testid="input-competition-level"`
+- Typing here updates `competitionLevel` live (overrides the pill selection)
+
+### Badge Preview (live — shown as soon as both sport + level are set)
+
+Container: `rounded-xl border border-border/30 bg-secondary/30 p-4 space-y-2 text-center`
+
+Label above: `Your sport identity badge` (xs, muted)
+Badge: `<SportBadge mainSport="{level} {sportDisplay}" />`
+Label below: `Shown on your dashboard and profile` (10px, muted/60)
+
+**Gate:** Next disabled until `competitionLevel` is non-empty AND (if multi-sport) `primarySport` is selected.
+
+---
+
+## Step 6 — Age
+
+**Heading:** `How old are you?`
+**Subheading:** `Used to calculate your metabolic baseline.`
+
+`Input type="number"`, `placeholder="Age (years)"`, `h-12`, `min=15 max=70`, `autoFocus`
+`data-testid="input-age"`
+
+**Gate:** Next disabled until `age >= 15`.
+
+---
+
+## Step 7 — Gender
+
+**Heading:** `What's your gender?`
+**Subheading:** `Affects your calorie and protein calculations.`
+
+2-column `OptionBtn` grid, 4 options:
+
+| Value | Label |
+|---|---|
+| `male` | Male |
+| `female` | Female |
+| `other` | Other |
+| `prefer_not` | Prefer not to say |
+
+**OptionBtn style:**
+- `w-full text-left rounded-xl p-4 text-sm font-medium`
+- Unselected: `bg-secondary/60 text-muted-foreground hover:bg-secondary/90 hover:text-foreground`
+- Selected: `bg-primary/15 text-foreground ring-1 ring-primary/50`
+
+**Gate:** Next disabled until a gender is selected.
+
+---
+
+## Step 8 — Height
+
+**Heading:** `What is your height?`
+**Subheading:** `In centimetres.`
+
+`Input type="number"`, `placeholder="e.g. 175"`, `h-12`, `autoFocus`
+`data-testid="input-height"`
+
+Helper text below: `5'9" = 175 cm · 6'0" = 183 cm`
+
+**Gate:** Next disabled until `height >= 100`.
+
+---
+
+## Step 9 — Current Weight
+
+**Heading:** `What's your current weight?`
+**Subheading:** `In kilograms. Morning weight if possible.`
+
+`Input type="number" step="0.1"`, `placeholder="e.g. 72.5"`, `h-12`, `autoFocus`
+`data-testid="input-weight"`
+
+**Gate:** Next disabled until `currentWeight > 30`.
+
+---
+
+## Step 10 — Cut Experience Survey
+
+**Heading:** `How many cuts have you done?`
+
+4 `OptionBtn` options (full-width, stacked):
+
+| Value | Label |
+|---|---|
+| `none` | First time |
+| `1-2` | 1–2 |
+| `3-5` | 3–5 |
+| `5+` | 5+ |
+
+**Gate:** Must select one.
+
+---
+
+## Step 11 — Cut Outcome Survey
+
+**Heading:** `Did they go to plan?`
+
+5 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `yes` | Yes |
+| `low_energy` | Sometimes felt low energy |
+| `missed_weight` | Missed weight once or twice |
+| `reduced_strength` | Felt reduced strength |
+| `all` | All of the above |
+
+**Gate:** Must select one.
+
+---
+
+## Step 12 — Calorie Knowledge Survey
+
+**Heading:** `Do you know how to adjust calories to training?`
+
+4 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `yes` | Yes |
+| `no` | No |
+| `guess` | I guess |
+| `nutritionist` | I use a nutritionist |
+
+**Gate:** Must select one.
+
+---
+
+## Step 13 — Underfueling Survey
+
+**Heading:** `Do you ever feel under-fuelled?`
+
+4 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `training` | Yes, in training |
+| `fights` | Yes, in fights |
+| `both` | Both |
+| `not_really` | Not really |
+
+**Gate:** Must select one.
+
+---
+
+## Step 14 — Training Load Survey
+
+**Heading:** `Do you track your training load?`
+
+3 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `yes` | Yes |
+| `no` | No |
+| `feel` | I go by feel |
+
+**Gate:** Must select one.
+
+---
+
+## Step 15 — Micronutrient Knowledge Survey
+
+**Heading:** `Do you know which micronutrients matter?`
+
+3 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `no_idea` | No idea |
+| `not_really` | Not really |
+| `yes` | Yes |
+
+**Gate:** Must select one.
+
+---
+
+## Step 16 — Bombshell Stats
+
+**Heading:** `{firstName}, this isn't random.` (or `This isn't random.` if name blank)
+**Subheading:** `Most fighters aren't underperforming by accident.`
+
+Three stat cards (`rounded-lg border border-border/40 bg-secondary/40 p-3`, flex row):
+
+| Stat | Description |
+|---|---|
+| `65%` | of fighters have had a failed weight cut |
+| `~90%` | aren't fueling training properly |
+| `Most` | are missing key micronutrients consistently |
+
+Footer text: `And training? Still managed by guesswork — not data.`
+
+**No gate. No Back.**
+
+---
+
+## Step 17 — Aspiration
+
+**Heading:** `You don't have to fight like this.`
+**Subheading:** `Imagine:`
+
+Three vision items (`rounded-lg border border-primary/15 bg-primary/5 p-3`, `Check` icon):
+1. Feeling strong every session
+2. Never missing weight
+3. Performing at your peak
+
+**CTA:** `"Let's build your plan →"` (custom label for this step)
+
+---
+
+## Step 18 — Energy Score Slider
+
+**Heading:** `How's your energy during a cut?`
+**Subheading:** `Rate 1 (exhausted) to 10 (bulletproof).`
+
+Large centred number: `{energyScore} / 10` (energyScore in `text-6xl font-bold text-primary`)
+
+Range slider: `min=1 max=10`, `accent-orange-500`, default = 5
+
+Labels: `Exhausted` (left) — `Bulletproof` (right)
+
+**No gate.**
+
+---
+
+## Step 19 — Performance Survey
+
+**Heading:** `Your last performance?`
+
+4 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `terrible` | Terrible |
+| `could_be_better` | Could be better |
+| `good` | Good |
+| `excellent` | Excellent |
+
+**Gate:** Must select one.
+
+---
+
+## Step 20 — Main Problems Multi-Select
+
+**Heading:** `What's holding you back?`
+**Subheading:** `Select all that apply.`
+
+5 multi-select buttons (each shows a small checkbox square on the left):
+
+| Value | Label |
+|---|---|
+| `weight_class` | Wrong weight class |
+| `calories` | Calories & macros confusion |
+| `micronutrients` | Micronutrients |
+| `training_load` | Training load |
+| `fight_camp` | Planning fight camp |
+
+Selected: `bg-primary/15 ring-1 ring-primary/50`, checkbox = `bg-primary` with `Check` icon white
+Unselected: `bg-secondary/60`, checkbox = `ring-white/20`
+
+**Gate:** Must select at least 1.
+
+---
+
+## Step 21 — Personal Validation (reflection)
+
+**Heading:** `You're not alone.`
+**Subheading:** `Most fighters struggle with:`
+
+Reflects the user's own step 20 selections back as a list (each in a `bg-secondary/40` card with orange `ChevronRight` icon). Uses the same label map as step 20.
+
+If somehow no problems selected: `Every aspect of nutrition and performance.`
+
+**Callout box** at bottom (`border-primary/25 bg-primary/5 text-sm font-semibold text-primary`):
+> PRFMR is built to fix exactly this.
+
+---
+
+## Step 22 — Fight Camp Planner (Interactive Demo)
+
+**Heading:** `Build your fight camp plan.`
+**Subheading:** `Enter your details — PRFMR calculates the exact cut.`
+
+**This step calls `calculateWeightCutPlan()` from `@shared/weight-cut` — client-side only. No API call.**
+
+### Input card (`rounded-xl border border-border/50 bg-secondary/30 p-4`)
+
+**Row: Current weight** — read-only display of `formData.currentWeight` from step 9
+
+**Target weight input:**
+- Label: `Target weight (kg)`
+- `Input type="number" step="0.5"`, `placeholder="e.g. {currentWeight − 2}"`
+- Error (shown if entered but invalid): `Must be less than your current weight.`
+- `data-testid="input-demo-target-weight"`
+
+**Fight date input:**
+- Label: `Fight date`
+- `Input type="date"`, `min={today + 7 days}`
+- `data-testid="input-demo-fight-date"`
+- Helper text with `Info` icon: `Not sure? Use your approximate target weight class and the date of your next planned competition or training block. You can update both anytime from your dashboard.`
+
+**Weigh-in timing toggle** (segmented control):
+- Label: `Weigh-in timing`
+- Two options: `Same day` (value `same_day`) | `Day before` (value `day_before`)
+- Default: `same_day`
+- Selected: `bg-primary text-primary-foreground`
+
+**Manual water cut input:**
+- Label: `Manual water cut (typically 24–36 hours before weigh-in)` (xs, muted)
+- `Input type="number" step="0.1" min="0" max="10"`, `placeholder="Leave blank for automatic estimate"`
+- Helper: `Overrides the automatic 2–6% BW water-weight estimate. This app does not provide acute weight-cut guidance.`
+- `data-testid="input-manual-temp-reduction"`
+
+### Live plan result (animated in with Framer Motion when valid)
+
+Shows as soon as both target weight and fight date are valid.
+
+**Status badge** (colour by `plan.status`):
+
+| Status | Colour scheme |
+|---|---|
+| `on_track` | Green — `text-green-400 border-green-400/30 bg-green-400/5` |
+| `aggressive` | Yellow — `text-yellow-400 border-yellow-400/30 bg-yellow-400/5` |
+| `very_aggressive` | Orange — `text-orange-400 border-orange-400/30 bg-orange-400/5` |
+| `unrealistic` | Red — `text-destructive border-destructive/30 bg-destructive/5` |
+| `complete` / `past_date` | Grey — `text-muted-foreground border-border bg-secondary/20` |
+
+Status badge shows `plan.statusLabel` + `{plan.requiredWeeklyRatePct.toFixed(1)}% BW/week required` (with `— safe ceiling is 1%` appended when not on_track).
+
+**Stats 2×3 grid:**
+
+| Value | Label |
+|---|---|
+| `{plan.totalToLose.toFixed(1)} kg` | total to lose |
+| `{plan.weeksUntil.toFixed(1)} wks` | until fight |
+| `{plan.fatLossRequired.toFixed(1)} kg` | fat loss phase |
+| `{plan.tempCut > 0 ? plan.tempCut.toFixed(1) + " kg" : "minimal"}` | temp cut (fluids) |
+| `{plan.recommendedWeeklyRate.toFixed(2)} kg/wk` | safe weekly rate |
+| `−{plan.suggestedDeficitKcal} kcal` | daily deficit |
+
+**Pre-final target row:**
+- Same-day timing: shows `plan.predictedDayMinus4Weight` kg, labelled `T−4 target (bodyweight)`
+- Day-before timing: shows `plan.predictedWeekMinus1Weight` kg, labelled `T−7 target (bodyweight)`
+
+**Aggressive warning box** (shown when status is `aggressive`, `very_aggressive`, or `unrealistic`):
+- `unrealistic`: `"⚠️ This timeline is very tight. Moving your fight date or adjusting your target weight will give PRFMR more time to work with."`
+- Others: `"⚠️ Your pace is above the safe 1% BW/week threshold. PRFMR will cap your daily deficit to protect performance — you may need more time or a slightly higher target weight."`
+
+**Placeholder text** (shown when no inputs yet): `Enter your target weight and fight date to build your plan.`
+
+### Non-fight-prep alternative section
+
+Bottom of step 22, always visible:
+
+**Callout text:** `Not currently in fight prep — or not focused on losing weight right now?`
+
+Three pill buttons:
+
+| Value | Label |
+|---|---|
+| `fat_loss` | General fat loss |
+| `maintenance` | Maintenance |
+| `weight_gain` | Weight gain |
+
+Selecting one fills orange solid (`bg-primary text-white`). Deselecting toggles off.
+
+**Confirmation text** (shown when one is selected):
+- `maintenance`: `"You'll start in Maintenance mode. You can switch to Fight Camp anytime from your dashboard once you have a fight booked."`
+- `weight_gain`: `"You'll start in Weight Gain mode — calories set above TDEE to support muscle building. You can switch to Fight Camp anytime from your dashboard."`
+- `fat_loss`: `"You'll start in General Fat Loss mode. You can switch to Fight Camp anytime from your dashboard once you have a fight booked."`
+
+**If `nonFightPrepMode` is selected, step 22 "Next" jumps directly to step 24 (skips projected cut chart).**
+
+**Gate:** Valid target weight + fight date, OR `nonFightPrepMode` is set.
+
+---
+
+## Step 23 — Projected Cut Chart (Skipped if nonFightPrepMode)
+
+**Heading:** `Your projected cut.`
+**Subheading:** `Based on the plan you just built.`
+
+**Engine:** Calls `calculateWeightCutPlan()` again with same inputs as step 22. Pure SVG + CSS chart — no charting library.
+
+### Chart construction
+
+1. Build `trend` array: `[{ weight: current, label: "Today" }, ...up to 5 sampled interior weekly targets..., { weight: target, label: "Fight" }]`
+2. Interior points: sampled evenly from `plan.weeklyTargets` (at most 5 points). Each gets a date label like `"14 Jul"`.
+3. `toBarH(w) = round(((w − minW) / range) × 68 + 14)` — bar height as a 14–82% range
+4. SVG `viewBox="0 0 100 100"`, x = `((i + 0.5) / trend.length) × 100`, y = `100 − toBarH(w)` (inverted)
+
+### Rendering
+
+**Background bars** (one per trend point):
+- Last bar: `bg-primary/40`; others: `bg-primary/15`
+- Framer Motion `initial={{ height: 0, opacity: 0 }}` → `animate={{ height: "{h}%", opacity: 1 }}`
+- Bars are absolutely positioned bottom-aligned
+
+**SVG polyline overlay** (on top of bars, `preserveAspectRatio="none"`):
+- Stroke: `rgb(249,115,22)` (orange), `strokeWidth="2.5"`, `vectorEffect="non-scaling-stroke"`, `fill="none"`
+- Each point is a `<circle r="3">` — last point: `fill="rgb(249,115,22)"`, others: `fill="#0a0a0a" stroke="rgb(249,115,22)"`
+
+**Weight labels** (below each bar):
+- Last: `text-primary font-bold text-[11px]`
+- Others: `text-muted-foreground text-[11px]`
+
+**Date labels** (below weight labels, `text-[9px] text-muted-foreground/60`)
+
+**Stats row below chart (2 columns):**
+- Left: `−{totalDrop.toFixed(1)} kg` projected loss, label `Projected loss`
+- Right: `{weeklyRate.toFixed(2)} kg` per week, label `Per week (fat loss phase)`
+
+---
+
+## Step 24 — Morning Check-In Demo (Interactive)
+
+**Heading:** `Your morning check-in.`
+**Subheading:** `Takes 10 seconds. Drives your whole day.`
+
+**Pure client-side — no API call.**
+
+### Sleep section
+
+Icon: `Moon` (lucide), label: `Sleep`
+Range slider: `min=4 max=10 step=0.5`, default 7, `accent-orange-500`
+Value display: `{demoSleepHours} hrs` (shown above slider, orange if ≥ 8, muted if < 8)
+Tick labels: `4 hrs` (left) — `10 hrs` (right)
+`data-testid="slider-demo-sleep"`
+
+### Energy section
+
+Icon: `Zap` (lucide), label: `Energy level`
+
+5 emoji buttons in a row:
+
+| Index (1-based) | Emoji |
+|---|---|
+| 1 | 😫 |
+| 2 | 😕 |
+| 3 | 😐 |
+| 4 | 🙂 |
+| 5 | ⚡ |
+
+Selected: `bg-primary/15 ring-1 ring-primary/50 scale-110`
+Unselected: `bg-secondary/60 opacity-50`
+`data-testid="button-demo-energy-{1-5}"`
+
+### Live Readiness Score (updates instantly)
+
+**Formula:**
+```
+sleepScore   = hours >= 8 ? 1 : hours >= 7 ? 0.8 : hours >= 6 ? 0.5 : 0.25
+energyScore  = (demoEnergyLevel − 1) / 4      // maps 1–5 → 0–1
+readiness    = round((sleepScore × 0.5 + energyScore × 0.5) × 100)
+```
+
+**Labels and colours:**
+
+| Score | Label | Colour class |
+|---|---|---|
+| ≥ 80 | Excellent | `text-green-400` |
+| ≥ 60 | Good | `text-primary` (orange) |
+| ≥ 40 | Fair | `text-yellow-400` |
+| < 40 | Low | `text-destructive` |
+
+**Display card** (`rounded-xl border border-border/50 bg-secondary/20 p-4`, flex row, space-between):
+- Left: `Session Readiness` (xs muted) + label (`text-xl font-bold`)
+- Right: score number (`text-4xl font-bold tabular-nums`) + `/ 100` below
+
+Score number animates with Framer Motion `key={readiness}` + `initial={{ scale: 1.3, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}`.
+
+---
+
+## Step 25 — Food Log Demo (Interactive — 4 Tabs)
+
+**Heading:** `Log your meals.`
+**Subheading:** `4 ways to add food — whatever works for you.`
+
+### Calorie progress bar
+
+Container: `rounded-xl border border-border/50 bg-secondary/30 p-3`
+
+Right-aligned display: `{totalCals} / {targetCals} kcal · {totalProtein}g P`
+- `totalCals` turns orange when ≥ target
+- `targetCals` = `estimateDemoTargetCals(weight, height, age, gender, goal)` — client-side Mifflin-St Jeor × 1.55 TDEE, ±300/−500 kcal for goal
+
+Progress bar: `h-2 rounded-full bg-secondary`, Framer Motion animated orange fill.
+
+### Tab bar (4 tabs, pill strip, top-border overflow-hidden)
+
+| Tab ID | Label |
+|---|---|
+| `search` | Search |
+| `whole` | Whole Food |
+| `barcode` | Barcode |
+| `custom` | Custom |
+
+Default active: `whole`
+Selected: `bg-primary text-primary-foreground`
+Unselected: `text-muted-foreground hover:bg-secondary/50`
+`data-testid="tab-food-{id}"`
+
+---
+
+### Tab: Search
+
+**API:** `GET /api/foods/search?q={query}` — debounced 450 ms, fires when query ≥ 2 chars.
+
+Search input with `Search` icon left, `placeholder="Search foods…"`, `data-testid="input-food-search"`
+
+**States:**
+- Empty query: `Start typing to search Open Food Facts.`
+- Loading: spinning `Loader2` + `Searching…`
+- No results (after search): `No results for "{query}".`
+- Results: list of food cards
+
+**Result card:**
+- Left: 40×40 product image (or `Search` icon placeholder if no image)
+- Middle: food name (truncated) + `{brand} · {kcal} kcal · {protein}g P · {carbs}g C · {fat}g F`
+- Right: toggle button — 28×28 circle, orange `Plus` or white `Check`
+
+Added items tracked in `demoAddedFoods[]` as `"off-{index}"` strings. Nothing persisted to DB.
+
+---
+
+### Tab: Whole Food
+
+**API:** `GET /api/ingredients` — lazy-loaded when this tab (or Barcode) first opens. Not re-fetched.
+
+Search input with `Search` icon, `placeholder="Search whole foods…"`, `data-testid="input-whole-food-search"`
+
+Loading spinner while ingredients list empty.
+
+**Filter + sort:** client-side, `ing.name.toLowerCase().includes(query)`, sorted by `commonScore` descending, capped at 30 (empty query) or 50 (with query).
+
+**Each ingredient row** (full-width button, `border rounded-lg px-3 py-2.5`):
+- Name (`text-[13px] font-medium`)
+- Macro line: `{kcal} kcal · {protein}g P · {carbs}g C · {fat}g F per 100g` (`text-[11px] muted`)
+- Micro badges: top 3 non-zero micros from priority list below, shown in `text-[10px] text-emerald-500/80`
+
+**Micro priority order (first 3 non-zero values shown):**
+Omega-3 → B12 → Vit D → Vit C → Calcium → Iron → Selenium → Zinc → Magnesium → Potassium → Folate → B6 → Niacin → Vit A → B1 → B2
+
+Added items go into `wholeAddedItems[]` — drives progress bar totals.
+Added: `border-primary/50 bg-primary/10`, circle = `bg-primary` with white `Check`
+`data-testid="button-whole-food-{index}"`
+
+---
+
+### Tab: Barcode
+
+**API (after successful scan):** `GET /api/food/barcode/{barcode}`
+**Also lazy-loads:** `GET /api/ingredients` (same as Whole Food tab)
+**Scanner library:** `html5-qrcode` (dynamic import)
+
+**Idle state (no scan in progress, no result):**
+- Dashed circle placeholder with `Camera` icon (10×10, `border-primary/30`)
+- Text: `Scan a barcode` / `Point your camera at any food packaging`
+- Button: `Open Camera` (with `Camera` icon), `data-testid="button-start-scan"`
+
+**Scanning state:**
+- `<div id="reader-onboarding">` renders scanner viewport
+- `Cancel` ghost button below, `data-testid="button-stop-scan"`
+- Formats supported: EAN-13, EAN-8, UPC-A, UPC-E, CODE-128
+
+**Loading state (after scan, looking up product):**
+- `Loader2` + `Looking up product…`
+
+**Result state (product found):**
+- Product image (14×14) + name + brand
+- Gram amount input with preset buttons: `50` `100` `150` `200`
+- Macro grid (4 cols): kcal · Prot · Carb · Fat — all scaled by `grams / 100`
+- **Micronutrient mapping panel** — explains AMQS:
+  - Shows up to 3 suggested matches from `barcodeFood.suggestions.top[]` as colour-coded chips: `high` = emerald, `medium` = amber, `low` = grey
+  - Manual search: `Input placeholder="Search ingredients…"` → autocomplete dropdown from `ingredientsList`
+  - Once mapped: shows `✓ Mapped to: {ingredientName}` + `"✦ This will count towards your micros"`
+  - Skip option: `Skip micros (macros only)` (text button)
+- `Scan another` ghost button clears state
+
+Footer (when no result): `Works with Open Food Facts — 3M+ products`
+
+---
+
+### Tab: Custom
+
+Four inputs in a 2×2 grid:
+- Food name (full width): `placeholder="e.g. Home-made protein shake"`, `data-testid="input-custom-name"`
+- Calories: `placeholder="0"`, `data-testid="input-custom-cals"`
+- Protein (g): `placeholder="0"`, `data-testid="input-custom-protein"`
+- Carbs (g): `placeholder="0"`, `data-testid="input-custom-carbs"`
+- Fat (g): `placeholder="0"`, `data-testid="input-custom-fat"`
+
+`Add to log` button (full-width, disabled until name + cals filled), `data-testid="button-add-custom"`. Demo only — nothing persisted.
+
+---
+
+## Step 26 — First Win
+
+**Heading:** `You're already ahead.`
+**Subheading:** `Day 1 complete. Your first streak starts now.`
+
+Large emoji: 🔥
+
+Stat box (`rounded-xl border border-primary/25 bg-primary/5 px-8 py-4`):
+- Number: `1` (`text-3xl font-bold text-primary`)
+- Label: `Day streak` (`text-xs text-muted-foreground mt-0.5`)
+
+Footer: `Most fighters quit before they start. You didn't.` (xs, muted, max-w-xs, centred)
+
+---
+
+## Step 27 — Star Rating (Optional)
+
+**Heading:** `Quick feedback?`
+**Subheading:** `How was the setup experience?`
+
+5 star buttons in a row. Tap to select; tap again to deselect.
+- Selected: `text-primary fill-primary`
+- Unselected: `text-muted-foreground/40`
+- Active scale: `active:scale-90`
+
+**Reaction text** (shown when rating > 0):
+- 4 or 5 stars: `Love to hear it. Let's build your plan.`
+- 1–3 stars: `Thanks — we'll keep improving.`
+
+**Gate:** Must select at least 1 star.
+**CTA:** `"Next →"` (custom label for this step)
+
+---
+
+## Step 28 — Body Fat % (Optional)
+
+**Heading:** `Do you know your body fat %?`
+**Subheading:** `Optional — improves cut accuracy. Skip if unsure.`
+
+`Input type="number" step="0.5"`, `placeholder="e.g. 14 (optional)"`, `h-12`, `min=3 max=55`
+`data-testid="input-body-fat"`
+
+Helper text: `Enter as a percentage (e.g. 14 = 14%). Leave blank to skip.`
+
+**CTA:** `"Build my plan →"` (custom label for this step)
+**No gate** — optional field.
+
+---
+
+## Step 29 — Loading (Auto-advance)
+
+**`isLoadingStep = true`** — nav bar hidden.
+
+The `POST /api/user/me/onboard` mutation fires on entry to this step.
+
+Large spinner: `h-16 w-16 rounded-full bg-primary/10`, `Loader2 h-8 w-8 text-primary animate-spin`
+
+**Heading:** `Building your system…`
+**Subheading:** `This takes a moment.`
+
+Three animated check items (fade in staggered):
+1. Calculating targets
+2. Adjusting for training
+3. Optimising nutrition
+
+Automatically advances to step 30 on mutation success.
+
+---
+
+## Step 30 — Plan Result
+
+**Heading:** `Here's your plan.`
+**Subheading:** `We'll get you to your target safely with:`
+
+Five checkmark items (`Check h-4 w-4 text-primary`, text-sm, each in a `p-2.5 rounded-lg`):
+1. Personalised calorie targets
+2. Training-adjusted intake
+3. Load tracking & warnings
+4. Accurate food tracking
+5. Micronutrient scoring
+
+**CTA:** `"Continue →"`
+
+If `?recalculate` mode: button shows `"Go to dashboard"` → navigates to `/dashboard`.
+
+---
+
+## Step 31 — Commitment Level
+
+**Heading:** `How committed are you?`
+
+4 `OptionBtn` options:
+
+| Value | Label |
+|---|---|
+| `extreme` | Extremely committed |
+| `very` | Very committed |
+| `somewhat` | Somewhat |
+| `just_trying` | Just trying it |
+
+**Gate:** Must select one.
+
+---
+
+## Step 32 — Conditional Motivational Push
+
+**No user input.**
+
+**If `commitment === "extreme"` or `"very"`:**
+
+Heading: `Good.`
+Subheading: `This is exactly how top athletes operate.`
+
+Callout box (`border-primary/20 bg-primary/5 p-4 text-sm leading-relaxed`):
+> Data-driven. Consistent. Accountable. That's the standard PRFMR is built for.
+
+**If `commitment === "somewhat"` or `"just_trying"`:**
+
+Heading: `Then understand this.`
+
+Two stat cards (`bg-secondary/50 p-3 rounded-lg`, orange dot `h-2 w-2 bg-primary mt-1.5`):
+1. Only ~10% of athletes fuel properly.
+2. Most never reach their potential.
+
+Footer: `You decide where you sit.` (`text-sm font-semibold`)
+
+---
+
+## Step 33 — Final Snapshot
+
+**Heading:** `Your starting point.`
+**Subheading:** `You now have structure.`
+
+Divided card (`border border-border/40 bg-secondary/30 divide-y divide-border/30`), 3 rows:
+
+| Label | Value |
+|---|---|
+| Current weight | `{currentWeight} kg` (or `—`) |
+| Goal | `"Make Weight"` (fat_loss) / `"Maintenance"` / `"Build Muscle"` (weight_gain) |
+| Status | `Active` (text-primary) |
+
+Streak card (`border-primary/25 bg-primary/5 p-4 text-center`):
+- Emoji: 🔥
+- Bold text: `Day 1 · Streak: 1`
+- Subtext: `Your first streak starts now.`
+
+**Disclaimer** (11px, muted, centred, leading-relaxed):
+> Most fighters never get this far. This app provides educational estimates only and does not offer medical or nutritional advice.
+
+**CTA:** `"Start tracking →"` (full-width, `Utensils` icon)
+→ Navigates to `/dashboard?openAddFood=true`
+
+---
+
+## SportBadge Engine
+
+### What it is
+
+`<SportBadge mainSport="{level} {sportDisplay}">` renders a pill badge on the dashboard, profile, and in the onboarding badge preview. It uses **sport icon PNGs** (white icons, inverted with CSS filter) and detects the competition level from the string prefix.
+
+### Badge construction
+
+The `mainSport` string is built by `buildMainSport(level, sport)`:
+
+```
+buildMainSport("Pro", "Boxing")       → "Pro Boxer"
+buildMainSport("Amateur", "Wrestling")→ "Amateur Wrestler"
+buildMainSport("Semi-pro", "BJJ")     → "Semi-pro BJJ"
+```
+
+Where `sportDisplay(sport)` maps raw sport values to display names:
+
+| Raw sport value | Display name |
+|---|---|
+| `Boxing` | Boxer |
+| `MMA` | MMA |
+| `Muay Thai` | Muay Thai |
+| `Kickboxing` | Kickboxer |
+| `BJJ` | BJJ |
+| `Wrestling` | Wrestler |
+| `Traditional martial arts` | Martial Artist |
+
+### Level detection (from the string prefix)
+
+```
+starts with "Pro "      → "pro"    → amber/gold style
+starts with "Amateur "  → "amateur"→ orange/primary style
+anything else           → "custom" → slate/grey style
+```
+
+### Three visual styles
+
+**Pro** (`level === "pro"`)
+```
+bg-gradient-to-r from-amber-500/25 to-yellow-400/15
+border-amber-400/50
+text-amber-300
+```
+
+**Amateur** (`level === "amateur"`)
+```
+bg-primary/15
+border-primary/30
+text-primary
+```
+
+**Custom** (any other prefix — e.g. "Semi-pro", "White collar")
+```
+bg-gradient-to-r from-slate-400/20 to-slate-300/10
+border-slate-300/40
+text-slate-200
+```
+
+### Sizes
+
+| Prop | Padding | Font size |
+|---|---|---|
+| `md` (default) | `px-3.5 py-1.5` | `text-xs` |
+| `sm` | `px-2.5 py-1` | `text-[11px]` |
+
+All: `rounded-full inline-flex items-center gap-1.5 font-semibold border`
+
+### Icon lookup
+
+Icons are PNG files rendered as `<img h-5 w-5>` (md) or `<img h-4 w-4>` (sm).
+
+**CSS filter applied to all icons:**
+```css
+filter: invert(1) brightness(2);
+opacity: 0.9;
+```
+This makes them appear white regardless of the source PNG colour.
+
+**Icon files** (all in `PRFMR Theme/sport-icons/`):
+
+| Display name matched | Icon file |
+|---|---|
+| `Boxer` | `boxing.png` |
+| `MMA` | `mma.png` |
+| `Muay Thai` | `muay-thai.png` |
+| `Kickboxer` | `kickboxing.png` |
+| `BJJ` | `bjj.png` |
+| `Wrestler` | `wrestling.png` |
+| `Martial Artist` | `traditional.png` |
+
+**Match algorithm:** case-insensitive partial match. e.g. `"pro boxer".includes("boxer")` → boxing icon.
+
+### Where it appears
+
+- Onboarding step 5: live badge preview as user types level
+- Dashboard hero card
+- Profile page
+- `size="sm"` used in compact contexts (sidebar, lists)
+
+---
+
+## Key Assets Reference
+
+| Asset | File | Used in |
+|---|---|---|
+| Splash background | `BD246D36-3AE7-426E-88E2-322E8390F5AB_1777392079503.jpeg` (863×1665) | Step 0 |
+| PRFMR logo (white no-bg) | `no_back_logo_1777367768475.png` | All steps 1–33 header |
+| Wrestling action photo | `wrestling_2_1780663494759.jpg` | Step 4 sport card |
+| Boxing icon | `boxing.png` | SportBadge |
+| MMA icon | `mma.png` | SportBadge |
+| Muay Thai icon | `muay-thai.png` | SportBadge |
+| Kickboxing icon | `kickboxing.png` | SportBadge |
+| BJJ icon | `bjj.png` | SportBadge |
+| Wrestling icon | `wrestling.png` | SportBadge |
+| Traditional martial arts icon | `traditional.png` | SportBadge |
+
+Boxing, MMA, Muay Thai, Kickboxing, BJJ, Traditional martial arts sport card photos are **Pexels URLs** (no download required). Wrestling is the only local photo file.
