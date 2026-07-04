@@ -1557,9 +1557,14 @@ function DailyIntakeCard({
   const exerciseKcal = ffmKg && t.eaValue != null ? serverCals - t.eaValue * ffmKg : 0;
   const effectiveEA = ffmKg && ffmKg > 0 ? Math.round((cal - exerciseKcal) / ffmKg) : t.eaValue;
 
-  // Re-compute isLowCarb after override (spec §9.14.3) — suppress on rest days
+  // Re-compute isLowCarb after override (spec §9.14.3) — suppress on rest days,
+  // and only ever applies on days with actual training logged. Use
+  // trainingCaloriesEarned (not the derived exerciseKcal from EA math) as the
+  // "training logged today" signal — the EA-derived value can be nonzero from
+  // rounding/formula artifacts even with zero sessions logged.
   const bodyWeightKg = t.carbsPerKg && t.carbsPerKg > 0 ? t.targetCarbs / t.carbsPerKg : null;
-  const postOverrideIsLowCarb = !isRestDay && bodyWeightKg && exerciseKcal > 0 ? (carbs / bodyWeightKg) < 3 : false;
+  const hasTrainingLoggedToday = (t.trainingCaloriesEarned ?? 0) > 0;
+  const postOverrideIsLowCarb = !isRestDay && hasTrainingLoggedToday && bodyWeightKg ? (carbs / bodyWeightKg) < 3 : false;
 
   const showEARow = isFightCamp && t.eaValue != null && fcOverride != null;
   const showCarbRow = isFightCamp && !isRestDay && fcOverride != null && (originallyLowCarb || postOverrideIsLowCarb);
