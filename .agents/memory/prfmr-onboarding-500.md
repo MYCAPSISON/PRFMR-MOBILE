@@ -5,23 +5,25 @@ description: Debugging a persistent HTTP 500 from POST /user/me/onboard on the P
 
 The production backend server (`https://app.prfmr.link/api`) is not in this repo — it cannot be
 inspected or patched directly. It exposes no useful error detail to the client (`"Onboarding
-failed"` for every cause), so root-causing 500s must be done by diffing the exact client payload
-against the documented Zod schema, not from the error message.
+failed"` for every cause, no `issues` field), so guessing from the error message alone is a dead
+end.
 
-Two separate causes were found and fixed in the same payload, uncovered one at a time:
+**Definitive root cause:** `surveyEnergyScore` must be sent as a **number**, not a string. The
+written spec docs claim it's an optional string, but the live server rejects/crashes on a string
+value for this field and accepts a number. The client was doing `String(d.surveyEnergyScore)`,
+which silently turned a valid number into a value that 500'd every time.
 
-1. `activityLevel` sent as `"moderately_active"` instead of the actual enum value `"moderate"`.
-2. `gender` sent as `undefined` (dropped by `JSON.stringify`) whenever the user picked "Other" or
-   "Prefer not to say" in the gender step. `gender` is a **required** enum (`"male"|"female"`)
-   server-side with no sanitisation default (unlike age/height/weight, which the server defaults
-   to 25/170/70 if null/NaN) — omitting it is a strong candidate for an unhandled exception / 500
-   rather than a clean 400.
+Two other invalid enum values were also found and fixed along the way in the same payload
+(`activityLevel: "moderately_active"` → `"moderate"`; `gender` being dropped as `undefined` when
+the user picked "Other"/"Prefer not to say" — now defaults to `"male"`). Neither of those alone
+explained the failure; only the `surveyEnergyScore` type mismatch was the actual trigger.
 
-**Why this matters:** fixing the first obviously-wrong enum value does not guarantee the 500 is
-resolved — there can be more than one invalid/missing field in the same payload. Audit *every*
-enum/required field against the spec table before declaring the bug fixed, not just the first one
-found.
+**Why this matters:** the written API spec doc for this project is not fully trustworthy on field
+*types* — it got `surveyEnergyScore`'s type wrong. Don't treat the doc as ground truth when a
+field keeps failing after matching it exactly; verify against the live server instead.
 
-**How to apply:** when debugging opaque 500s against an external/production API with a documented
-request schema, build a field-by-field checklist (required vs optional, exact enum values, type)
-and verify the actual client payload against all of it — don't stop at the first mismatch.
+**How to apply:** when the client payload matches spec exactly but the server still 500s with no
+detail, and you have credentials, hit the real endpoint directly with curl and **bisect the
+payload field-by-field** (start from only the required fields — confirm 200 — then add fields back
+one at a time) rather than re-reading the docs again. This isolates the exact field/type in a few
+requests instead of guessing indefinitely.

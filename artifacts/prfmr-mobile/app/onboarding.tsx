@@ -432,7 +432,7 @@ export default function OnboardingScreen() {
         surveyUnderfueling:         d.surveyUnderfueling || undefined,
         surveyTrainingLoadTracking: d.surveyTrainingLoadTracking || undefined,
         surveyMicroKnowledge:       d.surveyMicroKnowledge || undefined,
-        surveyEnergyScore:          String(d.surveyEnergyScore),
+        surveyEnergyScore:          d.surveyEnergyScore,
         surveyPerformance:          d.surveyPerformance || undefined,
         surveyMainProblems:         d.surveyMainProblems.length > 0 ? d.surveyMainProblems : undefined,
         surveyStarRating:           d.surveyStarRating || undefined,
