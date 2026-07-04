@@ -19,7 +19,7 @@ interface UserProfile {
   username: string;
   email: string;
   displayName: string | null;
-  weight: number | null;
+  currentWeight: number | null;
   height: number | null;
   age: number | null;
   sport: string | null;
@@ -246,7 +246,7 @@ export default function ProfileScreen() {
         <Card>
           <Text style={[s.cardTitle, { color: colors.foreground, marginBottom: 8, fontFamily: colors.fonts.sansSb }]}>Current Metrics</Text>
           <MetricRow label="Height" value={user.height ? `${user.height} cm` : null} />
-          <MetricRow label="Weight" value={user.weight ? `${user.weight} kg` : null} />
+          <MetricRow label="Weight" value={user.currentWeight ? `${user.currentWeight} kg` : null} />
           <MetricRow label="Age" value={user.age} />
           <MetricRow label="Activity Level" value={user.activityLevel ? ACTIVITY_LABELS[user.activityLevel] : null} />
           <View style={[s.metricRow, { borderColor: colors.border }]}>

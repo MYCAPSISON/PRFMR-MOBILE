@@ -3043,8 +3043,8 @@ export default function DashboardScreen() {
     const trainingKcal = targets?.trainingCaloriesEarned ?? 0;
     let cal = baseCalories + Math.round(trainingKcal * pct);
     // Fat-loss cap: deficit ≤ 1% BW/week (§9.15.5)
-    if (goal === "fat_loss" && user?.weight) {
-      const maxDailyDeficit = Math.round((0.01 * user.weight * 7700) / 7);
+    if (goal === "fat_loss" && user?.currentWeight) {
+      const maxDailyDeficit = Math.round((0.01 * user.currentWeight * 7700) / 7);
       const tdee = (targets as any)?.tdee ?? baseCalories + 500;
       if (tdee - cal > maxDailyDeficit) cal = tdee - maxDailyDeficit;
     }

@@ -6,7 +6,7 @@ export interface User {
   email: string;
   username: string;
   displayName?: string;
-  weight?: number;
+  currentWeight?: number;
   height?: number;
   age?: number;
   gender?: "male" | "female";
@@ -17,7 +17,6 @@ export interface User {
   sport?: string;
   weightClass?: string;
   bodyFatPct?: number;
-  onboardingComplete?: boolean;
   fightCampActive?: boolean;
   fightDate?: string;
   targetCalories?: number;
@@ -25,6 +24,21 @@ export interface User {
   targetCarbs?: number;
   targetFat?: number;
   createdAt?: string;
+}
+
+// The server never returns an `onboardingComplete` field on the User object.
+// Per spec, onboarding completion is a client-computed check based on
+// whether the core profile fields were persisted by the onboarding wizard.
+export function isOnboardingComplete(profile: User | null | undefined): boolean {
+  if (!profile) return false;
+  return (
+    profile.targetCalories != null &&
+    profile.age != null &&
+    profile.gender != null &&
+    profile.height != null &&
+    profile.currentWeight != null &&
+    profile.activityLevel != null
+  );
 }
 
 interface AuthContextValue {
@@ -72,15 +86,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     // XHR is used here because React Native's Fetch API hides Set-Cookie
     // headers from JavaScript (mimics browser security). XHR exposes them.
-    const result = await loginWithXhr(email, password);
+    await loginWithXhr(email, password);
 
-    // If login response body includes user data, use it directly
-    if (result?.user) {
-      setUser(result.user);
-    } else {
-      // Fallback: fetch user now that we have session cookies
-      await fetchUser();
-    }
+    // Always fetch the full profile after login rather than trusting the
+    // login response body — it only returns a minimal user object
+    // (id, email, username, emailVerified) and is missing onboardingComplete
+    // and other profile fields. Using it directly made already-onboarded
+    // users get bounced back into the onboarding wizard on every login.
+    await fetchUser();
   }, [fetchUser]);
 
   const register = useCallback(async (email: string, username: string, password: string, inviteCode: string) => {

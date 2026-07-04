@@ -22,7 +22,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { AuthProvider, isOnboardingComplete, useAuth } from "@/context/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 
 SplashScreen.preventAutoHideAsync();
@@ -34,14 +34,14 @@ function RootLayoutNav() {
     if (!isLoading) {
       if (!isAuthenticated) {
         router.replace("/(auth)/login");
-      } else if (!user?.onboardingComplete) {
+      } else if (!isOnboardingComplete(user)) {
         // User hasn't completed onboarding yet
         router.replace("/onboarding");
       } else {
         router.replace("/(tabs)");
       }
     }
-  }, [isAuthenticated, isLoading, user?.displayName]);
+  }, [isAuthenticated, isLoading, user?.displayName, user?.targetCalories, user?.age, user?.gender, user?.height, user?.currentWeight, user?.activityLevel]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
