@@ -2998,9 +2998,14 @@ export default function DashboardScreen() {
     enabled: !!user?.id,
   });
 
-  // Spec §9.14 / §9.11: isLowCarb must not fire on rest days
+  // Spec §9.14 / §9.11: isLowCarb must not fire on rest days, and only ever
+  // applies on days with actual training logged (trainingCaloriesEarned > 0).
+  // Enforced client-side too (not just trusted from the server) so a stale
+  // or day-agnostic server flag can never surface a carb-floor warning on a
+  // day with no session logged.
   const isRestDay = morningStatusForRestDay?.isRestDay ?? false;
-  const effectiveIsLowCarb = (targets?.isLowCarb ?? false) && !isRestDay;
+  const hasTrainingLoggedToday = (targets?.trainingCaloriesEarned ?? 0) > 0;
+  const effectiveIsLowCarb = (targets?.isLowCarb ?? false) && !isRestDay && hasTrainingLoggedToday;
 
   const fcOverride = useFightCampOverride({
     userId: user?.id,
