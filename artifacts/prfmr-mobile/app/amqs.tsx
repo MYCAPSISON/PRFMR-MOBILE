@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -271,11 +272,99 @@ function NutrientCard({ meta, totals, coverage, layer2Targets, layer2Coverage, t
 }
 
 // ─────────────────────────────────────────
+// "How AMQS is scored" reference dialog — spec §9.17.7b
+// ─────────────────────────────────────────
+function HowScoredDialog({ visible, onClose, colors }: { visible: boolean; onClose: () => void; colors: any }) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "flex-end" }}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
+        <View style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "82%" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground, fontFamily: colors.fonts.display }}>
+              How AMQS is scored
+            </Text>
+            <TouchableOpacity onPress={onClose}>
+              <Feather name="x" size={22} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 14, paddingBottom: 36 }}>
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.foreground, marginBottom: 4 }}>Two layers, one score pair</Text>
+              <Text style={{ fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
+                AMQS scores your day's micronutrient intake against two independent targets: a{" "}
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>General</Text> (baseline adequacy — avoiding
+                deficiency) score and a <Text style={{ color: "#3b82f6", fontWeight: "700" }}>Performance</Text> (athlete
+                optimisation — training-adjusted) score. Both run 0–100 and are computed from the same logged food and
+                supplement intake, just measured against different target tables.
+              </Text>
+            </View>
+
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.foreground, marginBottom: 4 }}>The formula</Text>
+              <Text style={{ fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
+                For each tracked nutrient, coverage is capped at 100% of target so mega-dosing one nutrient can't mask
+                gaps elsewhere. The overall score is the average coverage across all tracked nutrients, weighted
+                slightly toward nutrients flagged "critical" for combat-sport athletes (e.g. iron, zinc, vitamin D,
+                magnesium, omega-3).
+              </Text>
+            </View>
+
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.foreground, marginBottom: 6 }}>Tier thresholds</Text>
+              {[
+                { tier: "Elite", range: "90–100", color: "#10b981" },
+                { tier: "Optimal", range: "75–89", color: "#3b82f6" },
+                { tier: "Good", range: "60–74", color: "#f59e0b" },
+                { tier: "Fair", range: "40–59", color: "#94a3b8" },
+                { tier: "Basic", range: "0–39", color: "#94a3b8" },
+              ].map(t => (
+                <View key={t.tier} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.color }} />
+                    <Text style={{ fontSize: 13, color: colors.foreground, fontWeight: "600" }}>{t.tier}</Text>
+                  </View>
+                  <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: colors.fonts.mono }}>{t.range}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.foreground, marginBottom: 4 }}>Nutrients tracked</Text>
+              <Text style={{ fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
+                {NUTRIENT_META.map(n => n.label).join(" · ")}
+              </Text>
+            </View>
+
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.foreground, marginBottom: 4 }}>Data confidence</Text>
+              <Text style={{ fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
+                Confidence reflects how much of today's logged food and supplements have known micronutrient profiles.
+                Manually-entered foods without a matched ingredient don't contribute micronutrient data, which lowers
+                confidence even if calories/macros are fully logged.
+              </Text>
+            </View>
+
+            <View style={{ backgroundColor: colors.secondary, borderRadius: 10, padding: 12, marginTop: 4 }}>
+              <Text style={{ fontSize: 11, color: colors.mutedForeground, fontStyle: "italic", lineHeight: 16 }}>
+                AMQS combines food and supplement micronutrient data. Estimates only — not medical advice. Blood
+                tests, diagnosed deficiencies, or a registered dietitian override these figures.
+              </Text>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────
 // Main Screen
 // ─────────────────────────────────────────
 export default function AMQSScreen() {
   const colors = useColors();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [showHowScored, setShowHowScored] = useState(false);
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
 
   const { data: daily, isLoading } = useQuery<AMQSScore>({
@@ -330,8 +419,12 @@ export default function AMQSScreen() {
         <Text style={[s.title, { color: colors.foreground, fontFamily: colors.fonts.display }]}>
           Micronutrient Score
         </Text>
-        <View style={{ width: 36 }} />
+        <TouchableOpacity onPress={() => setShowHowScored(true)} style={s.backBtn}>
+          <Feather name="info" size={20} color={colors.mutedForeground} />
+        </TouchableOpacity>
       </View>
+
+      <HowScoredDialog visible={showHowScored} onClose={() => setShowHowScored(false)} colors={colors} />
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
         {/* Date nav */}

@@ -17,7 +17,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
-import { WHOLE_FOODS as WHOLE_FOODS_DATA } from "@/lib/whole-foods-data";
+import { INGREDIENTS_DATA } from "@/lib/ingredients-data";
 import Svg, { Circle } from "react-native-svg";
 
 type Meal = "breakfast" | "lunch" | "dinner" | "snack";
@@ -45,7 +45,8 @@ interface NormalizedFood {
   carbsPer100g: number;
   fatPer100g: number;
   fibrePer100g: number;
-  sourceType: "off" | "database" | "manual";
+  sourceType: "off" | "database" | "manual" | "ingredient";
+  ingredientIndex?: number;
 }
 
 
@@ -160,7 +161,6 @@ export default function NutritionScreen() {
     setBarcodeCode(""); setBarcodeError("");
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
-    setWholeFoodQ("");
   }
 
   function openModal(meal: Meal) {
@@ -202,6 +202,7 @@ export default function NutritionScreen() {
   function buildPayload(food: NormalizedFood, gramsStr: string) {
     const g = parseFloat(gramsStr) || 100;
     const r = g / 100;
+    const isIngredient = food.sourceType === "ingredient" && food.ingredientIndex != null;
     return {
       name: food.name,
       calories: Math.round(food.caloriesPer100g * r),
@@ -212,9 +213,10 @@ export default function NutritionScreen() {
       grams: Math.round(g),
       meal: selectedMeal,
       date: selectedDate,
-      sourceType: food.sourceType === "manual" ? "manual" : "off",
-      macroSource: "manual",
-      microSource: "none",
+      sourceType: isIngredient ? "ingredient" : food.sourceType === "manual" ? "manual" : "off",
+      ...(isIngredient ? { ingredientIndex: food.ingredientIndex } : {}),
+      macroSource: isIngredient ? "ingredient" : "manual",
+      microSource: isIngredient ? "ingredient" : "none",
       enteredBasis: "cooked",
       isRawWeight: false,
     };
@@ -529,10 +531,10 @@ function SearchTab({ query, onQueryChange, results, searching, colors, onSelect 
 function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: NormalizedFood) => void }) {
   const [q, setQ] = useState("");
   const term = q.trim().toLowerCase();
+  const indexed = INGREDIENTS_DATA.map((ing, idx) => ({ ing, idx }));
   const list = term
-    ? WHOLE_FOODS_DATA.filter((wf) => wf.name.toLowerCase().indexOf(term) !== -1)
-    : WHOLE_FOODS_DATA;
-  console.log("[WF]", { term, listLen: list.length, total: WHOLE_FOODS_DATA.length });
+    ? indexed.filter(({ ing }) => ing.name.toLowerCase().indexOf(term) !== -1)
+    : indexed;
   return (
     <ScrollView contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
@@ -555,17 +557,17 @@ function WholeFoodTab({ colors, onSelect }: { colors: any; onSelect: (food: Norm
           No match found
         </Text>
       )}
-      {list.map((wf) => (
-        <TouchableOpacity key={wf.name} onPress={() => onSelect({ ...wf, sourceType: "manual" })}
+      {list.map(({ ing, idx }) => (
+        <TouchableOpacity key={ing.name} onPress={() => onSelect({ ...ing, sourceType: "ingredient", ingredientIndex: idx })}
           style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
             backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 14 }}>{wf.name}</Text>
+            <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 14 }}>{ing.name}</Text>
             <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
-              P{wf.proteinPer100g} · C{wf.carbsPer100g} · F{wf.fatPer100g} per 100g
+              P{ing.proteinPer100g} · C{ing.carbsPer100g} · F{ing.fatPer100g} per 100g
             </Text>
           </View>
-          <Text style={{ color: colors.primary, fontWeight: "700", marginRight: 4 }}>{wf.caloriesPer100g}</Text>
+          <Text style={{ color: colors.primary, fontWeight: "700", marginRight: 4 }}>{ing.caloriesPer100g}</Text>
           <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>kcal</Text>
         </TouchableOpacity>
       ))}
