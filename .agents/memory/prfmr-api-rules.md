@@ -57,6 +57,11 @@ SessionActivity response shape: `{ id, durationMinutes, estimatedKcal, rpe, acti
 - Rest day: `POST/DELETE /me/rest-day/:date`
 - Morning status: `GET /me/morning-status/:date`
 - Training load: `GET /me/training-load/:date` → `{ acwr, acuteLoad, acuteDaily, baselineLoad, baselineDaysUsed, warnings[] }`
-- AMQS score: `GET /me/amqs/score/:date`
+- AMQS score: `GET /me/amqs/score/:date` → `{ score, tier, confidence, coverageStats, totals, targets, coverage, topGaps[], allMet, breakdown:{food,supplements}, layer2Score, layer2Tier, layer2Targets, layer2Coverage, layer2TopGaps }`. Trend: `GET /me/amqs/trend/:date` → `{ layer1, layer2 }` each `{ currentWeekAvg, prevWeekAvg, delta, trend, dailyScores[] }`. Use API-provided `targets`/`coverage` for nutrient bars, not hardcoded RDA tables — they're gender/profile-specific server-side.
 - Weight range: `GET /me/weights/range?start=&end=`
 - Correct workflow to restart Expo: `expo` (NOT `artifacts/prfmr-mobile: expo` — port conflicts)
+
+## useQuery<T> type mismatches don't surface as TS errors
+`useQuery<SomeInterface>({...})` only casts the response — TypeScript never validates it matches what the API actually returns. A hand-written interface can silently drift from the real backend shape (wrong field names, wrong nesting) and the code still typechecks cleanly while rendering broken/blank UI at runtime.
+**Why:** Found in AMQS card/page — interfaces referenced nonexistent fields (`maxScore`, `label`, `gaps: string[]`) instead of the real shape, with zero typecheck errors.
+**How to apply:** When replicating or fixing a feature against a spec, always diff the local response interface against the actual documented/observed API response shape before trusting existing code — don't assume typecheck passing means the data contract is correct.

@@ -164,11 +164,65 @@ interface RawIntake {
   date: string;
 }
 
+interface AmqsGap {
+  microKey: string;
+  label: string;
+  pctOfTarget: number;
+  suggestion?: string;
+}
+
 interface AmqsScore {
   score: number;
-  maxScore: number;
-  label: string;
-  gaps: string[];
+  tier: "Elite" | "Optimal" | "Good" | "Fair" | "Basic";
+  confidence: "Low" | "Medium" | "High";
+  allMet: boolean;
+  topGaps: AmqsGap[];
+  layer2Score?: number;
+  layer2Tier?: string;
+  layer2TopGaps?: AmqsGap[];
+  coverageStats?: {
+    totalFoodEntries?: number;
+    totalTakenSupplements?: number;
+    overallCoverage?: number;
+  };
+}
+
+interface AmqsTrendLayer {
+  currentWeekAvg: number;
+  prevWeekAvg: number;
+  delta: number;
+  trend: "improving" | "slightly_down" | "steady";
+  dailyScores: { date: string; score: number }[];
+}
+
+interface AmqsTrend {
+  layer1: AmqsTrendLayer;
+  layer2: AmqsTrendLayer;
+}
+
+const AMQS_TIER_COLOR: Record<string, string> = {
+  Elite: "#10b981",
+  Optimal: "#3b82f6",
+  Good: "#f59e0b",
+  Fair: "#94a3b8",
+  Basic: "#94a3b8",
+};
+
+const AMQS_CONFIDENCE_VALUE: Record<string, number> = { High: 100, Medium: 60, Low: 30 };
+
+function formatAmqsTrendLine(layer?: AmqsTrendLayer) {
+  if (!layer) return "";
+  if (layer.prevWeekAvg === 0) return "still building";
+  if (layer.trend === "improving") return `↑ +${layer.delta} vs last week`;
+  if (layer.trend === "slightly_down") return `↓ ${layer.delta} vs last week`;
+  return "→ steady vs last week";
+}
+
+function amqsTrendLineColor(layer?: AmqsTrendLayer) {
+  if (!layer || layer.prevWeekAvg === 0) return "#6b7280";
+  if (layer.trend === "improving") return "#10b981";
+  if (layer.trend === "slightly_down") return "#fb923c";
+  return "#6b7280";
 }
 
 interface WorkoutSession {
@@ -1774,85 +1828,8 @@ function TrainingToday({ date }: { date: string }) {
 }
 
 // ─────────────────────────────────────────
-// AMQS Score Card
+// AMQS Score Card (dashboard) — spec §9.17.7
 // ─────────────────────────────────────────
-function AmqsBreakdownModal({ date, score, maxScore, label, gaps, visible, onClose }: {
-  date: string; score: number; maxScore: number; label: string; gaps: string[];
-  visible: boolean; onClose: () => void;
-}) {
-  const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
-  const scoreColor = pct >= 70 ? "#4ade80" : pct >= 40 ? "#facc15" : "#f87171";
-  const { data: micros, isLoading } = useQuery<any>({
-    queryKey: ["amqs-micros", date],
-    queryFn: () => apiFetch(`/me/amqs/micros/${date}`),
-    enabled: visible,
-    retry: false,
-  });
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-          <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Micronutrient Score</Text>
-          <TouchableOpacity onPress={onClose}><Feather name="x" size={24} color="#6b7280" /></TouchableOpacity>
-        </View>
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-          <View style={{ alignItems: "center", padding: 24, backgroundColor: "#13161d",
-            borderRadius: 16, borderWidth: 1, borderColor: "#1a1e28" }}>
-            <Text style={{ color: scoreColor, fontSize: 56, fontWeight: "900" }}>{score}</Text>
-            <Text style={{ color: "#6b7280", fontSize: 13 }}>of {maxScore} points · {pct}%</Text>
-            <View style={{ height: 8, backgroundColor: "#1a1e28", borderRadius: 4, width: "100%", marginTop: 12 }}>
-              <View style={{ width: `${pct}%` as any, height: 8, backgroundColor: scoreColor, borderRadius: 4 }} />
-            </View>
-            <Text style={{ color: scoreColor, fontWeight: "700", fontSize: 14, marginTop: 8 }}>{label}</Text>
-          </View>
-          {gaps?.length > 0 && (
-            <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14,
-              borderWidth: 1, borderColor: "rgba(251,146,60,0.25)" }}>
-              <Text style={{ color: "#fb923c", fontWeight: "700", fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }}>NUTRIENT GAPS</Text>
-              {gaps.map(g => (
-                <View key={g} style={{ flexDirection: "row", alignItems: "center", marginBottom: 5 }}>
-                  <Feather name="alert-circle" size={13} color="#fb923c" />
-                  <Text style={{ color: "#eceef2", fontSize: 13, marginLeft: 8 }}>{g}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-          {isLoading ? (
-            <ActivityIndicator color="#ff7a00" style={{ padding: 16 }} />
-          ) : micros?.nutrients ? (
-            <View style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14,
-              borderWidth: 1, borderColor: "#1a1e28" }}>
-              <Text style={{ color: "#6b7280", fontWeight: "700", fontSize: 11, letterSpacing: 0.5, marginBottom: 10 }}>NUTRIENT COVERAGE</Text>
-              {Object.entries(micros.nutrients as Record<string, { coverage: number; label?: string }>).map(([key, val]) => {
-                const p = Math.min(Math.round((val.coverage ?? 0) * 100), 100);
-                const c = val.coverage ?? 0;
-                const bc = c >= 0.8 ? "#4ade80" : c >= 0.4 ? "#facc15" : "#f87171";
-                return (
-                  <View key={key} style={{ marginBottom: 8 }}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 3 }}>
-                      <Text style={{ color: "#eceef2", fontSize: 12 }}>{val.label ?? key}</Text>
-                      <Text style={{ color: bc, fontSize: 12, fontWeight: "700" }}>{p}%</Text>
-                    </View>
-                    <View style={{ height: 4, backgroundColor: "#1a1e28", borderRadius: 2 }}>
-                      <View style={{ width: `${p}%` as any, height: 4, backgroundColor: bc, borderRadius: 2 }} />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <Text style={{ color: "#6b7280", textAlign: "center", fontSize: 13, padding: 16 }}>
-              Log food and supplements to see your full nutrient breakdown.
-            </Text>
-          )}
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
-  );
-}
-
 function AmqsCard({ date }: { date: string }) {
   const colors = useColors();
   const router = useRouter();
@@ -1861,37 +1838,147 @@ function AmqsCard({ date }: { date: string }) {
     queryFn: () => apiFetch(`/me/amqs/score/${date}`),
     retry: false,
   });
+  const { data: trend } = useQuery<AmqsTrend>({
+    queryKey: ["amqs-trend", date],
+    queryFn: () => apiFetch(`/me/amqs/trend/${date}`),
+    enabled: !!amqs,
+    retry: false,
+  });
+
+  const hasFoodToday = !!amqs && amqs.score > 0;
+  const hasSupplementsToday = (amqs?.coverageStats?.totalTakenSupplements ?? 0) > 0;
+  const isEmptyState = !amqs || (!hasFoodToday && !hasSupplementsToday);
+
+  const tierColor = amqs ? AMQS_TIER_COLOR[amqs.tier] ?? "#94a3b8" : "#94a3b8";
+  const layer2TierColor = amqs?.layer2Tier ? AMQS_TIER_COLOR[amqs.layer2Tier] ?? "#94a3b8" : "#94a3b8";
+  const confColor = amqs ? { High: "#10b981", Medium: "#eab308", Low: "#ef4444" }[amqs.confidence] : "#6b7280";
+  const confValue = amqs ? AMQS_CONFIDENCE_VALUE[amqs.confidence] ?? 0 : 0;
+
+  const dailyScores = trend?.layer1?.dailyScores ?? [];
+  const bestGap = (amqs?.topGaps ?? []).find(g => g.suggestion);
+  const pointEst = bestGap ? Math.min(8, Math.max(2, Math.round(((100 - bestGap.pctOfTarget) / 100) * 7))) : 0;
+
   if (!amqs) return null;
-  const pct = amqs.maxScore > 0 ? Math.round((amqs.score / amqs.maxScore) * 100) : 0;
-  const scoreColor = pct >= 70 ? "#4ade80" : pct >= 40 ? "#facc15" : "#f87171";
 
   return (
     <TouchableOpacity onPress={() => router.push("/amqs" as any)} activeOpacity={0.8}>
-      <Card style={{ borderColor: scoreColor + "30" }}>
+      <Card style={{ borderColor: tierColor + "30" }}>
         <View style={styles.rowBetween}>
-          <View style={styles.row}>
-            <Feather name="shield" size={15} color={scoreColor} style={{ marginRight: 6 }} />
+          <View>
             <Text style={[styles.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>
-              Micronutrient Score
+              Micronutrient Quality
             </Text>
+            <Text style={[styles.xxs, { color: colors.mutedForeground, letterSpacing: 0.5 }]}>ATHLETE SCORE (AMQS)</Text>
           </View>
-          <View style={styles.row}>
-            <Text style={{ fontSize: 22, fontWeight: "800", color: scoreColor, fontFamily: colors.fonts.mono }}>{amqs.score}</Text>
-            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 2 }]}>/{amqs.maxScore}</Text>
-            <Feather name="chevron-right" size={16} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
-          </View>
+          <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
         </View>
-        <ProgressBar value={amqs.score} max={amqs.maxScore} color={scoreColor} />
-        <View style={[styles.rowBetween, { marginTop: 6 }]}>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>{amqs.label}</Text>
-          {amqs.gaps?.length > 0 ? (
-            <Text style={[styles.xs, { color: "#fb923c" }]}>{amqs.gaps[0]} gap · tap to view</Text>
-          ) : (
-            <Text style={[styles.xs, { color: colors.mutedForeground }]}>tap to view details →</Text>
-          )}
-        </View>
+
+        {isEmptyState ? (
+          <>
+            <View style={[styles.rowBetween, { marginTop: 10 }]}>
+              <Text style={{ fontSize: 28, fontWeight: "800", color: colors.mutedForeground, fontFamily: colors.fonts.mono }}>—</Text>
+              <View style={[styles.badgePill, { backgroundColor: "#94a3b830" }]}>
+                <Text style={{ fontSize: 11, color: "#94a3b8", fontWeight: "700" }}>Provisional</Text>
+              </View>
+            </View>
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 8, fontStyle: "italic" }]}>
+              Example — updates after your first log
+            </Text>
+            {[
+              { label: "Vitamin D", pct: 15 },
+              { label: "Magnesium", pct: 32 },
+              { label: "Omega-3", pct: 8 },
+            ].map(g => (
+              <View key={g.label} style={[styles.rowBetween, { marginTop: 6, opacity: 0.3 }]}>
+                <Text style={[styles.xs, { color: colors.foreground }]}>{g.label}</Text>
+                <Text style={[styles.xs, { color: "#fb923c" }]}>{g.pct}%</Text>
+              </View>
+            ))}
+          </>
+        ) : (
+          <>
+            {/* Two-column score row */}
+            <View style={[styles.rowBetween, { marginTop: 10, alignItems: "flex-start" }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 28, fontWeight: "800", color: tierColor, fontFamily: colors.fonts.mono }}>{amqs.score}</Text>
+                <View style={[styles.badgePill, { backgroundColor: tierColor + "22", marginTop: 2 }]}>
+                  <Text style={{ fontSize: 11, color: tierColor, fontWeight: "700" }}>{amqs.tier}</Text>
+                </View>
+                <Text style={[styles.xxs, { color: amqsTrendLineColor(trend?.layer1), marginTop: 4 }]}>
+                  {formatAmqsTrendLine(trend?.layer1)}
+                </Text>
+              </View>
+              {amqs.layer2Score != null && (
+                <View style={{ flex: 1, alignItems: "flex-end" }}>
+                  <Text style={{ fontSize: 28, fontWeight: "800", color: layer2TierColor, fontFamily: colors.fonts.mono }}>{amqs.layer2Score}</Text>
+                  <View style={[styles.badgePill, { backgroundColor: layer2TierColor + "22", marginTop: 2 }]}>
+                    <Text style={{ fontSize: 11, color: layer2TierColor, fontWeight: "700" }}>{amqs.layer2Tier}</Text>
+                  </View>
+                  <Text style={[styles.xxs, { color: amqsTrendLineColor(trend?.layer2), marginTop: 4 }]}>
+                    {formatAmqsTrendLine(trend?.layer2)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Confidence row */}
+            <View style={[styles.rowBetween, { marginTop: 12 }]}>
+              <Text style={[styles.xxs, { color: colors.mutedForeground }]}>Data Confidence</Text>
+              <Text style={[styles.xxs, { color: confColor, fontWeight: "700" }]}>{amqs.confidence}</Text>
+            </View>
+            <ProgressBar value={confValue} max={100} color={confColor} />
+
+            {/* Mini sparkline */}
+            {dailyScores.length > 1 && <AmqsSparkline scores={dailyScores} color={colors.mutedForeground} />}
+
+            {/* Gaps or all-met */}
+            {amqs.allMet ? (
+              <View style={[styles.rowBetween, { marginTop: 10, backgroundColor: "#10b98118", padding: 8, borderRadius: 8 }]}>
+                <Feather name="shield" size={13} color="#10b981" />
+                <Text style={{ fontSize: 12, color: "#10b981", flex: 1, marginLeft: 6 }}>Baseline adequacy covered</Text>
+              </View>
+            ) : (
+              amqs.topGaps.slice(0, 3).map(g => (
+                <View key={g.microKey} style={[styles.rowBetween, { marginTop: 6 }]}>
+                  <Text style={[styles.xs, { color: colors.foreground }]}>{g.label}</Text>
+                  <Text style={[styles.xs, { color: "#fb923c" }]}>{g.pctOfTarget >= 100 ? "Target met" : `${Math.round(g.pctOfTarget)}%`}</Text>
+                </View>
+              ))
+            )}
+
+            {/* Micro-goal */}
+            {bestGap?.suggestion && (
+              <Text style={[styles.xxs, { color: colors.mutedForeground, marginTop: 10 }]}>
+                +{pointEst} if you add {bestGap.suggestion} ({bestGap.label})
+              </Text>
+            )}
+
+            <Text style={[styles.xxs, { color: colors.mutedForeground, marginTop: 10, fontStyle: "italic" }]}>
+              General nutrition targets — not medical advice.
+            </Text>
+          </>
+        )}
       </Card>
     </TouchableOpacity>
+  );
+}
+
+function AmqsSparkline({ scores, color }: { scores: { date: string; score: number }[]; color: string }) {
+  const W = 300, H = 40;
+  const max = Math.max(...scores.map(s => s.score), 1);
+  const min = Math.min(...scores.map(s => s.score), 0);
+  const rng = (max - min) || 1;
+  const points = scores.map((s, i) => {
+    const x = scores.length < 2 ? W / 2 : (i / (scores.length - 1)) * W;
+    const y = H - ((s.score - min) / rng) * H;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <View style={{ marginTop: 10, height: H }}>
+      <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
+        <Polyline points={points} fill="none" stroke={color} strokeWidth={1.5} />
+      </Svg>
+    </View>
   );
 }
 
@@ -3358,6 +3445,8 @@ const styles = StyleSheet.create({
   badge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
   badgeText: { fontSize: 11, fontWeight: "700" },
   xs: { fontSize: 12, fontWeight: "500", fontFamily: "Inter_400Regular" },
+  xxs: { fontSize: 10, fontWeight: "500", fontFamily: "Inter_400Regular" },
+  badgePill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99, alignSelf: "flex-start" },
   sm: { fontSize: 13, fontFamily: "Inter_400Regular" },
   cardTitle: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
   empty: { fontSize: 13, lineHeight: 18, marginTop: 6, fontFamily: "Inter_400Regular" },

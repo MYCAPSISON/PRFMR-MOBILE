@@ -12,73 +12,108 @@ import { useQuery } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { format, subDays, addDays } from "date-fns";
+import Svg, { Polyline } from "react-native-svg";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 
 // ─────────────────────────────────────────
-// Types
+// Types (mirrors real server AMQSScoreResult — spec §9.17.6)
 // ─────────────────────────────────────────
-interface NutrientBreakdown {
-  pctL1: number;
-  pctL2: number;
-  intakeValue: number;
-  l1Target: number;
-  l2Target: number;
-  unit: string;
+type Tier = "Elite" | "Optimal" | "Good" | "Fair" | "Basic";
+
+interface CoverageEntry {
+  pctOfTarget: number;
+  status: "low" | "ok" | "high";
+}
+
+interface AmqsGap {
+  microKey: string;
+  label: string;
+  pctOfTarget: number;
+  suggestion?: string;
 }
 
 interface AMQSScore {
+  date: string;
   score: number;
-  tier: "Elite" | "Optimal" | "Good" | "Fair" | "Basic";
+  tier: Tier;
   confidence: "Low" | "Medium" | "High";
-  allMet: boolean;
-  topGaps: { microKey: string; label: string; pctOfTarget: number; suggestion?: string }[];
-  nutrients: Record<string, NutrientBreakdown>;
+  coverageStats?: {
+    totalFoodEntries?: number;
+    foodEntriesWithMicros?: number;
+    totalTakenSupplements?: number;
+    takenSupplementsWithMicros?: number;
+    overallCoverage?: number;
+  };
   totals: Record<string, number>;
+  targets: Record<string, number>;
+  coverage: Record<string, CoverageEntry>;
+  topGaps: AmqsGap[];
+  allMet: boolean;
   breakdown: {
     food: Record<string, number>;
     supplements: Record<string, number>;
   };
-  coverageStats?: { totalTakenSupplements?: number };
+  layer2Score?: number;
+  layer2Tier?: Tier;
+  layer2Targets?: Record<string, number>;
+  layer2Coverage?: Record<string, CoverageEntry>;
+  layer2TopGaps?: AmqsGap[];
+}
+
+interface AmqsTrendLayer {
+  currentWeekAvg: number;
+  prevWeekAvg: number;
+  delta: number;
+  trend: "improving" | "slightly_down" | "steady";
+  dailyScores: { date: string; score: number }[];
+}
+
+interface AmqsTrend {
+  layer1: AmqsTrendLayer;
+  layer2: AmqsTrendLayer;
 }
 
 // ─────────────────────────────────────────
-// Nutrient display config (17 tracked)
+// Nutrient display metadata (17 tracked — spec §9.17.1)
 // ─────────────────────────────────────────
-const NUTRIENTS: { key: string; label: string; unit: string; l1: number; l2: number }[] = [
-  { key: "vitamin_c_mg",   label: "Vitamin C",          unit: "mg",  l1: 90,   l2: 200  },
-  { key: "vitamin_d_ug",   label: "Vitamin D",           unit: "mcg", l1: 20,   l2: 50   },
-  { key: "vitamin_b12_ug", label: "Vitamin B12",         unit: "mcg", l1: 2.4,  l2: 4    },
-  { key: "vitamin_b6_mg",  label: "Vitamin B6",          unit: "mg",  l1: 1.7,  l2: 3    },
-  { key: "folate_ug",      label: "Folate",              unit: "mcg", l1: 400,  l2: 600  },
-  { key: "vitamin_a_ug",   label: "Vitamin A",           unit: "mcg", l1: 900,  l2: 1200 },
-  { key: "vitamin_b2_mg",  label: "Vitamin B2",          unit: "mg",  l1: 1.3,  l2: 2    },
-  { key: "vitamin_b1_mg",  label: "Vitamin B1",          unit: "mg",  l1: 1.2,  l2: 2    },
-  { key: "vitamin_b3_mg",  label: "Vitamin B3 (Niacin)", unit: "mg",  l1: 16,   l2: 25   },
-  { key: "iron_mg",        label: "Iron",                unit: "mg",  l1: 8,    l2: 12   },
-  { key: "calcium_mg",     label: "Calcium",             unit: "mg",  l1: 1000, l2: 1300 },
-  { key: "magnesium_mg",   label: "Magnesium",           unit: "mg",  l1: 420,  l2: 500  },
-  { key: "zinc_mg",        label: "Zinc",                unit: "mg",  l1: 11,   l2: 14   },
-  { key: "potassium_mg",   label: "Potassium",           unit: "mg",  l1: 3500, l2: 4700 },
-  { key: "iodine_ug",      label: "Iodine",              unit: "mcg", l1: 150,  l2: 200  },
-  { key: "omega3_g",       label: "Omega-3",             unit: "g",   l1: 1.1,  l2: 3    },
-  { key: "selenium_ug",    label: "Selenium",            unit: "mcg", l1: 55,   l2: 70   },
+const NUTRIENT_META: { key: string; label: string; unit: string }[] = [
+  { key: "iron_mg", label: "Iron", unit: "mg" },
+  { key: "calcium_mg", label: "Calcium", unit: "mg" },
+  { key: "vitamin_d_ug", label: "Vitamin D", unit: "mcg" },
+  { key: "magnesium_mg", label: "Magnesium", unit: "mg" },
+  { key: "zinc_mg", label: "Zinc", unit: "mg" },
+  { key: "iodine_ug", label: "Iodine", unit: "mcg" },
+  { key: "selenium_ug", label: "Selenium", unit: "mcg" },
+  { key: "folate_ug", label: "Folate", unit: "mcg" },
+  { key: "vitamin_b12_ug", label: "Vitamin B12", unit: "mcg" },
+  { key: "vitamin_c_mg", label: "Vitamin C", unit: "mg" },
+  { key: "vitamin_a_ug", label: "Vitamin A", unit: "mcg" },
+  { key: "potassium_mg", label: "Potassium", unit: "mg" },
+  { key: "vitamin_b1_mg", label: "Vitamin B1", unit: "mg" },
+  { key: "vitamin_b2_mg", label: "Vitamin B2", unit: "mg" },
+  { key: "vitamin_b3_mg", label: "Vitamin B3", unit: "mg" },
+  { key: "vitamin_b6_mg", label: "Vitamin B6", unit: "mg" },
+  { key: "omega3_g", label: "Omega-3", unit: "g" },
 ];
 
-const CRITICAL_KEYS = ["iron_mg", "calcium_mg", "vitamin_d_ug", "magnesium_mg", "zinc_mg", "omega3_g"];
+const NUTRIENT_LABEL: Record<string, string> = Object.fromEntries(NUTRIENT_META.map(n => [n.key, n.label]));
 
+const CRITICAL_KEYS = ["iron_mg", "calcium_mg", "vitamin_d_ug", "magnesium_mg", "zinc_mg"];
+
+// Spec §9.17.7 tier color map
 const TIER_COLOR: Record<string, string> = {
-  Elite:   "#10b981",
-  Optimal: "#10b981",
-  Good:    "#3b82f6",
-  Fair:    "#eab308",
-  Basic:   "#ef4444",
+  Elite: "#10b981",
+  Optimal: "#3b82f6",
+  Good: "#f59e0b",
+  Fair: "#94a3b8",
+  Basic: "#94a3b8",
 };
 
 const CONFIDENCE_COLOR: Record<string, string> = {
-  High:   "#10b981",
+  High: "#10b981",
   Medium: "#eab308",
-  Low:    "#ef4444",
+  Low: "#ef4444",
 };
 
 function fmt(val: number, unit: string) {
@@ -87,19 +122,106 @@ function fmt(val: number, unit: string) {
   return Math.round(val).toString();
 }
 
+function formatTrendLine(layer?: AmqsTrendLayer) {
+  if (!layer) return "";
+  if (layer.prevWeekAvg === 0) return "still building";
+  if (layer.trend === "improving") return `↑ +${layer.delta} vs last week`;
+  if (layer.trend === "slightly_down") return `↓ ${layer.delta} vs last week`;
+  return "→ steady vs last week";
+}
+
+function trendLineColor(layer?: AmqsTrendLayer) {
+  if (!layer || layer.prevWeekAvg === 0) return "#6b7280";
+  if (layer.trend === "improving") return "#10b981";
+  if (layer.trend === "slightly_down") return "#fb923c";
+  return "#6b7280";
+}
+
 // ─────────────────────────────────────────
-// NutrientCard
+// Dual-line 7-day trend chart (spec §9.17.8)
 // ─────────────────────────────────────────
-function NutrientCard({ nutrient, data, totals }: {
-  nutrient: typeof NUTRIENTS[0];
-  data?: NutrientBreakdown;
+function TrendChart({ layer1, layer2 }: { layer1: AmqsTrendLayer; layer2: AmqsTrendLayer }) {
+  const colors = useColors();
+  const days1 = layer1.dailyScores;
+  const days2 = layer2.dailyScores;
+  if (days1.length < 2) return null;
+
+  const W = 320, H = 160;
+  const allScores = [...days1.map(d => d.score), ...days2.map(d => d.score)];
+  const max = Math.max(...allScores, 1);
+  const min = Math.min(...allScores, 0);
+  const rng = (max - min) || 1;
+
+  function toPoints(days: { score: number }[]) {
+    return days.map((d, i) => {
+      const x = days.length < 2 ? W / 2 : (i / (days.length - 1)) * W;
+      const y = H - ((d.score - min) / rng) * H;
+      return `${x},${y}`;
+    }).join(" ");
+  }
+
+  return (
+    <View style={[s.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={s.rowBetween}>
+        <Text style={[s.sectionTitle, { color: colors.foreground, fontFamily: colors.fonts.display, marginTop: 0 }]}>
+          7-Day Trend
+        </Text>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ fontSize: 11, color: trendLineColor(layer1) }}>Basic {formatTrendLine(layer1)}</Text>
+          <Text style={{ fontSize: 11, color: trendLineColor(layer2) }}>Perf {formatTrendLine(layer2)}</Text>
+        </View>
+      </View>
+      <View style={{ height: H, marginTop: 12 }}>
+        <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
+          <Polyline points={toPoints(days1)} fill="none" stroke={colors.primary} strokeWidth={2} />
+          <Polyline points={toPoints(days2)} fill="none" stroke="#3b82f6" strokeWidth={2} />
+        </Svg>
+      </View>
+      <View style={s.tickRow}>
+        {days1.map(d => (
+          <Text key={d.date} style={{ fontSize: 9, color: colors.mutedForeground }}>{d.date.slice(5)}</Text>
+        ))}
+      </View>
+      <View style={[s.rowBetween, { marginTop: 12 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 20, fontWeight: "800", color: colors.primary, fontFamily: colors.fonts.mono }}>
+            {layer1.currentWeekAvg}
+          </Text>
+          <Text style={{ fontSize: 11, color: colors.mutedForeground }}>General avg · Baseline adequacy</Text>
+        </View>
+        <View style={{ flex: 1, alignItems: "flex-end" }}>
+          <Text style={{ fontSize: 20, fontWeight: "800", color: "#3b82f6", fontFamily: colors.fonts.mono }}>
+            {layer2.currentWeekAvg}
+          </Text>
+          <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: "right" }}>Performance avg · Athlete optimisation</Text>
+        </View>
+      </View>
+      <Text style={[s.disclaimer, { color: colors.mutedForeground, marginTop: 12 }]}>
+        AMQS combines food and supplement micronutrient data. Estimates only — not medical advice.{"\n"}
+        Basic = baseline adequacy targets · Performance = athlete optimisation targets
+      </Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────
+// NutrientCard — driven by API-provided targets/coverage, not hardcoded values
+// ─────────────────────────────────────────
+function NutrientCard({ meta, totals, coverage, layer2Targets, layer2Coverage, targets }: {
+  meta: typeof NUTRIENT_META[0];
   totals: Record<string, number>;
+  targets: Record<string, number>;
+  coverage: Record<string, CoverageEntry>;
+  layer2Targets?: Record<string, number>;
+  layer2Coverage?: Record<string, CoverageEntry>;
 }) {
   const colors = useColors();
-  const intake = totals[nutrient.key] ?? 0;
-  const pctL1 = Math.min(100, (intake / nutrient.l1) * 100);
-  const pctL2 = intake >= nutrient.l1 ? Math.min(100, ((intake - nutrient.l1) / (nutrient.l2 - nutrient.l1)) * 100) : 0;
-  const isCritical = CRITICAL_KEYS.includes(nutrient.key);
+  const intake = totals[meta.key] ?? 0;
+  const l1Target = targets[meta.key] ?? 0;
+  const l2Target = layer2Targets?.[meta.key] ?? l1Target;
+  const pctL1 = Math.min(100, coverage[meta.key]?.pctOfTarget ?? (l1Target > 0 ? (intake / l1Target) * 100 : 0));
+  const pctL2 = Math.min(100, layer2Coverage?.[meta.key]?.pctOfTarget ?? (l2Target > 0 ? (intake / l2Target) * 100 : 0));
+  const isCritical = CRITICAL_KEYS.includes(meta.key);
 
   const barColor = pctL1 >= 100 ? (pctL2 >= 100 ? "#10b981" : "#3b82f6") : "#ff7a00";
 
@@ -107,7 +229,7 @@ function NutrientCard({ nutrient, data, totals }: {
     <View style={[s.nutrientCard, { backgroundColor: colors.card, borderColor: isCritical ? colors.border + "80" : colors.border }]}>
       <View style={s.nutrientHeader}>
         <Text style={[s.nutrientLabel, { color: colors.foreground, fontFamily: colors.fonts.sansMd }]} numberOfLines={1}>
-          {nutrient.label}
+          {meta.label}
         </Text>
         {isCritical && (
           <View style={[s.critBadge, { backgroundColor: "rgba(255,122,0,0.1)" }]}>
@@ -117,25 +239,22 @@ function NutrientCard({ nutrient, data, totals }: {
       </View>
 
       <Text style={[s.nutrientValue, { color: colors.foreground, fontFamily: colors.fonts.mono }]}>
-        {fmt(intake, nutrient.unit)}
-        <Text style={{ fontSize: 11, color: colors.mutedForeground }}> {nutrient.unit}</Text>
+        {fmt(intake, meta.unit)}
+        <Text style={{ fontSize: 11, color: colors.mutedForeground }}> {meta.unit}</Text>
       </Text>
 
-      {/* L1 bar */}
       <View style={s.barTrack}>
         <View style={[s.barFill, { width: `${pctL1}%` as any, backgroundColor: barColor }]} />
       </View>
-
       <View style={s.barLabels}>
         <Text style={[s.barLabelText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
           {Math.round(pctL1)}% baseline
         </Text>
         <Text style={[s.barLabelText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
-          {fmt(nutrient.l1, nutrient.unit)}{nutrient.unit}
+          {fmt(l1Target, meta.unit)}{meta.unit}
         </Text>
       </View>
 
-      {/* L2 athlete bar */}
       <View style={[s.barTrack, { marginTop: 4 }]}>
         <View style={[s.barFill, { width: `${pctL2}%` as any, backgroundColor: "#3b82f6" }]} />
       </View>
@@ -144,7 +263,7 @@ function NutrientCard({ nutrient, data, totals }: {
           {Math.round(pctL2)}% athlete
         </Text>
         <Text style={[s.barLabelText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
-          {fmt(nutrient.l2, nutrient.unit)}{nutrient.unit}
+          {fmt(l2Target, meta.unit)}{meta.unit}
         </Text>
       </View>
     </View>
@@ -165,12 +284,41 @@ export default function AMQSScreen() {
     retry: false,
   });
 
+  const { data: trend } = useQuery<AmqsTrend>({
+    queryKey: ["amqs-trend", selectedDate],
+    queryFn: () => apiFetch(`/me/amqs/trend/${selectedDate}`),
+    enabled: !!daily,
+    retry: false,
+  });
+
   const tierColor = daily ? TIER_COLOR[daily.tier] ?? colors.primary : colors.primary;
+  const layer2TierColor = daily?.layer2Tier ? TIER_COLOR[daily.layer2Tier] ?? "#3b82f6" : "#3b82f6";
   const confColor = daily ? CONFIDENCE_COLOR[daily.confidence] ?? colors.mutedForeground : colors.mutedForeground;
 
   const hasFoodToday = daily && daily.confidence !== "Low" && daily.score > 0;
   const hasSupplements = (daily?.coverageStats?.totalTakenSupplements ?? 0) > 0;
   const hasData = hasFoodToday || hasSupplements;
+
+  // "What moved it" — spec §9.17.7
+  let whatMovedIt = "Log a meal or supplement to see drivers";
+  if (daily && hasData) {
+    const combined: Record<string, number> = {};
+    for (const [k, v] of Object.entries(daily.breakdown?.food ?? {})) combined[k] = (combined[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(daily.breakdown?.supplements ?? {})) combined[k] = (combined[k] ?? 0) + v;
+    const entries = Object.entries(combined).filter(([, v]) => v > 0);
+    const topContributor = entries.length ? entries.reduce((a, b) => (b[1] > a[1] ? b : a)) : null;
+    const topGap = daily.topGaps?.[0];
+    if (topContributor && topGap) {
+      whatMovedIt = `+${Math.round(topContributor[1])}${NUTRIENT_META.find(n => n.key === topContributor[0])?.unit ?? ""} ${NUTRIENT_LABEL[topContributor[0]] ?? topContributor[0]} · ${topGap.label} at ${topGap.pctOfTarget >= 100 ? "Target met" : `${Math.round(topGap.pctOfTarget)}%`}`;
+    } else if (topContributor) {
+      whatMovedIt = `+${Math.round(topContributor[1])}${NUTRIENT_META.find(n => n.key === topContributor[0])?.unit ?? ""} ${NUTRIENT_LABEL[topContributor[0]] ?? topContributor[0]}`;
+    } else {
+      whatMovedIt = "Log one more meal to improve insight quality";
+    }
+  }
+
+  const bestGap = (daily?.topGaps ?? []).find(g => g.suggestion);
+  const pointEst = bestGap ? Math.min(8, Math.max(2, Math.round(((100 - bestGap.pctOfTarget) / 100) * 7))) : 0;
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
@@ -192,6 +340,11 @@ export default function AMQSScreen() {
             <Feather name="chevron-left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <Text style={[s.dateText, { color: colors.foreground, fontFamily: colors.fonts.sansMd }]}>{displayDate}</Text>
+          {selectedDate !== format(new Date(), "yyyy-MM-dd") && (
+            <TouchableOpacity onPress={() => setSelectedDate(format(new Date(), "yyyy-MM-dd"))}>
+              <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "700" }}>Today</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => setSelectedDate(format(addDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
             <Feather name="chevron-right" size={20} color={colors.foreground} />
           </TouchableOpacity>
@@ -213,35 +366,52 @@ export default function AMQSScreen() {
           </View>
         ) : (
           <>
-            {/* Score hero */}
+            {/* Score hero — side-by-side General / Performance */}
             <View style={[s.scoreCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={s.scoreRow}>
-                <View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.eyebrow, { color: colors.mutedForeground }]}>GENERAL SCORE</Text>
                   <Text style={[s.scoreNum, { color: tierColor, fontFamily: colors.fonts.mono }]}>
                     {Math.round(daily.score)}
                   </Text>
-                  <Text style={[s.scoreLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
-                    / 100
+                  <View style={[s.tierBadge, { backgroundColor: tierColor + "22", borderColor: tierColor + "44" }]}>
+                    <Text style={[s.tierText, { color: tierColor, fontFamily: colors.fonts.sansSb }]}>{daily.tier}</Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: trendLineColor(trend?.layer1), marginTop: 6 }}>
+                    {formatTrendLine(trend?.layer1)}
                   </Text>
                 </View>
-                <View style={s.scoreBadges}>
-                  <View style={[s.tierBadge, { backgroundColor: tierColor + "22", borderColor: tierColor + "44" }]}>
-                    <Text style={[s.tierText, { color: tierColor, fontFamily: colors.fonts.sansSb }]}>
-                      {daily.tier}
+                {daily.layer2Score != null && (
+                  <View style={{ flex: 1, alignItems: "flex-end" }}>
+                    <Text style={[s.eyebrow, { color: colors.mutedForeground }]}>PERFORMANCE SCORE</Text>
+                    <Text style={[s.scoreNum, { color: layer2TierColor, fontFamily: colors.fonts.mono }]}>
+                      {Math.round(daily.layer2Score)}
+                    </Text>
+                    <View style={[s.tierBadge, { backgroundColor: layer2TierColor + "22", borderColor: layer2TierColor + "44" }]}>
+                      <Text style={[s.tierText, { color: layer2TierColor, fontFamily: colors.fonts.sansSb }]}>{daily.layer2Tier}</Text>
+                    </View>
+                    <Text style={{ fontSize: 11, color: trendLineColor(trend?.layer2), marginTop: 6 }}>
+                      {formatTrendLine(trend?.layer2)}
                     </Text>
                   </View>
-                  <View style={[s.confBadge, { backgroundColor: confColor + "18" }]}>
-                    <Text style={[s.confText, { color: confColor, fontFamily: colors.fonts.sans }]}>
-                      {daily.confidence} confidence
-                    </Text>
-                  </View>
-                </View>
+                )}
               </View>
 
-              {/* Score progress bar */}
-              <View style={[s.barTrack, { marginTop: 16, height: 8 }]}>
-                <View style={[s.barFill, { width: `${daily.score}%` as any, backgroundColor: tierColor, borderRadius: 4 }]} />
+              {/* Confidence */}
+              <View style={[s.rowBetween, { marginTop: 16 }]}>
+                <Text style={[s.sectionLabel, { color: colors.mutedForeground, marginBottom: 0 }]}>DATA CONFIDENCE</Text>
+                <View style={[s.confBadge, { backgroundColor: confColor + "18" }]}>
+                  <Text style={[s.confText, { color: confColor, fontFamily: colors.fonts.sans }]}>{daily.confidence}</Text>
+                </View>
               </View>
+              <View style={[s.barTrack, { marginTop: 6, height: 6 }]}>
+                <View style={[s.barFill, { width: `${{ High: 100, Medium: 60, Low: 30 }[daily.confidence]}%` as any, backgroundColor: confColor }]} />
+              </View>
+
+              {/* What moved it */}
+              <Text style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 12, fontStyle: "italic" }}>
+                {whatMovedIt}
+              </Text>
 
               {/* All met callout */}
               {daily.allMet ? (
@@ -252,32 +422,46 @@ export default function AMQSScreen() {
                   </Text>
                 </View>
               ) : (
-                <>
-                  {/* Top gaps */}
-                  {daily.topGaps.length > 0 && (
-                    <View style={{ marginTop: 16 }}>
-                      <Text style={[s.sectionLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
-                        TOP GAPS
-                      </Text>
-                      {daily.topGaps.slice(0, 3).map(gap => (
-                        <View key={gap.microKey} style={[s.gapRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                          <View style={s.gapLeft}>
-                            <Feather name="alert-triangle" size={12} color={colors.amber} />
+                daily.topGaps.length > 0 && (
+                  <View style={{ marginTop: 16 }}>
+                    <Text style={[s.sectionLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                      TOP GAPS
+                    </Text>
+                    {daily.topGaps.slice(0, 3).map(gap => (
+                      <View key={gap.microKey} style={[s.gapRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                        <View style={s.gapLeft}>
+                          <Feather name="alert-triangle" size={12} color={colors.amber} />
+                          <View>
                             <Text style={[s.gapLabel, { color: colors.foreground, fontFamily: colors.fonts.sansMd }]}>
                               {gap.label}
                             </Text>
+                            {gap.suggestion && (
+                              <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 1 }}>
+                                Try: {gap.suggestion}
+                              </Text>
+                            )}
                           </View>
-                          <Text style={[s.gapPct, { color: colors.amber, fontFamily: colors.fonts.mono }]}>
-                            {Math.round(gap.pctOfTarget)}%
-                          </Text>
                         </View>
-                      ))}
-                    </View>
-                  )}
-                </>
+                        <Text style={[s.gapPct, { color: colors.amber, fontFamily: colors.fonts.mono }]}>
+                          {gap.pctOfTarget >= 100 ? "Target met" : `${Math.round(gap.pctOfTarget)}%`}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )
               )}
 
-              {/* Score ≥ 85 detail callout */}
+              {/* Micro-goal */}
+              {bestGap?.suggestion && (
+                <View style={[s.microGoalRow, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
+                  <Feather name="target" size={13} color={colors.primary} />
+                  <Text style={{ fontSize: 12, color: colors.foreground, flex: 1, marginLeft: 8 }}>
+                    +{pointEst} if you add {bestGap.suggestion} ({bestGap.label})
+                  </Text>
+                </View>
+              )}
+
+              {/* Score >= 85 detail callout */}
               {daily.score >= 85 && (
                 <View style={[s.layer1Row, { backgroundColor: "#10b98112", borderColor: "#10b98128" }]}>
                   <Feather name="shield" size={14} color="#10b981" />
@@ -288,24 +472,32 @@ export default function AMQSScreen() {
               )}
             </View>
 
+            {/* 7-day dual-line trend chart */}
+            {trend && trend.layer1?.dailyScores?.length > 1 && (
+              <TrendChart layer1={trend.layer1} layer2={trend.layer2} />
+            )}
+
             {/* Nutrient grid */}
             <Text style={[s.sectionTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>
               All Nutrients
             </Text>
             <View style={s.nutrientGrid}>
-              {NUTRIENTS.map(n => (
+              {NUTRIENT_META.map(n => (
                 <NutrientCard
                   key={n.key}
-                  nutrient={n}
-                  data={daily.nutrients?.[n.key]}
+                  meta={n}
                   totals={daily.totals}
+                  targets={daily.targets}
+                  coverage={daily.coverage}
+                  layer2Targets={daily.layer2Targets}
+                  layer2Coverage={daily.layer2Coverage}
                 />
               ))}
             </View>
 
             {/* Footer disclaimer */}
             <Text style={[s.disclaimer, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
-              Based on logged foods and supplements. Estimates only; not medical advice.
+              General nutrition targets — not medical advice. Blood tests, diagnosed deficiencies, or a registered dietitian override these figures.
             </Text>
           </>
         )}
@@ -354,16 +546,17 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  scoreRow: { flexDirection: "row", alignItems: "center", gap: 16 },
-  scoreNum: { fontSize: 56, fontWeight: "800", lineHeight: 60 },
-  scoreLabel: { fontSize: 14, marginTop: 2 },
-  scoreBadges: { gap: 8, flex: 1 },
+  scoreRow: { flexDirection: "row", alignItems: "flex-start", gap: 16 },
+  eyebrow: { fontSize: 10, letterSpacing: 0.6, marginBottom: 4 },
+  scoreNum: { fontSize: 40, fontWeight: "800", lineHeight: 44 },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   tierBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 99,
     borderWidth: 1,
     alignSelf: "flex-start",
+    marginTop: 6,
   },
   tierText: { fontSize: 13, fontWeight: "600" },
   confBadge: {
@@ -390,6 +583,14 @@ const s = StyleSheet.create({
     marginTop: 16,
   },
   allMetText: { fontSize: 13, flex: 1, lineHeight: 18 },
+  microGoalRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 12,
+  },
   layer1Row: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -410,7 +611,7 @@ const s = StyleSheet.create({
     borderWidth: 1,
     marginTop: 4,
   },
-  gapLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  gapLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   gapLabel: { fontSize: 13 },
   gapPct: { fontSize: 13, fontWeight: "600" },
   sectionTitle: { fontSize: 17, fontWeight: "700", marginTop: 8, marginBottom: 4 },
@@ -428,4 +629,6 @@ const s = StyleSheet.create({
   barLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 2 },
   barLabelText: { fontSize: 10 },
   disclaimer: { fontSize: 11, fontStyle: "italic", textAlign: "center", marginTop: 8 },
+  chartCard: { padding: 16, borderRadius: 12, borderWidth: 1 },
+  tickRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
 });
