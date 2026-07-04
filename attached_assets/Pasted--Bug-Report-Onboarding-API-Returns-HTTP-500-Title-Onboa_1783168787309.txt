@@ -1,0 +1,83 @@
+# Bug Report: Onboarding API Returns HTTP 500
+
+Title:
+Onboarding fails due to HTTP 500 from POST /user/me/onboard
+
+Severity:
+High (Blocks user onboarding)
+
+Environment:
+- Platform: iOS
+- App: React Native (LogBox)
+- File: api.ts
+- Error logged at: api.ts:253:18
+
+Summary:
+The onboarding flow consistently fails because the backend endpoint POST /user/me/onboard returns an HTTP 500 Internal Server Error. The frontend is only logging the server error and is not the source of the failure.
+
+Error Message:
+[api] Error: POST /user/me/onboard 500 Onboarding failed
+
+HTTP Request:
+Method: POST
+Endpoint: /user/me/onboard
+
+HTTP Response:
+Status: 500 Internal Server Error
+Body:
+Onboarding failed
+
+Frontend Source (api.ts):
+
+try {
+  ...
+} catch {
+  /* ignore */
+}
+
+console.error(
+  "[api] Error:",
+  method,
+  path,
+  response.status,
+  errorMessage
+);
+
+// On 401, notify AuthContext to clear the stale session — but skip auth
+// routes themselves to prevent infinite loops during login/logout checks.
+if (
+  response.status === 401 &&
+  !path.startsWith("/auth/") &&
+  path !== "/user/me"
+) {
+  ...
+}
+
+Observed Behavior:
+- User attempts onboarding.
+- App sends POST /user/me/onboard.
+- Backend returns HTTP 500.
+- React Native LogBox displays:
+  "[api] Error: POST /user/me/onboard 500 Onboarding failed"
+
+Expected Behavior:
+- POST /user/me/onboard returns HTTP 200 (or appropriate success response).
+- User onboarding completes successfully.
+- No console error is displayed.
+
+Root Cause:
+The failure appears to originate from the backend service handling POST /user/me/onboard. The frontend logging code is functioning correctly by reporting the server error.
+
+Recommended Backend Checks:
+1. Inspect server logs for POST /user/me/onboard.
+2. Verify request payload validation.
+3. Check authentication/user context.
+4. Verify database operations during onboarding.
+5. Ensure required user records exist before onboarding.
+6. Return detailed error logs internally while exposing a meaningful client error.
+
+Evidence:
+- Endpoint: POST /user/me/onboard
+- Status Code: 500
+- Error Message: Onboarding failed
+- Logged from: api.ts:253:18

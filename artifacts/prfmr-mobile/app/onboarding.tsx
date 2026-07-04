@@ -411,8 +411,11 @@ export default function OnboardingScreen() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      // Only send gender if it's a valid server value
-      const validGender = (d.gender === "male" || d.gender === "female") ? d.gender : undefined;
+      // Server requires gender to be "male" | "female" (no null/undefined
+      // default is sanitised server-side, unlike age/height/weight). Users
+      // who picked "Other" or "Prefer not to say" still need a valid value
+      // sent, so we fall back to "male" for the BMR calculation in that case.
+      const validGender = (d.gender === "male" || d.gender === "female") ? d.gender : "male";
 
       const payload: Record<string, unknown> = {
         gender:           validGender,
