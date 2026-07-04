@@ -439,6 +439,9 @@ export default function OnboardingScreen() {
         surveyCommitment:           d.surveyCommitment || undefined,
       };
 
+      if (__DEV__) {
+        console.log("[onboard] Submitting payload:", JSON.stringify(payload, null, 2));
+      }
       await apiFetch("/user/me/onboard", { method: "POST", body: payload });
 
       // Fight camp — separate endpoint per spec (POST /me/weight-cut)

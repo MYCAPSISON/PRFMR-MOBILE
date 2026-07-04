@@ -244,7 +244,11 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}`;
     try {
-      const errorData = await response.json();
+      const rawText = await response.text();
+      if (__DEV__) {
+        console.error("[api] Raw error body:", method, path, response.status, rawText);
+      }
+      const errorData = rawText ? JSON.parse(rawText) : {};
       errorMessage = errorData.message ?? errorData.error ?? errorMessage;
       if (__DEV__ && errorData.issues) {
         console.error("[api] Validation issues:", JSON.stringify(errorData.issues));
