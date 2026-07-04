@@ -49,7 +49,7 @@ Activity catalog GET /activities returns `{ id, name, intensity, metValue }` —
 SessionActivity response shape: `{ id, durationMinutes, estimatedKcal, rpe, activityType, sessionRpe, bodyRegion, ... }` — NOT `duration`/`caloriesBurned`.
 
 ## User profile field names & onboarding status
-`GET /user/me` returns `currentWeight` (NOT `weight`) for body weight, and has **no `onboardingComplete` field at all**. Onboarding completion must be computed client-side: non-null `targetCalories`, `age`, `gender`, `height`, `currentWeight`, `activityLevel` (see `isOnboardingComplete()` in `context/AuthContext.tsx`). The login response body (`POST /auth/login`) only returns a minimal user object (`id`, `email`, `username`, `emailVerified`) — never trust it for profile/onboarding fields; always re-fetch `/user/me` after login.
+`GET /user/me` returns `currentWeight` (NOT `weight`) for body weight, and has **no `onboardingComplete` field at all**. Server-side, onboarding status is inferred purely from `user.targetCalories != null` — it's only populated at the very end of `POST /user/me/onboard` once macros are calculated, so it doubles as the completion flag (no separate boolean column exists). Mirror this exact check client-side (see `isOnboardingComplete()` in `context/AuthContext.tsx`) rather than checking multiple profile fields. The login response body (`POST /auth/login`) only returns a minimal user object (`id`, `email`, `username`, `emailVerified`) — never trust it for profile/onboarding fields; always re-fetch `/user/me` after login.
 
 ## Key API endpoints
 - Weight: `POST /weights { date, weight }` (NOT /me/body-composition)

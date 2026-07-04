@@ -27,18 +27,13 @@ export interface User {
 }
 
 // The server never returns an `onboardingComplete` field on the User object.
-// Per spec, onboarding completion is a client-computed check based on
-// whether the core profile fields were persisted by the onboarding wizard.
+// Server-side, onboarding status is inferred the same way: targetCalories
+// only gets populated at the very end of POST /user/me/onboard, once macros
+// have been calculated, so it doubles as the completion flag. Mirror that
+// exact check here instead of a broader client-side guess.
 export function isOnboardingComplete(profile: User | null | undefined): boolean {
   if (!profile) return false;
-  return (
-    profile.targetCalories != null &&
-    profile.age != null &&
-    profile.gender != null &&
-    profile.height != null &&
-    profile.currentWeight != null &&
-    profile.activityLevel != null
-  );
+  return profile.targetCalories != null;
 }
 
 interface AuthContextValue {

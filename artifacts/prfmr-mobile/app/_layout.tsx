@@ -41,7 +41,7 @@ function RootLayoutNav() {
         router.replace("/(tabs)");
       }
     }
-  }, [isAuthenticated, isLoading, user?.displayName, user?.targetCalories, user?.age, user?.gender, user?.height, user?.currentWeight, user?.activityLevel]);
+  }, [isAuthenticated, isLoading, user?.displayName, user?.targetCalories]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
