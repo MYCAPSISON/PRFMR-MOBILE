@@ -2065,14 +2065,48 @@ function WeightTrend({ date }: { date: string }) {
 // ─────────────────────────────────────────
 // Meals Section — sub-components
 // ─────────────────────────────────────────
+// Client-side name matching: tries exact → "target contains ingredient name" strategies.
+function findIngredientAutoMatch(name: string): { index: number; ingName: string } | null {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const target = norm(name);
+  // Exact
+  let idx = INGREDIENTS_DATA.findIndex(ing => norm(ing.name) === target);
+  if (idx >= 0) return { index: idx, ingName: INGREDIENTS_DATA[idx].name };
+  // Target string contains the full ingredient name (e.g. "Cottage Cheese Tesco" ⊇ "Cottage Cheese")
+  idx = INGREDIENTS_DATA.findIndex(ing => target.includes(norm(ing.name)));
+  if (idx >= 0) return { index: idx, ingName: INGREDIENTS_DATA[idx].name };
+  return null;
+}
+
 function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPending }: {
   food: NormalizedFood; grams: string; onGramsChange: (g: string) => void;
-  onConfirm: () => void; onBack: () => void; isPending: boolean;
+  onConfirm: (ingredientIndex?: number) => void; onBack: () => void; isPending: boolean;
 }) {
   const unit = getCoreFoodUnit(food.name);
   const [entryMode, setEntryMode] = useState<"count" | "grams">(unit ? "count" : "grams");
   const [count, setCount] = useState(unit?.defaultCount ?? 1);
   const [size, setSize] = useState<UnitSize>(unit?.defaultSize ?? "medium");
+
+  // Mapping state — seed from prop first, then try client-side auto-match
+  const initMap = React.useMemo(() => {
+    if (food.ingredientIndex != null) return { index: food.ingredientIndex, ingName: INGREDIENTS_DATA[food.ingredientIndex]?.name ?? "" };
+    return findIngredientAutoMatch(food.name);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [food.name, food.ingredientIndex]);
+  const [mapIngredient, setMapIngredient] = useState<{ index: number; ingName: string } | null>(initMap);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [mapSearch, setMapSearch] = useState("");
+
+  // Re-seed when food changes (user taps back → picks different food)
+  React.useEffect(() => {
+    const m = food.ingredientIndex != null
+      ? { index: food.ingredientIndex, ingName: INGREDIENTS_DATA[food.ingredientIndex]?.name ?? "" }
+      : findIngredientAutoMatch(food.name);
+    setMapIngredient(m);
+    setShowMapPicker(false);
+    setMapSearch("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [food.name]);
 
   React.useEffect(() => {
     if (unit && entryMode === "count") {
@@ -2198,21 +2232,61 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
 
       {/* Micros Source (for AMQS) */}
       <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-        backgroundColor: "#13161d", padding: 14, gap: 8 }}>
+        backgroundColor: "#13161d", padding: 14, gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
-          <TouchableOpacity>
-            <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change</Text>
+          <TouchableOpacity onPress={() => { setShowMapPicker(p => !p); setMapSearch(""); }}>
+            <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>
+              {showMapPicker ? "Done" : "Change"}
+            </Text>
           </TouchableOpacity>
         </View>
-        {food.ingredientIndex != null ? (
+
+        {showMapPicker ? (
+          /* Picker panel */
+          <View style={{ gap: 8 }}>
+            <TextInput
+              style={{ height: 40, borderRadius: 8, borderWidth: 1, borderColor: "#2a2e3a",
+                backgroundColor: "#181c26", paddingHorizontal: 12, fontSize: 14, color: "#eceef2" }}
+              placeholder="Search ingredients…" placeholderTextColor="#6b7280"
+              value={mapSearch} onChangeText={setMapSearch} autoFocus
+            />
+            {mapSearch.length >= 2 && (
+              <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden" }}>
+                {INGREDIENTS_DATA.filter(ing =>
+                  ing.name.toLowerCase().includes(mapSearch.toLowerCase())
+                ).slice(0, 10).map((ing, i, arr) => (
+                  <TouchableOpacity key={i}
+                    onPress={() => {
+                      setMapIngredient({ index: INGREDIENTS_DATA.indexOf(ing), ingName: ing.name });
+                      setShowMapPicker(false); setMapSearch("");
+                    }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 10,
+                      borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: "#1a1e28",
+                      backgroundColor: "#13161d" }}>
+                    <Text style={{ color: "#eceef2", fontSize: 13 }}>{ing.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                {INGREDIENTS_DATA.filter(ing => ing.name.toLowerCase().includes(mapSearch.toLowerCase())).length === 0 && (
+                  <View style={{ padding: 12 }}>
+                    <Text style={{ color: "#4b5563", fontSize: 13 }}>No matches</Text>
+                  </View>
+                )}
+              </View>
+            )}
+            {mapIngredient && (
+              <TouchableOpacity onPress={() => { setMapIngredient(null); setShowMapPicker(false); }}
+                style={{ alignItems: "center", paddingVertical: 4 }}>
+                <Text style={{ color: "#4b5563", fontSize: 12 }}>Skip micros (log macros only)</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : mapIngredient ? (
           <View style={{ gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Feather name="check" size={14} color="#10b981" />
               <Text style={{ color: "#10b981", fontSize: 13 }}>Mapped to: </Text>
-              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>
-                {INGREDIENTS_DATA[food.ingredientIndex]?.name}
-              </Text>
+              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>{mapIngredient.ingName}</Text>
             </View>
             <Text style={{ color: "#4b5563", fontSize: 12 }}>Mapped automatically</Text>
           </View>
@@ -2221,7 +2295,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
         )}
       </View>
 
-      <TouchableOpacity onPress={onConfirm} disabled={isPending}
+      <TouchableOpacity onPress={() => onConfirm(mapIngredient?.index)} disabled={isPending}
         style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
         {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
       </TouchableOpacity>
@@ -3026,7 +3100,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           {selectedFood ? (
             <MealConfirmView
               food={selectedFood} grams={grams} onGramsChange={setGrams}
-              onConfirm={() => addMut.mutate(buildPayload(selectedFood, grams))}
+              onConfirm={(ingredientIndex) => addMut.mutate(buildPayload(
+                ingredientIndex != null ? { ...selectedFood, ingredientIndex } : selectedFood,
+                grams
+              ))}
               onBack={() => setSelectedFood(null)}
               isPending={addMut.isPending}
             />
