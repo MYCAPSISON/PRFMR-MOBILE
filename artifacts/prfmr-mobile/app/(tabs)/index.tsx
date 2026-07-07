@@ -2623,7 +2623,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
 // ─────────────────────────────────────────
 // Meals Section
 // ─────────────────────────────────────────
-function MealsSection({ date }: { date: string }) {
+function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; openAddFood?: boolean; onAddFoodOpened?: () => void }) {
   const colors = useColors();
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -2632,6 +2632,7 @@ function MealsSection({ date }: { date: string }) {
   const [activeTab, setActiveTab] = useState<TabId>("search");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
+  const [mealDropdownOpen, setMealDropdownOpen] = useState(false);
 
   const [searchQ, setSearchQ] = useState("");
   const [results, setResults] = useState<any[]>([]);
@@ -2653,6 +2654,10 @@ function MealsSection({ date }: { date: string }) {
   const [wholeSearch, setWholeSearch] = useState("");
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
 
+  useEffect(() => {
+    if (openAddFood) { setModal(true); onAddFoodOpened?.(); }
+  }, [openAddFood]);
+
   const { data: entries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", date],
     queryFn: () => apiFetch(`/me/food/${date}`),
@@ -2666,6 +2671,7 @@ function MealsSection({ date }: { date: string }) {
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
     setWholeSearch("");
+    setMealDropdownOpen(false);
   }
 
   const deleteMut = useMutation({
@@ -2701,13 +2707,41 @@ function MealsSection({ date }: { date: string }) {
     if (!code) return;
     setBarcodeLoading(true); setBarcodeError("");
     try {
-      const result = await apiFetch<any>(`/food/barcode/${code}`);
-      if (!result || (!result.name && !result.product_name)) {
-        setBarcodeError("No food found for this barcode.");
-        setCameraScanned(false);
-      } else {
-        setSelectedFood(normalizeFood(result, "off"));
-        setGrams("100");
+      let found = false;
+      try {
+        const result = await apiFetch<any>(`/food/barcode/${code}`);
+        if (result && (result.name || result.product_name)) {
+          setSelectedFood(normalizeFood(result, "off"));
+          setGrams("100");
+          found = true;
+        }
+      } catch { /* fall through to OFF direct */ }
+
+      if (!found) {
+        const offResp = await fetch(
+          `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`
+        );
+        const offData = await offResp.json();
+        if (offData?.status === 1 && offData?.product) {
+          const p = offData.product;
+          const n = p.nutriments ?? {};
+          const food: NormalizedFood = {
+            name: p.product_name_en || p.product_name || p.abbreviated_product_name || "Unknown product",
+            brand: p.brands || undefined,
+            caloriesPer100g: n["energy-kcal_100g"] ?? n["energy_100g"] ? (n["energy_100g"] ?? 0) / 4.184 : 0,
+            proteinPer100g: n.proteins_100g ?? 0,
+            carbsPer100g: n.carbohydrates_100g ?? 0,
+            fatPer100g: n.fat_100g ?? 0,
+            fibrePer100g: n.fiber_100g ?? n.fibers_100g ?? n["fiber_100g"] ?? 0,
+            sourceType: "off",
+            offBarcode: code,
+          };
+          setSelectedFood(food);
+          setGrams("100");
+        } else {
+          setBarcodeError("No food found for this barcode.");
+          setCameraScanned(false);
+        }
       }
     } catch (err: any) {
       setBarcodeError(err?.message ?? "Barcode lookup failed");
@@ -2829,30 +2863,51 @@ function MealsSection({ date }: { date: string }) {
         <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
           {/* Header */}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-            padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
             <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Add Food</Text>
-            <TouchableOpacity onPress={closeModal}><Feather name="x" size={24} color="#6b7280" /></TouchableOpacity>
-          </View>
-
-          {/* Meal type pills */}
-          <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
-            {MEAL_TYPES.map(mt => (
-              <TouchableOpacity key={mt} onPress={() => setMealType(mt)}
-                style={{ flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
-                  backgroundColor: mealType === mt ? "#ff7a00" : "#181c26" }}>
-                <Text style={{ color: mealType === mt ? "#fff" : "#6b7280", fontSize: 10, fontWeight: "700", textTransform: "capitalize" }}>{mt}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+              <TouchableOpacity onPress={closeModal}>
+                <Text style={{ color: "#ff7a00", fontSize: 15, fontWeight: "700" }}>Done</Text>
               </TouchableOpacity>
-            ))}
+              <TouchableOpacity onPress={closeModal}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+            </View>
           </View>
 
-          {/* Tab bar */}
-          <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          {/* Meal selector dropdown */}
+          <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
+            <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: "600", letterSpacing: 0.4 }}>Add to meal</Text>
+            <TouchableOpacity onPress={() => setMealDropdownOpen(v => !v)}
+              style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 11,
+                borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+              <Feather name={mealIcon[mealType] as any} size={15} color="#6b7280" style={{ marginRight: 8 }} />
+              <Text style={{ flex: 1, color: "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mealType}</Text>
+              <Feather name={mealDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
+            </TouchableOpacity>
+            {mealDropdownOpen && (
+              <View style={{ backgroundColor: "#1e2232", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                marginTop: 4, overflow: "hidden" }}>
+                {MEAL_TYPES.map((mt, i) => (
+                  <TouchableOpacity key={mt} onPress={() => { setMealType(mt); setMealDropdownOpen(false); }}
+                    style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                      backgroundColor: mt === mealType ? "#ff7a0014" : "transparent",
+                      borderBottomWidth: i < MEAL_TYPES.length - 1 ? 1 : 0, borderBottomColor: "#1a1e28" }}>
+                    <Feather name={mealIcon[mt] as any} size={14} color={mt === mealType ? "#ff7a00" : "#6b7280"} style={{ marginRight: 10 }} />
+                    <Text style={{ flex: 1, color: mt === mealType ? "#ff7a00" : "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mt}</Text>
+                    {mt === mealType && <Feather name="check" size={14} color="#ff7a00" />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Tab bar — segmented control */}
+          <View style={{ flexDirection: "row", marginHorizontal: 12, marginTop: 8, marginBottom: 4,
+            backgroundColor: "#181c26", borderRadius: 10, padding: 3 }}>
             {MODAL_TABS.map(tab => (
-              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); }}
-                style={{ flex: 1, paddingVertical: 10, alignItems: "center", gap: 2,
-                  borderBottomWidth: 2, borderBottomColor: activeTab === tab.id ? "#ff7a00" : "transparent" }}>
-                <Feather name={tab.icon as any} size={14} color={activeTab === tab.id ? "#ff7a00" : "#6b7280"} />
-                <Text style={{ color: activeTab === tab.id ? "#ff7a00" : "#6b7280", fontSize: 10, fontWeight: "700" }}>{tab.label}</Text>
+              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); setMealDropdownOpen(false); }}
+                style={{ flex: 1, paddingVertical: 7, alignItems: "center", borderRadius: 8,
+                  backgroundColor: activeTab === tab.id ? "#2a2e3e" : "transparent" }}>
+                <Text style={{ color: activeTab === tab.id ? "#eceef2" : "#6b7280", fontSize: 11, fontWeight: "700" }}>{tab.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -2874,18 +2929,21 @@ function MealsSection({ date }: { date: string }) {
               )}
               {activeTab === "wholefood" && (
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", margin: 12, marginBottom: 6,
-                    paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1,
-                    backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
-                    <Feather name="search" size={15} color="#6b7280" />
-                    <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
-                      placeholder="Filter foods…" placeholderTextColor="#6b7280"
-                      value={wholeSearch} onChangeText={setWholeSearch} />
-                    {wholeSearch.length > 0 && (
-                      <TouchableOpacity onPress={() => setWholeSearch("")}>
-                        <Feather name="x" size={14} color="#6b7280" />
-                      </TouchableOpacity>
-                    )}
+                  <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
+                    <Text style={{ fontSize: 13, color: "#eceef2", fontWeight: "700", marginBottom: 8 }}>Search Ingredient</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 9,
+                      borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+                      <Feather name="search" size={15} color="#6b7280" />
+                      <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
+                        placeholder="Start typing (e.g. Chicken)..." placeholderTextColor="#6b7280"
+                        value={wholeSearch} onChangeText={setWholeSearch} />
+                      {wholeSearch.length > 0 && (
+                        <TouchableOpacity onPress={() => setWholeSearch("")}>
+                          <Feather name="x" size={14} color="#6b7280" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    <View style={{ height: 10 }} />
                   </View>
                   <FlatList
                     data={CORE_FOODS.filter(f =>
@@ -3068,6 +3126,7 @@ export default function DashboardScreen() {
   const [updateWeightModal, setUpdateWeightModal] = useState(false);
   const [weightVal, setWeightVal] = useState("");
   const [quickLogVisible, setQuickLogVisible] = useState(false);
+  const [addFoodOpen, setAddFoodOpen] = useState(false);
 
   const isToday = selectedDate === format(new Date(), "yyyy-MM-dd");
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
@@ -3237,9 +3296,9 @@ export default function DashboardScreen() {
             <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Update Weight</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => setQuickLogVisible(true)}>
+            onPress={() => setAddFoodOpen(true)}>
             <Feather name="plus-circle" size={14} color={colors.primary} />
-            <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Quick Log</Text>
+            <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Add Food</Text>
           </TouchableOpacity>
         </View>
 
@@ -3271,7 +3330,7 @@ export default function DashboardScreen() {
         <WeightTrend date={selectedDate} />
 
         {/* Meals */}
-        <MealsSection date={selectedDate} />
+        <MealsSection date={selectedDate} openAddFood={addFoodOpen} onAddFoodOpened={() => setAddFoodOpen(false)} />
 
         {/* Current Weight */}
         <CurrentWeightCard date={selectedDate} />
@@ -3290,9 +3349,9 @@ export default function DashboardScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Floating Action Button — Quick Log */}
+      {/* Floating Action Button — Add Food */}
       <TouchableOpacity
-        onPress={() => setQuickLogVisible(true)}
+        onPress={() => setAddFoodOpen(true)}
         style={{
           position: "absolute",
           bottom: 90,
