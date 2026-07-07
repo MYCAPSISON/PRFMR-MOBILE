@@ -2196,6 +2196,31 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
         ))}
       </View>
 
+      {/* Micros Source (for AMQS) */}
+      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+        backgroundColor: "#13161d", padding: 14, gap: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
+          <TouchableOpacity>
+            <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change</Text>
+          </TouchableOpacity>
+        </View>
+        {food.ingredientIndex != null ? (
+          <View style={{ gap: 4 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Feather name="check" size={14} color="#10b981" />
+              <Text style={{ color: "#10b981", fontSize: 13 }}>Mapped to: </Text>
+              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>
+                {INGREDIENTS_DATA[food.ingredientIndex]?.name}
+              </Text>
+            </View>
+            <Text style={{ color: "#4b5563", fontSize: 12 }}>Mapped automatically</Text>
+          </View>
+        ) : (
+          <Text style={{ color: "#4b5563", fontSize: 12 }}>No micronutrient mapping available</Text>
+        )}
+      </View>
+
       <TouchableOpacity onPress={onConfirm} disabled={isPending}
         style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
         {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
@@ -3306,10 +3331,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                             </TouchableOpacity>
                           </View>
                           {mappedIngredient ? (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Feather name="check" size={14} color="#10b981" />
-                              <Text style={{ color: "#6b7280", fontSize: 13 }}>Mapped to: </Text>
-                              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>{mappedIngredient}</Text>
+                            <View style={{ gap: 4 }}>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Feather name="check" size={14} color="#10b981" />
+                                <Text style={{ color: "#10b981", fontSize: 13 }}>Mapped to: </Text>
+                                <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>{mappedIngredient}</Text>
+                              </View>
+                              <Text style={{ color: "#4b5563", fontSize: 12 }}>Mapped automatically</Text>
                             </View>
                           ) : (
                             <Text style={{ color: "#4b5563", fontSize: 12 }}>No micronutrient mapping available</Text>
