@@ -2342,19 +2342,37 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
   const baseGrams = entry.grams || 100;
   const refGrams = entry.normalizedGrams || baseGrams;
 
-  // Infer initial count from stored grams
-  const initSize: UnitSize = unit?.defaultSize ?? "medium";
-  function inferCount(u: NonNullable<typeof unit>, s: UnitSize): number {
-    if (u.supportsSize && u.gramsBySize) {
-      return Math.max(1, Math.round(baseGrams / u.gramsBySize[s]));
+  // Determine whether stored grams fits an exact count/size combination.
+  // Returns the best match or null if the stored value doesn't align with any unit.
+  function findSizeMatch(u: NonNullable<typeof unit>): { size: UnitSize; count: number } | null {
+    if (!u.supportsSize || !u.gramsBySize) return null;
+    for (const sKey of (["small", "medium", "large"] as UnitSize[])) {
+      const g = u.gramsBySize[sKey];
+      if (!g) continue;
+      const cnt = baseGrams / g;
+      const rounded = Math.round(cnt);
+      if (rounded > 0 && Math.abs(cnt - rounded) < 0.12) return { size: sKey, count: rounded };
     }
-    return Math.max(1, Math.round(baseGrams / (u.gramsPerUnit ?? 100)));
+    return null;
+  }
+  function findCountMatch(u: NonNullable<typeof unit>): number | null {
+    if (u.supportsSize || !u.gramsPerUnit) return null;
+    const cnt = baseGrams / u.gramsPerUnit;
+    const rounded = Math.round(cnt);
+    return rounded > 0 && Math.abs(cnt - rounded) < 0.12 ? rounded : null;
   }
 
-  // "count" | "grams" — count-mode foods default to count, others to grams
-  const [amountMode, setAmountMode] = useState<"count" | "grams">(unit ? "count" : "grams");
-  const [count, setCount] = useState(unit ? inferCount(unit, initSize) : 1);
+  const sizeMatch = unit ? findSizeMatch(unit) : null;
+  const countMatch = unit && !unit.supportsSize ? findCountMatch(unit) : null;
+  const initAmountMode: "count" | "grams" = (sizeMatch || countMatch) ? "count" : "grams";
+  const initCount = sizeMatch ? sizeMatch.count : (countMatch ?? 1);
+  const initSize: UnitSize = sizeMatch ? sizeMatch.size : (unit?.defaultSize ?? "medium");
+
+  const [amountMode, setAmountMode] = useState<"count" | "grams">(initAmountMode);
+  const [count, setCount] = useState(initCount);
   const [size, setSize] = useState<UnitSize>(initSize);
+  // Track first render so the useEffect below doesn't overwrite stored grams on mount
+  const isFirstRender = React.useRef(true);
   const [mealOpen, setMealOpen] = useState(false);
   const [meal, setMeal] = useState(entry.meal ?? "breakfast");
 
@@ -2377,8 +2395,9 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
     setFibre(String(Math.round((entry.fibre ?? 0) * r)));
   }
 
-  // In count mode, sync grams + macros whenever count/size changes
+  // In count mode, sync grams + macros whenever count/size changes (skip mount)
   React.useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     if (unit && amountMode === "count") {
       recalcFromGrams(String(computeUnitGrams(unit, count, size)));
     }
