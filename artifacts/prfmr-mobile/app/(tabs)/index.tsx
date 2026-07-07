@@ -2070,23 +2070,20 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   onConfirm: () => void; onBack: () => void; isPending: boolean;
 }) {
   const unit = getCoreFoodUnit(food.name);
-  const [count, setCount] = useState(unit ? unit.defaultCount : 1);
+  const [entryMode, setEntryMode] = useState<"count" | "grams">(unit ? "count" : "grams");
+  const [count, setCount] = useState(unit?.defaultCount ?? 1);
   const [size, setSize] = useState<UnitSize>(unit?.defaultSize ?? "medium");
 
-  // Sync computed grams to parent whenever count/size changes (count mode)
   React.useEffect(() => {
-    if (unit) {
+    if (unit && entryMode === "count") {
       onGramsChange(String(computeUnitGrams(unit, count, size)));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count, size]);
+  }, [count, size, entryMode]);
 
-  // Reset count/size when a different food is selected
   React.useEffect(() => {
-    if (unit) {
-      setCount(unit.defaultCount);
-      setSize(unit.defaultSize ?? "medium");
-    }
+    if (unit) { setCount(unit.defaultCount); setSize(unit.defaultSize ?? "medium"); setEntryMode("count"); }
+    else { setEntryMode("grams"); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [food.name]);
 
@@ -2098,118 +2095,110 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   const fat = rd1(food.fatPer100g * r);
   const fibre = rd1(food.fibrePer100g * r);
 
-  const SIZE_LABELS: { value: UnitSize; label: string }[] = [
-    { value: "small", label: "Small" },
-    { value: "medium", label: "Medium" },
-    { value: "large", label: "Large" },
-  ];
-
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
       <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "700" }}>{food.name}</Text>
       {food.brand ? <Text style={{ color: "#6b7280" }}>{food.brand}</Text> : null}
 
-      {unit ? (
-        /* ── Count mode ── */
-        <View style={{ gap: 12 }}>
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>
-            HOW MANY?
-          </Text>
-
-          {/* Count stepper */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 0 }}>
-            <TouchableOpacity
-              onPress={() => setCount(c => Math.max(1, c - 1))}
-              style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
-                borderColor: "#1a1e28", backgroundColor: "#181c26",
-                alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#eceef2", fontSize: 24, fontWeight: "300" }}>−</Text>
-            </TouchableOpacity>
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", height: 52,
-              borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
-              <Text style={{ color: "#eceef2", fontSize: 22, fontWeight: "700" }}>
-                {count} <Text style={{ fontSize: 14, fontWeight: "400", color: "#9ca3af" }}>
-                  {count === 1 ? unit.unitLabel : unit.unitLabel + "s"}
+      {/* Amount header + Count/Grams toggle */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700" }}>Amount</Text>
+        {unit && (
+          <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: "#1a1e28" }}>
+            {(["count", "grams"] as const).map(mode => (
+              <TouchableOpacity key={mode}
+                onPress={() => {
+                  setEntryMode(mode);
+                  if (mode === "grams" && unit) onGramsChange(String(computeUnitGrams(unit, count, size)));
+                }}
+                style={{ paddingHorizontal: 16, paddingVertical: 7, backgroundColor: entryMode === mode ? "#ff7a00" : "#181c26" }}>
+                <Text style={{ color: entryMode === mode ? "#fff" : "#6b7280", fontWeight: "700", fontSize: 13 }}>
+                  {mode === "count" ? "Count" : "Grams"}
                 </Text>
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={() => setCount(c => c + 1)}
-              style={{ width: 52, height: 52, borderRadius: 10, borderWidth: 1,
-                borderColor: "#1a1e28", backgroundColor: "#181c26",
-                alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#ff7a00", fontSize: 24, fontWeight: "300" }}>+</Text>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
           </View>
+        )}
+      </View>
 
-          {/* Size selector */}
-          {unit.supportsSize && (
+      {entryMode === "count" && unit ? (
+        <View style={{ gap: 12 }}>
+          {unit.supportsSize && unit.gramsBySize && (
             <View style={{ gap: 6 }}>
-              <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>SIZE</Text>
+              <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600" }}>Size</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
-                {SIZE_LABELS.map(({ value, label }) => (
-                  <TouchableOpacity key={value} onPress={() => setSize(value)}
+                {(["small", "medium", "large"] as UnitSize[]).map(s => (
+                  <TouchableOpacity key={s} onPress={() => setSize(s)}
                     style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
-                      borderWidth: 1,
-                      borderColor: size === value ? "#ff7a00" : "#1a1e28",
-                      backgroundColor: size === value ? "rgba(255,122,0,0.1)" : "#181c26" }}>
-                    <Text style={{ color: size === value ? "#ff7a00" : "#6b7280",
-                      fontWeight: "700", fontSize: 13 }}>{label}</Text>
-                    {unit.gramsBySize && (
-                      <Text style={{ color: size === value ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
-                        {unit.gramsBySize[value]}g
-                      </Text>
-                    )}
+                      borderWidth: 1, borderColor: s === size ? "#ff7a00" : "#1a1e28",
+                      backgroundColor: s === size ? "rgba(255,122,0,0.15)" : "#181c26" }}>
+                    <Text style={{ color: s === size ? "#eceef2" : "#6b7280", fontWeight: "700", fontSize: 13 }}>
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </Text>
+                    <Text style={{ color: s === size ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
+                      {unit.gramsBySize![s]}g
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
           )}
-
-          {/* Resolved grams badge */}
-          <Text style={{ color: "#4b5563", fontSize: 12, textAlign: "center" }}>
-            = {g}g total
+          <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", textTransform: "capitalize" }}>
+            {unit.unitLabel}s
           </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 20 }}>
+            <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))}
+              style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#eceef2", fontSize: 28, fontWeight: "300", lineHeight: 30 }}>−</Text>
+            </TouchableOpacity>
+            <Text style={{ color: "#eceef2", fontSize: 32, fontWeight: "800", minWidth: 40, textAlign: "center" }}>{count}</Text>
+            <TouchableOpacity onPress={() => setCount(c => c + 1)}
+              style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#ff7a00", fontSize: 28, fontWeight: "300", lineHeight: 30 }}>+</Text>
+            </TouchableOpacity>
+            <Text style={{ color: "#6b7280", fontSize: 13 }}>≈{g}g total</Text>
+          </View>
         </View>
       ) : (
-        /* ── Grams mode ── */
-        <View style={{ gap: 6 }}>
-          <Text style={{ color: "#6b7280", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>
-            SERVING SIZE (grams)
-          </Text>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
           <TextInput
-            style={{ height: 52, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-              backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 22,
-              textAlign: "center", color: "#eceef2" }}
+            style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+              backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
             value={grams} onChangeText={onGramsChange} keyboardType="numeric" selectTextOnFocus
           />
+          {[50, 100, 150, 200].map(q => (
+            <TouchableOpacity key={q} onPress={() => onGramsChange(String(q))}
+              style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
+                justifyContent: "center", borderWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+              <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
-      {/* Macro summary */}
+      {/* Estimated Nutrition */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ color: "#eceef2", fontSize: 15, fontWeight: "700" }}>Estimated Nutrition</Text>
+        <Text style={{ color: "#ff7a00", fontSize: 22, fontWeight: "800" }}>{cal} kcal</Text>
+      </View>
       <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
-        borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", padding: 16 }}>
+        borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", padding: 14 }}>
         {[
-          { l: "Calories", v: cal, u: "kcal" },
-          { l: "Protein", v: prot, u: "g" },
-          { l: "Carbs", v: carbs, u: "g" },
-          { l: "Fat", v: fat, u: "g" },
-          { l: "Fibre", v: fibre, u: "g" },
+          { l: "Prot", v: prot, green: false },
+          { l: "Carb", v: carbs, green: false },
+          { l: "Fat", v: fat, green: false },
+          { l: "Fib", v: fibre, green: true },
         ].map(s => (
           <View key={s.l} style={{ alignItems: "center" }}>
-            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "800" }}>{s.v}</Text>
-            <Text style={{ color: "#6b7280", fontSize: 10 }}>{s.u}</Text>
-            <Text style={{ color: "#6b7280", fontSize: 9 }}>{s.l}</Text>
+            <Text style={{ color: "#6b7280", fontSize: 10, marginBottom: 2 }}>{s.l}</Text>
+            <Text style={{ color: s.green ? "#10b981" : "#eceef2", fontSize: 15, fontWeight: "700" }}>{s.v}g</Text>
           </View>
         ))}
       </View>
 
       <TouchableOpacity onPress={onConfirm} disabled={isPending}
-        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12,
-          alignItems: "center", justifyContent: "center" }}>
-        {isPending
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
+        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+        {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
       </TouchableOpacity>
       <TouchableOpacity onPress={onBack} style={{ alignItems: "center", padding: 12 }}>
         <Text style={{ color: "#6b7280" }}>← Back</Text>
@@ -2652,6 +2641,14 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [customFat, setCustomFat] = useState("");
   const [customFibre, setCustomFibre] = useState("0");
   const [wholeSearch, setWholeSearch] = useState("");
+  const [wfSelectedFood, setWfSelectedFood] = useState<NormalizedFood | null>(null);
+  const [wfEntryMode, setWfEntryMode] = useState<"count" | "grams">("count");
+  const [wfCount, setWfCount] = useState(1);
+  const [wfSize, setWfSize] = useState<UnitSize>("medium");
+  const [wfGrams, setWfGrams] = useState("100");
+  const [barcodeResult, setBarcodeResult] = useState<NormalizedFood | null>(null);
+  const [barcodeGrams, setBarcodeGrams] = useState("100");
+  const [showBarcodeCamera, setShowBarcodeCamera] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
 
   useEffect(() => {
@@ -2670,7 +2667,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     setBarcodeCode(""); setBarcodeError(""); setCameraScanned(false);
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
-    setWholeSearch("");
+    setWholeSearch(""); setWfSelectedFood(null); setWfEntryMode("count"); setWfCount(1); setWfSize("medium"); setWfGrams("100");
+    setBarcodeResult(null); setBarcodeGrams("100"); setShowBarcodeCamera(false);
     setMealDropdownOpen(false);
   }
 
@@ -2711,8 +2709,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       try {
         const result = await apiFetch<any>(`/food/barcode/${code}`);
         if (result && (result.name || result.product_name)) {
-          setSelectedFood(normalizeFood(result, "off"));
-          setGrams("100");
+          setBarcodeResult(normalizeFood(result, "off"));
+          setBarcodeGrams("100");
           found = true;
         }
       } catch { /* fall through to OFF direct */ }
@@ -2735,9 +2733,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             fibrePer100g: n.fiber_100g ?? n.fibers_100g ?? n["fiber_100g"] ?? 0,
             sourceType: "off",
             offBarcode: code,
+            imageUrl: p.image_front_thumb_url || p.image_thumb_url || p.image_url || undefined,
           };
-          setSelectedFood(food);
-          setGrams("100");
+          setBarcodeResult(food);
+          setBarcodeGrams("100");
         } else {
           setBarcodeError("No food found for this barcode.");
           setCameraScanned(false);
@@ -2904,7 +2903,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           <View style={{ flexDirection: "row", marginHorizontal: 12, marginTop: 8, marginBottom: 4,
             backgroundColor: "#181c26", borderRadius: 10, padding: 3 }}>
             {MODAL_TABS.map(tab => (
-              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); setMealDropdownOpen(false); }}
+              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); setWfSelectedFood(null); setMealDropdownOpen(false); }}
                 style={{ flex: 1, paddingVertical: 7, alignItems: "center", borderRadius: 8,
                   backgroundColor: activeTab === tab.id ? "#2a2e3e" : "transparent" }}>
                 <Text style={{ color: activeTab === tab.id ? "#eceef2" : "#6b7280", fontSize: 11, fontWeight: "700" }}>{tab.label}</Text>
@@ -2929,6 +2928,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               )}
               {activeTab === "wholefood" && (
                 <View style={{ flex: 1 }}>
+                  {/* Search field — always visible */}
                   <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
                     <Text style={{ fontSize: 13, color: "#eceef2", fontWeight: "700", marginBottom: 8 }}>Search Ingredient</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 9,
@@ -2936,132 +2936,381 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                       <Feather name="search" size={15} color="#6b7280" />
                       <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
                         placeholder="Start typing (e.g. Chicken)..." placeholderTextColor="#6b7280"
-                        value={wholeSearch} onChangeText={setWholeSearch} />
-                      {wholeSearch.length > 0 && (
-                        <TouchableOpacity onPress={() => setWholeSearch("")}>
+                        value={wholeSearch}
+                        onChangeText={t => { setWholeSearch(t); setWfSelectedFood(null); }} />
+                      {(wholeSearch.length > 0 || wfSelectedFood) && (
+                        <TouchableOpacity onPress={() => { setWholeSearch(""); setWfSelectedFood(null); }}>
                           <Feather name="x" size={14} color="#6b7280" />
                         </TouchableOpacity>
                       )}
                     </View>
                     <View style={{ height: 10 }} />
                   </View>
-                  <FlatList
-                    data={CORE_FOODS.filter(f =>
-                      wholeSearch.length < 1 || f.name.toLowerCase().includes(wholeSearch.toLowerCase())
-                    )}
-                    keyExtractor={item => item.name}
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={{ padding: 12, paddingTop: 4, gap: 6 }}
-                    ListEmptyComponent={
-                      <Text style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>No match found</Text>
-                    }
-                    renderItem={({ item: wf }) => {
-                      const serving = wf.defaultGrams ?? 100;
-                      const r = serving / 100;
-                      const servingCal = Math.round(wf.caloriesPer100g * r);
-                      return (
-                        <TouchableOpacity key={wf.name}
-                          onPress={() => { setSelectedFood(wf); setGrams(String(serving)); }}
-                          style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
-                            backgroundColor: "#13161d", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28" }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{wf.name}</Text>
-                            <Text style={{ color: "#6b7280", fontSize: 11 }}>
-                              P{rd1(wf.proteinPer100g * r)}g · C{rd1(wf.carbsPer100g * r)}g · F{rd1(wf.fatPer100g * r)}g per {serving}g serving
+
+                  {wfSelectedFood ? (() => {
+                    const wfUnit = getCoreFoodUnit(wfSelectedFood.name);
+                    const wfG = parseFloat(wfGrams) || 100;
+                    const wfR = wfG / 100;
+                    const wfCal = Math.round(wfSelectedFood.caloriesPer100g * wfR);
+                    const wfProt = rd1(wfSelectedFood.proteinPer100g * wfR);
+                    const wfCarbs = rd1(wfSelectedFood.carbsPer100g * wfR);
+                    const wfFat = rd1(wfSelectedFood.fatPer100g * wfR);
+                    const wfFib = rd1(wfSelectedFood.fibrePer100g * wfR);
+                    return (
+                      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+                        {/* Amount + toggle */}
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                          <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700" }}>Amount</Text>
+                          {wfUnit && (
+                            <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: "#1a1e28" }}>
+                              {(["count", "grams"] as const).map(mode => (
+                                <TouchableOpacity key={mode} onPress={() => {
+                                  setWfEntryMode(mode);
+                                  if (mode === "grams" && wfUnit) {
+                                    setWfGrams(String(computeUnitGrams(wfUnit, wfCount, wfSize)));
+                                  }
+                                }}
+                                  style={{ paddingHorizontal: 16, paddingVertical: 7, backgroundColor: wfEntryMode === mode ? "#ff7a00" : "#181c26" }}>
+                                  <Text style={{ color: wfEntryMode === mode ? "#fff" : "#6b7280", fontWeight: "700", fontSize: 13 }}>
+                                    {mode === "count" ? "Count" : "Grams"}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+
+                        {wfEntryMode === "count" && wfUnit ? (
+                          <View style={{ gap: 12 }}>
+                            {wfUnit.supportsSize && wfUnit.gramsBySize && (
+                              <View style={{ gap: 6 }}>
+                                <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600" }}>Size</Text>
+                                <View style={{ flexDirection: "row", gap: 8 }}>
+                                  {(["small", "medium", "large"] as UnitSize[]).map(s => (
+                                    <TouchableOpacity key={s} onPress={() => {
+                                      setWfSize(s);
+                                      setWfGrams(String(computeUnitGrams(wfUnit, wfCount, s)));
+                                    }}
+                                      style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
+                                        borderWidth: 1,
+                                        borderColor: s === wfSize ? "#ff7a00" : "#1a1e28",
+                                        backgroundColor: s === wfSize ? "rgba(255,122,0,0.15)" : "#181c26" }}>
+                                      <Text style={{ color: s === wfSize ? "#eceef2" : "#6b7280", fontWeight: "700", fontSize: 13 }}>
+                                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                                      </Text>
+                                      <Text style={{ color: s === wfSize ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
+                                        {wfUnit.gramsBySize![s]}g
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
+                              </View>
+                            )}
+                            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600" }}>
+                              {wfUnit.unitLabel.charAt(0).toUpperCase() + wfUnit.unitLabel.slice(1)}s
                             </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 20 }}>
+                              <TouchableOpacity onPress={() => {
+                                const n = Math.max(1, wfCount - 1);
+                                setWfCount(n);
+                                setWfGrams(String(computeUnitGrams(wfUnit, n, wfSize)));
+                              }} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+                                <Text style={{ color: "#eceef2", fontSize: 28, fontWeight: "300", lineHeight: 30 }}>−</Text>
+                              </TouchableOpacity>
+                              <Text style={{ color: "#eceef2", fontSize: 32, fontWeight: "800", minWidth: 40, textAlign: "center" }}>{wfCount}</Text>
+                              <TouchableOpacity onPress={() => {
+                                const n = wfCount + 1;
+                                setWfCount(n);
+                                setWfGrams(String(computeUnitGrams(wfUnit, n, wfSize)));
+                              }} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+                                <Text style={{ color: "#ff7a00", fontSize: 28, fontWeight: "300", lineHeight: 30 }}>+</Text>
+                              </TouchableOpacity>
+                              <Text style={{ color: "#6b7280", fontSize: 13 }}>≈{wfGrams}g total</Text>
+                            </View>
                           </View>
-                          <Text style={{ color: "#ff7a00", fontWeight: "700", marginRight: 4 }}>{servingCal}</Text>
-                          <Text style={{ color: "#6b7280", fontSize: 11 }}>kcal</Text>
+                        ) : (
+                          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                            <TextInput
+                              style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                                backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
+                              value={wfGrams} onChangeText={setWfGrams} keyboardType="numeric" selectTextOnFocus
+                            />
+                            {[50, 100, 150, 200].map(q => (
+                              <TouchableOpacity key={q} onPress={() => setWfGrams(String(q))}
+                                style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
+                                  justifyContent: "center", borderWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+                                <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+
+                        {/* Estimated Nutrition */}
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                          <Text style={{ color: "#eceef2", fontSize: 15, fontWeight: "700" }}>Estimated Nutrition</Text>
+                          <Text style={{ color: "#ff7a00", fontSize: 22, fontWeight: "800" }}>{wfCal} kcal</Text>
+                        </View>
+                        <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
+                          borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", padding: 14 }}>
+                          {[
+                            { l: "Prot", v: wfProt, green: false },
+                            { l: "Carb", v: wfCarbs, green: false },
+                            { l: "Fat", v: wfFat, green: false },
+                            { l: "Fib", v: wfFib, green: true },
+                          ].map(s => (
+                            <View key={s.l} style={{ alignItems: "center" }}>
+                              <Text style={{ color: "#6b7280", fontSize: 10, marginBottom: 2 }}>{s.l}</Text>
+                              <Text style={{ color: s.green ? "#10b981" : "#eceef2", fontSize: 15, fontWeight: "700" }}>{s.v}g</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => addMut.mutate(buildPayload(wfSelectedFood!, wfGrams))}
+                          disabled={addMut.isPending}
+                          style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+                          {addMut.isPending
+                            ? <ActivityIndicator color="#fff" />
+                            : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
                         </TouchableOpacity>
-                      );
-                    }}
-                  />
+                      </ScrollView>
+                    );
+                  })() : (
+                    <FlatList
+                      data={CORE_FOODS.filter(f =>
+                        wholeSearch.length < 1 || f.name.toLowerCase().includes(wholeSearch.toLowerCase())
+                      )}
+                      keyExtractor={item => item.name}
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={{ padding: 12, paddingTop: 4, gap: 6 }}
+                      ListEmptyComponent={
+                        <Text style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>No match found</Text>
+                      }
+                      renderItem={({ item: wf }) => {
+                        const serving = wf.defaultGrams ?? 100;
+                        const r = serving / 100;
+                        const servingCal = Math.round(wf.caloriesPer100g * r);
+                        return (
+                          <TouchableOpacity key={wf.name}
+                            onPress={() => {
+                              const unit = getCoreFoodUnit(wf.name);
+                              const initGrams = unit
+                                ? String(computeUnitGrams(unit, unit.defaultCount, unit.defaultSize ?? "medium"))
+                                : String(serving);
+                              setWfSelectedFood(wf);
+                              setWfEntryMode(unit ? "count" : "grams");
+                              setWfCount(unit?.defaultCount ?? 1);
+                              setWfSize(unit?.defaultSize ?? "medium");
+                              setWfGrams(initGrams);
+                              setWholeSearch(wf.name);
+                            }}
+                            style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                              backgroundColor: "#13161d", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28" }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>{wf.name}</Text>
+                              <Text style={{ color: "#6b7280", fontSize: 11 }}>
+                                P{rd1(wf.proteinPer100g * r)}g · C{rd1(wf.carbsPer100g * r)}g · F{rd1(wf.fatPer100g * r)}g per {serving}g serving
+                              </Text>
+                            </View>
+                            <Text style={{ color: "#ff7a00", fontWeight: "700", marginRight: 4 }}>{servingCal}</Text>
+                            <Text style={{ color: "#6b7280", fontSize: 11 }}>kcal</Text>
+                          </TouchableOpacity>
+                        );
+                      }}
+                    />
+                  )}
                 </View>
               )}
               {activeTab === "barcode" && (
-                <View style={{ flex: 1 }}>
-                  {!cameraPermission ? (
-                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 16 }}>
-                      <ActivityIndicator color="#ff7a00" />
-                    </View>
-                  ) : !cameraPermission.granted ? (
-                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 20 }}>
-                      <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: "#ff7a0022", alignItems: "center", justifyContent: "center" }}>
-                        <Feather name="camera" size={32} color="#ff7a00" />
-                      </View>
-                      <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 17, textAlign: "center" }}>Camera Access Required</Text>
-                      <Text style={{ color: "#9ca3af", fontSize: 14, textAlign: "center", lineHeight: 20 }}>
-                        Allow PRFMR to use your camera to scan product barcodes.
-                      </Text>
-                      <TouchableOpacity onPress={requestCameraPermission}
-                        style={{ backgroundColor: "#ff7a00", paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 }}>
-                        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Allow Camera</Text>
+                <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+                  {/* Barcode input row */}
+                  <View>
+                    <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "700", marginBottom: 8 }}>Barcode</Text>
+                    <View style={{ flexDirection: "row", gap: 10 }}>
+                      <TextInput
+                        style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                          backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 15, color: "#eceef2" }}
+                        placeholder="e.g. 5000112548167" placeholderTextColor="#6b7280"
+                        value={barcodeCode}
+                        onChangeText={t => { setBarcodeCode(t); setCameraScanned(false); setBarcodeError(""); setBarcodeResult(null); }}
+                        keyboardType="number-pad" returnKeyType="search" onSubmitEditing={() => lookupBarcode()}
+                      />
+                      <TouchableOpacity onPress={() => lookupBarcode()} disabled={barcodeLoading || !barcodeCode.trim()}
+                        style={{ height: 48, paddingHorizontal: 20, borderRadius: 10, alignItems: "center",
+                          justifyContent: "center", backgroundColor: barcodeCode.trim() ? "#ff7a00" : "#181c26" }}>
+                        {barcodeLoading
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={{ color: barcodeCode.trim() ? "#fff" : "#6b7280", fontWeight: "700" }}>Lookup</Text>}
                       </TouchableOpacity>
                     </View>
-                  ) : (
-                    <View style={{ flex: 1 }}>
-                      <View style={{ position: "relative", height: 280, backgroundColor: "#000", overflow: "hidden" }}>
-                        <CameraView
-                          style={StyleSheet.absoluteFillObject}
-                          facing="back"
-                          barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "qr"] }}
-                          onBarcodeScanned={cameraScanned ? undefined : handleBarcodeScanned}
-                        />
-                        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                  </View>
+
+                  {/* Scan Barcode button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!cameraPermission?.granted) { requestCameraPermission(); }
+                      else { setShowBarcodeCamera(v => !v); }
+                    }}
+                    style={{ height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center",
+                      borderWidth: 1, borderColor: "#eceef2", backgroundColor: "transparent" }}>
+                    <Text style={{ color: "#eceef2", fontWeight: "700" }}>
+                      {showBarcodeCamera ? "Hide Camera" : "Scan Barcode"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Show Scanner Debug toggle */}
+                  <TouchableOpacity onPress={() => setShowBarcodeCamera(v => !v)} style={{ alignSelf: "flex-start", marginTop: -6 }}>
+                    <Text style={{ color: "#6b7280", fontSize: 12 }}>
+                      {showBarcodeCamera ? "Hide Scanner Debug" : "Show Scanner Debug"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Camera view */}
+                  {showBarcodeCamera && (
+                    <View style={{ height: 240, borderRadius: 12, overflow: "hidden", backgroundColor: "#000" }}>
+                      <CameraView
+                        style={StyleSheet.absoluteFillObject}
+                        facing="back"
+                        barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "qr"] }}
+                        onBarcodeScanned={cameraScanned ? undefined : handleBarcodeScanned}
+                      />
+                      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
+                        <View style={{ flexDirection: "row", height: 120 }}>
                           <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
-                          <View style={{ flexDirection: "row", height: 160 }}>
-                            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
-                            <View style={{ width: 240, borderWidth: 2, borderColor: "#ff7a00", borderRadius: 4 }}>
-                              <View style={{ position: "absolute", top: -2, left: -2, width: 20, height: 20, borderTopWidth: 3, borderLeftWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
-                              <View style={{ position: "absolute", top: -2, right: -2, width: 20, height: 20, borderTopWidth: 3, borderRightWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
-                              <View style={{ position: "absolute", bottom: -2, left: -2, width: 20, height: 20, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
-                              <View style={{ position: "absolute", bottom: -2, right: -2, width: 20, height: 20, borderBottomWidth: 3, borderRightWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
-                            </View>
-                            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
+                          <View style={{ width: 200, borderWidth: 2, borderColor: "#ff7a00", borderRadius: 4 }}>
+                            <View style={{ position: "absolute", top: -2, left: -2, width: 18, height: 18, borderTopWidth: 3, borderLeftWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                            <View style={{ position: "absolute", top: -2, right: -2, width: 18, height: 18, borderTopWidth: 3, borderRightWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                            <View style={{ position: "absolute", bottom: -2, left: -2, width: 18, height: 18, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
+                            <View style={{ position: "absolute", bottom: -2, right: -2, width: 18, height: 18, borderBottomWidth: 3, borderRightWidth: 3, borderColor: "#ff7a00", borderRadius: 3 }} />
                           </View>
                           <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
                         </View>
-                        {(cameraScanned || barcodeLoading) && (
-                          <View style={{ position: "absolute", bottom: 16, left: 0, right: 0, alignItems: "center" }}>
-                            <View style={{ backgroundColor: "rgba(0,0,0,0.8)", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                              <ActivityIndicator size="small" color="#ff7a00" />
-                              <Text style={{ color: "#eceef2", fontSize: 13 }}>Looking up barcode…</Text>
-                            </View>
-                          </View>
-                        )}
-                        {!cameraScanned && !barcodeLoading && (
-                          <View style={{ position: "absolute", bottom: 16, left: 0, right: 0, alignItems: "center" }}>
-                            <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>Point at any food barcode</Text>
-                          </View>
-                        )}
+                        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }} />
                       </View>
-                      <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
-                        <Text style={{ color: "#6b7280", fontSize: 12, textAlign: "center" }}>— or enter barcode manually —</Text>
-                        <View style={{ flexDirection: "row", gap: 10 }}>
-                          <TextInput
-                            style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-                              backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 16, color: "#eceef2" }}
-                            placeholder="e.g. 5000112548167" placeholderTextColor="#6b7280"
-                            value={barcodeCode} onChangeText={t => { setBarcodeCode(t); setCameraScanned(false); setBarcodeError(""); }}
-                            keyboardType="number-pad" returnKeyType="search" onSubmitEditing={() => lookupBarcode()}
-                          />
-                          <TouchableOpacity onPress={() => lookupBarcode()} disabled={barcodeLoading || !barcodeCode.trim()}
-                            style={{ height: 48, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
-                              justifyContent: "center", backgroundColor: barcodeCode.trim() ? "#ff7a00" : "#181c26" }}>
-                            {barcodeLoading
-                              ? <ActivityIndicator color="#fff" size="small" />
-                              : <Text style={{ color: barcodeCode.trim() ? "#fff" : "#6b7280", fontWeight: "700" }}>Lookup</Text>}
-                          </TouchableOpacity>
-                        </View>
-                        {!!barcodeError && (
-                          <View style={{ backgroundColor: "#f8717122", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#f8717144" }}>
-                            <Text style={{ color: "#f87171", fontSize: 14 }}>{barcodeError}</Text>
+                      {(cameraScanned || barcodeLoading) ? (
+                        <View style={{ position: "absolute", bottom: 12, left: 0, right: 0, alignItems: "center" }}>
+                          <View style={{ backgroundColor: "rgba(0,0,0,0.8)", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <ActivityIndicator size="small" color="#ff7a00" />
+                            <Text style={{ color: "#eceef2", fontSize: 12 }}>Looking up barcode…</Text>
                           </View>
-                        )}
-                      </ScrollView>
+                        </View>
+                      ) : (
+                        <View style={{ position: "absolute", bottom: 12, left: 0, right: 0, alignItems: "center" }}>
+                          <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>Point at any food barcode</Text>
+                        </View>
+                      )}
                     </View>
                   )}
-                </View>
+
+                  {/* Error */}
+                  {!!barcodeError && (
+                    <View style={{ backgroundColor: "#f8717122", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#f8717144" }}>
+                      <Text style={{ color: "#f87171", fontSize: 14 }}>{barcodeError}</Text>
+                    </View>
+                  )}
+
+                  {/* Inline result card */}
+                  {barcodeResult && (() => {
+                    const bcG = parseFloat(barcodeGrams) || 100;
+                    const bcCalPer100 = Math.round(barcodeResult.caloriesPer100g);
+                    const mappedIngredient = barcodeResult.ingredientIndex != null
+                      ? INGREDIENTS_DATA[barcodeResult.ingredientIndex]?.name
+                      : null;
+                    return (
+                      <View style={{ gap: 12 }}>
+                        <View style={{ height: 1, backgroundColor: "#1a1e28" }} />
+
+                        {/* Product header */}
+                        <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
+                          {barcodeResult.imageUrl ? (
+                            <Image source={{ uri: barcodeResult.imageUrl }}
+                              style={{ width: 60, height: 60, borderRadius: 8, backgroundColor: "#1a1e28" }} />
+                          ) : (
+                            <View style={{ width: 60, height: 60, borderRadius: 8, backgroundColor: "#1a1e28",
+                              alignItems: "center", justifyContent: "center" }}>
+                              <Feather name="package" size={24} color="#6b7280" />
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: "#eceef2", fontSize: 15, fontWeight: "700" }}>{barcodeResult.name}</Text>
+                            {barcodeResult.brand
+                              ? <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>{barcodeResult.brand}</Text>
+                              : null}
+                          </View>
+                        </View>
+
+                        {/* Amount input */}
+                        <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>Amount (grams)</Text>
+                        <TextInput
+                          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                            backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
+                          value={barcodeGrams} onChangeText={setBarcodeGrams} keyboardType="numeric" selectTextOnFocus
+                        />
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          {[50, 100, 150, 200].map(q => (
+                            <TouchableOpacity key={q} onPress={() => setBarcodeGrams(String(q))}
+                              style={{ flex: 1, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center",
+                                borderWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+                              <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>{q}g</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+
+                        {/* Nutrition per 100g */}
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                          <Text style={{ color: "#6b7280", fontSize: 13 }}>Nutrition per 100g</Text>
+                          <Text style={{ color: "#ff7a00", fontSize: 18, fontWeight: "800" }}>{bcCalPer100} kcal</Text>
+                        </View>
+                        <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
+                          borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", padding: 14 }}>
+                          {[
+                            { l: "Prot", v: rd1(barcodeResult.proteinPer100g), green: false },
+                            { l: "Carb", v: rd1(barcodeResult.carbsPer100g), green: false },
+                            { l: "Fat", v: rd1(barcodeResult.fatPer100g), green: false },
+                            { l: "Fib", v: rd1(barcodeResult.fibrePer100g), green: true },
+                          ].map(s => (
+                            <View key={s.l} style={{ alignItems: "center" }}>
+                              <Text style={{ color: "#6b7280", fontSize: 10, marginBottom: 2 }}>{s.l}</Text>
+                              <Text style={{ color: s.green ? "#10b981" : "#eceef2", fontSize: 14, fontWeight: "700" }}>{s.v}g</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {/* Micros Source */}
+                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                          backgroundColor: "#13161d", padding: 14, gap: 8 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                            <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
+                            <TouchableOpacity>
+                              <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change</Text>
+                            </TouchableOpacity>
+                          </View>
+                          {mappedIngredient ? (
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Feather name="check" size={14} color="#10b981" />
+                              <Text style={{ color: "#6b7280", fontSize: 13 }}>Mapped to: </Text>
+                              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>{mappedIngredient}</Text>
+                            </View>
+                          ) : (
+                            <Text style={{ color: "#4b5563", fontSize: 12 }}>No micronutrient mapping available</Text>
+                          )}
+                        </View>
+
+                        {/* Add to Log */}
+                        <TouchableOpacity
+                          onPress={() => addMut.mutate(buildPayload(barcodeResult!, barcodeGrams))}
+                          disabled={addMut.isPending}
+                          style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12,
+                            alignItems: "center", justifyContent: "center" }}>
+                          {addMut.isPending
+                            ? <ActivityIndicator color="#fff" />
+                            : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add to Log</Text>}
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })()}
+                </ScrollView>
               )}
               {activeTab === "custom" && (
                 <MealCustomTab
