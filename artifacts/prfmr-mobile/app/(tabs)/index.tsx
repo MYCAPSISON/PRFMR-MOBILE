@@ -2691,6 +2691,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [wfSize, setWfSize] = useState<UnitSize>("medium");
   const [wfGrams, setWfGrams] = useState("100");
   const [barcodeResult, setBarcodeResult] = useState<NormalizedFood | null>(null);
+  const [barcodeRaw, setBarcodeRaw] = useState<any>(null);
+  const [barcodeLastCode, setBarcodeLastCode] = useState("");
+  // "auto" = high-confidence auto-applied, "user" = user selected, "skipped" = user skipped, null = needs input
+  const [barcodeMapState, setBarcodeMapState] = useState<"auto" | "user" | "skipped" | null>(null);
+  const [barcodeMapIngredient, setBarcodeMapIngredient] = useState<{ index: number; name: string } | null>(null);
+  const [barcodeMapSearch, setBarcodeMapSearch] = useState("");
+  const [barcodeMapSaving, setBarcodeMapSaving] = useState(false);
   const [barcodeGrams, setBarcodeGrams] = useState("100");
   const [showBarcodeCamera, setShowBarcodeCamera] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
@@ -2712,7 +2719,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     setCustomName(""); setCustomGrams("100"); setCustomCal("");
     setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
     setWholeSearch(""); setWfSelectedFood(null); setWfEntryMode("count"); setWfCount(1); setWfSize("medium"); setWfGrams("100");
-    setBarcodeResult(null); setBarcodeGrams("100"); setShowBarcodeCamera(false);
+    setBarcodeResult(null); setBarcodeRaw(null); setBarcodeLastCode(""); setBarcodeMapState(null);
+    setBarcodeMapIngredient(null); setBarcodeMapSearch(""); setBarcodeGrams("100"); setShowBarcodeCamera(false);
     setMealDropdownOpen(false);
   }
 
@@ -2748,18 +2756,59 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     const code = (overrideCode ?? barcodeCode).trim();
     if (!code) return;
     setBarcodeLoading(true); setBarcodeError("");
+    setBarcodeResult(null); setBarcodeRaw(null); setBarcodeLastCode(code);
+    setBarcodeMapState(null); setBarcodeMapIngredient(null); setBarcodeMapSearch("");
     try {
-      let found = false;
-      try {
-        const result = await apiFetch<any>(`/food/barcode/${code}`);
-        if (result && (result.name || result.product_name)) {
-          setBarcodeResult(normalizeFood(result, "off"));
-          setBarcodeGrams("100");
-          found = true;
+      const result = await apiFetch<any>(`/food/barcode/${code}`);
+      if (result?.found && result?.off) {
+        // Server response: { found, barcode, off, mapping, suggestions, computedDefaults }
+        const { off, mapping, suggestions } = result;
+        const food: NormalizedFood = {
+          name: off.name,
+          brand: off.brand ?? undefined,
+          caloriesPer100g: off.macros_per_100g?.kcal ?? 0,
+          proteinPer100g: off.macros_per_100g?.protein ?? 0,
+          carbsPer100g: off.macros_per_100g?.carbs ?? 0,
+          fatPer100g: off.macros_per_100g?.fat ?? 0,
+          fibrePer100g: off.macros_per_100g?.fibre ?? 0,
+          sourceType: "off",
+          offBarcode: code,
+          imageUrl: off.image_url ?? undefined,
+        };
+        setBarcodeRaw(result);
+        setBarcodeGrams("100");
+        if (mapping) {
+          // Already verified server-side mapping
+          food.ingredientIndex = mapping.ingredientIndex;
+          setBarcodeMapIngredient({ index: mapping.ingredientIndex, name: mapping.ingredientName });
+          setBarcodeMapState(mapping.verifiedByUser ? "user" : "auto");
+        } else if (suggestions?.best?.confidence === "high") {
+          // Auto-apply high-confidence match
+          food.ingredientIndex = suggestions.best.ingredientIndex;
+          setBarcodeMapIngredient({ index: suggestions.best.ingredientIndex, name: suggestions.best.ingredientName });
+          setBarcodeMapState("auto");
         }
-      } catch { /* fall through to OFF direct */ }
-
-      if (!found) {
+        // medium/low/none → barcodeMapState stays null (needs user input)
+        setBarcodeResult(food);
+      } else if (result?.found && result?.custom) {
+        // Custom food from app's own DB
+        const c = result.custom;
+        const m = c.macros_per_100g ?? {};
+        const food: NormalizedFood = {
+          name: c.name, brand: c.brand ?? undefined,
+          caloriesPer100g: m.kcal ?? 0, proteinPer100g: m.protein ?? 0,
+          carbsPer100g: m.carbs ?? 0, fatPer100g: m.fat ?? 0, fibrePer100g: m.fibre ?? 0,
+          sourceType: "off", offBarcode: code,
+        };
+        setBarcodeResult(food);
+        setBarcodeGrams(c.servingSizeG ? String(c.servingSizeG) : "100");
+      } else {
+        setBarcodeError("No food found for this barcode.");
+        setCameraScanned(false);
+      }
+    } catch {
+      // API failed — fall back to direct OFF fetch
+      try {
         const offResp = await fetch(
           `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`
         );
@@ -2767,31 +2816,49 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
         if (offData?.status === 1 && offData?.product) {
           const p = offData.product;
           const n = p.nutriments ?? {};
-          const food: NormalizedFood = {
+          const kcal = n["energy-kcal_100g"] ?? (n["energy_100g"] ? n["energy_100g"] / 4.184 : 0);
+          setBarcodeResult({
             name: p.product_name_en || p.product_name || p.abbreviated_product_name || "Unknown product",
             brand: p.brands || undefined,
-            caloriesPer100g: n["energy-kcal_100g"] ?? n["energy_100g"] ? (n["energy_100g"] ?? 0) / 4.184 : 0,
-            proteinPer100g: n.proteins_100g ?? 0,
-            carbsPer100g: n.carbohydrates_100g ?? 0,
-            fatPer100g: n.fat_100g ?? 0,
-            fibrePer100g: n.fiber_100g ?? n.fibers_100g ?? n["fiber_100g"] ?? 0,
-            sourceType: "off",
-            offBarcode: code,
+            caloriesPer100g: kcal, proteinPer100g: n.proteins_100g ?? 0,
+            carbsPer100g: n.carbohydrates_100g ?? 0, fatPer100g: n.fat_100g ?? 0,
+            fibrePer100g: n.fiber_100g ?? n.fibers_100g ?? 0,
+            sourceType: "off", offBarcode: code,
             imageUrl: p.image_front_thumb_url || p.image_thumb_url || p.image_url || undefined,
-          };
-          setBarcodeResult(food);
+          });
           setBarcodeGrams("100");
         } else {
           setBarcodeError("No food found for this barcode.");
           setCameraScanned(false);
         }
+      } catch (err: any) {
+        setBarcodeError(err?.message ?? "Barcode lookup failed");
+        setCameraScanned(false);
       }
-    } catch (err: any) {
-      setBarcodeError(err?.message ?? "Barcode lookup failed");
-      setCameraScanned(false);
     } finally {
       setBarcodeLoading(false);
     }
+  }
+
+  async function saveMapping(ingredientIndex: number, ingredientName: string) {
+    setBarcodeMapSaving(true);
+    try {
+      await apiFetch(`/food/barcode/${barcodeLastCode}/map`, {
+        method: "POST",
+        body: {
+          ingredientIndex,
+          offName: barcodeRaw?.off?.name,
+          offBrand: barcodeRaw?.off?.brand,
+          verifiedByUser: true,
+        },
+      });
+    } catch { /* silent — still apply locally */ }
+    // Apply mapping to current result regardless of save success
+    setBarcodeMapIngredient({ index: ingredientIndex, name: ingredientName });
+    setBarcodeMapState("user");
+    setBarcodeMapSearch("");
+    if (barcodeResult) setBarcodeResult({ ...barcodeResult, ingredientIndex });
+    setBarcodeMapSaving(false);
   }
 
   function handleBarcodeScanned({ data }: { data: string }) {
@@ -3256,11 +3323,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
                   {/* Inline result card */}
                   {barcodeResult && (() => {
-                    const bcG = parseFloat(barcodeGrams) || 100;
                     const bcCalPer100 = Math.round(barcodeResult.caloriesPer100g);
-                    const mappedIngredient = barcodeResult.ingredientIndex != null
-                      ? INGREDIENTS_DATA[barcodeResult.ingredientIndex]?.name
-                      : null;
                     return (
                       <View style={{ gap: 12 }}>
                         <View style={{ height: 1, backgroundColor: "#1a1e28" }} />
@@ -3321,26 +3384,99 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           ))}
                         </View>
 
-                        {/* Micros Source */}
+                        {/* Micros Source — 3 states: mapped / skipped / unmapped */}
                         <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-                          backgroundColor: "#13161d", padding: 14, gap: 8 }}>
+                          backgroundColor: "#13161d", padding: 14, gap: 10 }}>
+                          {/* Header row */}
                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                             <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
-                            <TouchableOpacity>
-                              <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change</Text>
-                            </TouchableOpacity>
+                            {barcodeMapState === "auto" || barcodeMapState === "user" ? (
+                              <TouchableOpacity onPress={() => { setBarcodeMapState(null); setBarcodeMapIngredient(null); setBarcodeMapSearch(""); }}>
+                                <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change</Text>
+                              </TouchableOpacity>
+                            ) : null}
                           </View>
-                          {mappedIngredient ? (
+
+                          {/* State 1: Mapped (auto or user-selected) */}
+                          {(barcodeMapState === "auto" || barcodeMapState === "user") && barcodeMapIngredient ? (
                             <View style={{ gap: 4 }}>
                               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                                 <Feather name="check" size={14} color="#10b981" />
                                 <Text style={{ color: "#10b981", fontSize: 13 }}>Mapped to: </Text>
-                                <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>{mappedIngredient}</Text>
+                                <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "700" }}>{barcodeMapIngredient.name}</Text>
                               </View>
-                              <Text style={{ color: "#4b5563", fontSize: 12 }}>Mapped automatically</Text>
+                              <Text style={{ color: "#4b5563", fontSize: 12 }}>
+                                {barcodeMapState === "auto" ? "Mapped automatically" : "Mapped by you"}
+                              </Text>
+                            </View>
+                          ) : barcodeMapState === "skipped" ? (
+                            /* State 2: Skipped */
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                              <Text style={{ color: "#4b5563", fontSize: 13, fontStyle: "italic", flex: 1 }}>Skipped (macros only)</Text>
+                              <TouchableOpacity onPress={() => setBarcodeMapState(null)}>
+                                <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "600" }}>Enable micros</Text>
+                              </TouchableOpacity>
                             </View>
                           ) : (
-                            <Text style={{ color: "#4b5563", fontSize: 12 }}>No micronutrient mapping available</Text>
+                            /* State 3: Unmapped — show suggestion chips + live search */
+                            <View style={{ gap: 10 }}>
+                              {/* Suggestion chips (up to 3 from suggestions.top) */}
+                              {barcodeRaw?.suggestions?.top?.slice(0, 3).map((s: any, i: number) => {
+                                const chipColor = s.confidence === "high" ? "#10b981" : s.confidence === "medium" ? "#f59e0b" : "#4b5563";
+                                return (
+                                  <TouchableOpacity key={i}
+                                    onPress={() => saveMapping(s.ingredientIndex, s.ingredientName)}
+                                    disabled={barcodeMapSaving}
+                                    style={{ borderRadius: 8, borderWidth: 1, borderColor: chipColor + "55",
+                                      backgroundColor: chipColor + "11", padding: 10, gap: 2 }}>
+                                    <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "700" }}>{s.ingredientName}</Text>
+                                    {(s.confidence === "medium" || s.confidence === "low") && s.reasons?.length > 0 && (
+                                      <Text style={{ color: "#6b7280", fontSize: 11 }}>{s.reasons.slice(0, 2).join(" · ")}</Text>
+                                    )}
+                                    <Text style={{ color: chipColor, fontSize: 10, fontWeight: "600", textTransform: "uppercase", marginTop: 2 }}>
+                                      {s.confidence} confidence
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+
+                              {/* Live ingredient search */}
+                              <TextInput
+                                style={{ height: 40, borderRadius: 8, borderWidth: 1, borderColor: "#2a2e3a",
+                                  backgroundColor: "#181c26", paddingHorizontal: 12, fontSize: 14, color: "#eceef2" }}
+                                placeholder="Search ingredients…" placeholderTextColor="#6b7280"
+                                value={barcodeMapSearch} onChangeText={setBarcodeMapSearch}
+                              />
+                              {barcodeMapSearch.length >= 2 && (
+                                <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden" }}>
+                                  {INGREDIENTS_DATA.filter(ing =>
+                                    ing.name.toLowerCase().includes(barcodeMapSearch.toLowerCase())
+                                  ).slice(0, 10).map((ing, i) => (
+                                    <TouchableOpacity key={i}
+                                      onPress={() => saveMapping(INGREDIENTS_DATA.indexOf(ing), ing.name)}
+                                      disabled={barcodeMapSaving}
+                                      style={{ paddingHorizontal: 12, paddingVertical: 10,
+                                        borderBottomWidth: i < 9 ? 1 : 0, borderBottomColor: "#1a1e28",
+                                        backgroundColor: "#13161d" }}>
+                                      <Text style={{ color: "#eceef2", fontSize: 13 }}>{ing.name}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                  {INGREDIENTS_DATA.filter(ing =>
+                                    ing.name.toLowerCase().includes(barcodeMapSearch.toLowerCase())
+                                  ).length === 0 && (
+                                    <View style={{ padding: 12 }}>
+                                      <Text style={{ color: "#4b5563", fontSize: 13 }}>No matches</Text>
+                                    </View>
+                                  )}
+                                </View>
+                              )}
+
+                              {/* Skip link */}
+                              <TouchableOpacity onPress={() => { setBarcodeMapState("skipped"); setBarcodeMapSearch(""); }}
+                                style={{ alignItems: "center", paddingVertical: 4 }}>
+                                <Text style={{ color: "#4b5563", fontSize: 12 }}>Skip micros (log macros only)</Text>
+                              </TouchableOpacity>
+                            </View>
                           )}
                         </View>
 
