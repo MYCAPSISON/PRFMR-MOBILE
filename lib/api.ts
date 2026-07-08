@@ -30,6 +30,14 @@ if (__DEV__) {
 // value in a custom X-CSRF-Token header if the server ever requires it.
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// Auth error callback — called on 401 so AuthContext can clear state
+// ─────────────────────────────────────────────────────────────
+let _authErrorCallback: (() => void) | null = null;
+export function setAuthErrorCallback(fn: () => void): void {
+  _authErrorCallback = fn;
+}
+
 // JS-visible cookie jar: stores cookies that aren't HttpOnly.
 // Used for debugging and for sending CSRF tokens on mutations.
 // Does NOT store connect.sid (HttpOnly — invisible to JS).
@@ -236,10 +244,22 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}`;
     try {
-      const errorData = await response.json();
+      const rawText = await response.text();
+      if (__DEV__) {
+        console.error("[api] Raw error body:", method, path, response.status, rawText);
+      }
+      const errorData = rawText ? JSON.parse(rawText) : {};
       errorMessage = errorData.message ?? errorData.error ?? errorMessage;
+      if (__DEV__ && errorData.issues) {
+        console.error("[api] Validation issues:", JSON.stringify(errorData.issues));
+      }
     } catch { /* ignore */ }
     console.error("[api] Error:", method, path, response.status, errorMessage);
+    // On 401, notify AuthContext to clear the stale session — but skip auth
+    // routes themselves to prevent infinite loops during login/logout checks.
+    if (response.status === 401 && !path.startsWith("/auth/") && path !== "/user/me") {
+      _authErrorCallback?.();
+    }
     throw new Error(errorMessage);
   }
 

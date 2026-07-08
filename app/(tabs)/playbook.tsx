@@ -69,8 +69,8 @@ export default function PlaybookScreen() {
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 }]}
     >
       <View style={{ marginBottom: 8 }}>
-        <Text style={[styles.title, { color: colors.foreground }]}>The Playbook</Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 14, marginTop: 4 }}>
+        <Text style={[styles.title, { color: colors.foreground, fontFamily: colors.fonts.display }]}>The Playbook</Text>
+        <Text style={{ color: colors.mutedForeground, fontSize: 14, marginTop: 4, fontFamily: colors.fonts.sans }}>
           Core principles for combat sports performance. No fluff, just science.
         </Text>
       </View>
@@ -91,11 +91,11 @@ export default function PlaybookScreen() {
               <View style={[styles.iconBox, { backgroundColor: colors.primary + "22" }]}>
                 <Feather name={section.icon} size={18} color={colors.primary} />
               </View>
-              <Text style={[styles.cardTitle, { color: colors.foreground, flex: 1 }]}>{section.title}</Text>
+              <Text style={[styles.cardTitle, { color: colors.foreground, flex: 1, fontFamily: colors.fonts.sansSb }]}>{section.title}</Text>
               <Feather name={isOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
             </View>
             {isOpen && (
-              <Text style={{ color: colors.mutedForeground, fontSize: 14, lineHeight: 22, marginTop: 8 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 14, lineHeight: 22, marginTop: 8, fontFamily: colors.fonts.sans }}>
                 {section.content}
               </Text>
             )}
@@ -103,7 +103,7 @@ export default function PlaybookScreen() {
         );
       })}
 
-      <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "center", marginTop: 16, lineHeight: 18 }}>
+      <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "center", marginTop: 16, lineHeight: 18, fontFamily: colors.fonts.sans }}>
         This information is for educational purposes only and does not constitute medical advice. Consult a healthcare professional before making significant changes to your diet or exercise programme.
       </Text>
     </ScrollView>

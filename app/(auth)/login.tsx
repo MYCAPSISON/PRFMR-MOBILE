@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Image,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -46,96 +48,120 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    <ImageBackground
+      source={require("@/assets/stock-images/fight_action_1.jpg")}
+      style={{ flex: 1 }}
+      resizeMode="cover"
     >
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 32 },
-        ]}
-        keyboardShouldPersistTaps="handled"
+      <View style={styles.overlay} />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View style={styles.header}>
-          <View style={[styles.logoBox, { borderColor: colors.primary + "66", backgroundColor: colors.primary + "22" }]}>
-            <Text style={[styles.logoText, { color: colors.primary }]}>P</Text>
-          </View>
-          <Text style={[styles.appName, { color: colors.foreground }]}>PRFMR</Text>
-          <Text style={[styles.tagline, { color: colors.mutedForeground }]}>
-            Elite Performance Tracking
-          </Text>
-        </View>
-
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-          <Text style={[styles.title, { color: colors.foreground }]}>Sign In</Text>
-
-          {error ? (
-            <View style={[styles.errorBox, { backgroundColor: colors.destructive + "22", borderColor: colors.destructive + "44" }]}>
-              <Feather name="alert-circle" size={14} color={colors.destructive} />
-              <Text style={[styles.errorText, { color: colors.destructive }]}>{error}</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.field}>
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>EMAIL OR USERNAME</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="your@email.com or username"
-              placeholderTextColor={colors.mutedForeground}
-              keyboardType="default"
-              autoCapitalize="none"
-              autoComplete="email"
+        <ScrollView
+          contentContainerStyle={[
+            styles.container,
+            { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 32 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Image
+              source={require("@/assets/logo-main.png")}
+              style={styles.logo}
+              resizeMode="contain"
             />
+            <Text style={[styles.tagline, { color: "rgba(255,255,255,0.6)" }]}>
+              Elite Performance Tracking
+            </Text>
           </View>
 
-          <View style={styles.field}>
-            <Text style={[styles.label, { color: colors.mutedForeground }]}>PASSWORD</Text>
-            <View style={styles.passwordRow}>
+          <View style={[styles.card, { backgroundColor: "rgba(13,16,23,0.92)", borderColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.foreground, fontFamily: colors.fonts.display }]}>
+              Sign In
+            </Text>
+
+            {error ? (
+              <View style={[styles.errorBox, { backgroundColor: colors.destructive + "22", borderColor: colors.destructive + "44" }]}>
+                <Feather name="alert-circle" size={14} color={colors.destructive} />
+                <Text style={[styles.errorText, { color: colors.destructive, fontFamily: colors.fonts.sans }]}>{error}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                EMAIL OR USERNAME
+              </Text>
               <TextInput
-                style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
+                style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="your@email.com or username"
                 placeholderTextColor={colors.mutedForeground}
-                secureTextEntry={!showPassword}
-                autoComplete="password"
+                keyboardType="default"
+                autoCapitalize="none"
+                autoComplete="email"
               />
-              <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
-              </Pressable>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                PASSWORD
+              </Text>
+              <View style={styles.passwordRow}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.mutedForeground}
+                  secureTextEntry={!showPassword}
+                  autoComplete="password"
+                />
+                <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                  <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: loading ? 0.7 : 1 }]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.primaryForeground} />
+              ) : (
+                <Text style={[styles.btnText, { color: colors.primaryForeground, fontFamily: colors.fonts.sansBd }]}>
+                  Sign In
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.signupRow}>
+              <Text style={[styles.signupText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
+                No account?{" "}
+              </Text>
+              <Link href="/(auth)/signup" asChild>
+                <Pressable>
+                  <Text style={[styles.signupLink, { color: colors.primary, fontFamily: colors.fonts.sansBd }]}>
+                    Sign Up
+                  </Text>
+                </Pressable>
+              </Link>
             </View>
           </View>
-
-          <TouchableOpacity
-            style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: loading ? 0.7 : 1 }]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.primaryForeground} />
-            ) : (
-              <Text style={[styles.btnText, { color: colors.primaryForeground }]}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.signupRow}>
-            <Text style={[styles.signupText, { color: colors.mutedForeground }]}>No account? </Text>
-            <Link href="/(auth)/signup" asChild>
-              <Pressable>
-                <Text style={[styles.signupLink, { color: colors.primary }]}>Sign Up</Text>
-              </Pressable>
-            </Link>
-          </View>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
@@ -143,34 +169,21 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 36,
   },
-  logoBox: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 36,
-    fontWeight: "900",
-  },
-  appName: {
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: 4,
+  logo: {
+    height: 44,
+    width: 160,
+    marginBottom: 12,
   },
   tagline: {
     fontSize: 13,
-    marginTop: 6,
     letterSpacing: 1,
   },
   card: {
     padding: 24,
     borderWidth: 1,
+    borderRadius: 12,
   },
   title: {
     fontSize: 22,

@@ -1,5 +1,1 @@
-- [Onboarding spec](onboarding-spec.md) — Full 34-step wizard (0–33) now implemented; submission fires at step 29 (loading), not the final step.
-- [Expo onboarding quirks](expo-onboarding-quirks.md) — StyleSheet declared inside component body cannot be used before an early `return`; hoist to module level.
-- [PRFMR onboarding 500 debugging](prfmr-onboarding-500.md) — server 500s on invalid/missing required enum fields in POST /user/me/onboard; audit every enum value against spec, not just the obvious one.
-- [PRFMR API rules](prfmr-api-rules.md) — `/user/me` has no `onboardingComplete` field and uses `currentWeight` not `weight`; onboarding status = `targetCalories != null` (matches server-side logic exactly).
-- [AMQS ingredient source tracking](amqs-ingredient-source-tracking.md) — every food-log surface must use canonical ingredients-data.ts + ingredientIndex, or logged food silently scores zero micronutrients.
+- [pnpm root project is an implicit workspace member](pnpm-root-implicit-member.md) — root package.json in a pnpm-workspace repo counts as a package too; duplicate names across it and a real package cause silent ambiguity.

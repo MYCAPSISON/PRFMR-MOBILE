@@ -1,17 +1,39 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { apiFetch, clearSession, loadSession, loginWithXhr } from "@/lib/api";
+import { apiFetch, clearSession, loadSession, loginWithXhr, setAuthErrorCallback } from "@/lib/api";
 
 export interface User {
   id: number;
   email: string;
   username: string;
   displayName?: string;
-  weight?: number;
+  currentWeight?: number;
   height?: number;
   age?: number;
+  gender?: "male" | "female";
+  goal?: "fat_loss" | "maintenance" | "weight_gain";
+  activityLevel?: string;
+  experienceLevel?: string;
+  mainSport?: string;
   sport?: string;
   weightClass?: string;
+  bodyFatPct?: number;
+  fightCampActive?: boolean;
+  fightDate?: string;
+  targetCalories?: number;
+  targetProtein?: number;
+  targetCarbs?: number;
+  targetFat?: number;
   createdAt?: string;
+}
+
+// The server never returns an `onboardingComplete` field on the User object.
+// Server-side, onboarding status is inferred the same way: targetCalories
+// only gets populated at the very end of POST /user/me/onboard, once macros
+// have been calculated, so it doubles as the completion flag. Mirror that
+// exact check here instead of a broader client-side guess.
+export function isOnboardingComplete(profile: User | null | undefined): boolean {
+  if (!profile) return false;
+  return profile.targetCalories != null;
 }
 
 interface AuthContextValue {
@@ -48,18 +70,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [fetchUser]);
 
+  // Register a 401 callback so apiFetch can clear stale sessions automatically
+  useEffect(() => {
+    setAuthErrorCallback(() => {
+      clearSession();
+      setUser(null);
+    });
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     // XHR is used here because React Native's Fetch API hides Set-Cookie
     // headers from JavaScript (mimics browser security). XHR exposes them.
-    const result = await loginWithXhr(email, password);
+    await loginWithXhr(email, password);
 
-    // If login response body includes user data, use it directly
-    if (result?.user) {
-      setUser(result.user);
-    } else {
-      // Fallback: fetch user now that we have session cookies
-      await fetchUser();
-    }
+    // Always fetch the full profile after login rather than trusting the
+    // login response body — it only returns a minimal user object
+    // (id, email, username, emailVerified) and is missing onboardingComplete
+    // and other profile fields. Using it directly made already-onboarded
+    // users get bounced back into the onboarding wizard on every login.
+    await fetchUser();
   }, [fetchUser]);
 
   const register = useCallback(async (email: string, username: string, password: string, inviteCode: string) => {

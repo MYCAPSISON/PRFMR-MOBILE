@@ -14,5 +14,15 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "artifacts",
+    "lib",
+    "scripts",
+    "attached_assets",
+    ".cache",
+    "dist",
+    "web-build"
   ]
 }
