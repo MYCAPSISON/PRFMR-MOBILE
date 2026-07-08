@@ -334,6 +334,8 @@ function normalizeFood(item: any, sourceType: "off" | "database" | "manual"): No
     fatPer100g: item.fatPer100g ?? macros.fat ?? item.fat ?? item.nutriments?.fat_100g ?? 0,
     fibrePer100g: item.fibrePer100g ?? macros.fibre ?? item.fibre ?? item.nutriments?.fiber_100g ?? item.nutriments?.fibre_100g ?? 0,
     sourceType,
+    imageUrl: item.image ?? item.imageUrl ?? item.image_url ?? item.image_front_thumb_url
+      ?? item.off?.image_url ?? item.off?.image_front_thumb_url ?? undefined,
     offBarcode: item.barcode ?? item.off?.barcode ?? undefined,
     ingredientIndex: item.mapping?.ingredientIndex ?? undefined,
   };
@@ -2763,7 +2765,9 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const { user } = useAuth();
   const [modal, setModal] = useState(false);
   const [mealType, setMealType] = useState<string>(getCurrentMealType());
-  const snackBaseRef = React.useRef(0);
+  const submittedSnackIndicesRef = React.useRef<number[]>([]);
+  const [snackSlot, setSnackSlot] = useState<"new" | number>("new");
+  const [snackSlotOpen, setSnackSlotOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("search");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
@@ -2824,6 +2828,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     setBarcodeResult(null); setBarcodeRaw(null); setBarcodeLastCode(""); setBarcodeMapState(null);
     setBarcodeMapIngredient(null); setBarcodeMapSearch(""); setBarcodeGrams("100"); setShowBarcodeCamera(false);
     setMealDropdownOpen(false);
+    setSnackSlot("new"); setSnackSlotOpen(false);
   }
 
   const deleteMut = useMutation({
@@ -2834,7 +2839,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const addMut = useMutation({
     mutationFn: (d: any) => apiFetch("/food", { method: "POST", body: d }),
     onSuccess: (_, variables) => {
-      if ((variables as any).meal === "snack") snackBaseRef.current++;
+      const si = (variables as any).snackIndex;
+      if (typeof si === "number" && !submittedSnackIndicesRef.current.includes(si)) {
+        submittedSnackIndicesRef.current.push(si);
+      }
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
       closeModal();
@@ -2844,15 +2852,25 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     },
   });
 
-  const doSearch = useCallback(async (q: string) => {
+  const searchVersionRef = React.useRef(0);
+  const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSearch = useCallback((q: string) => {
     setSearchQ(q);
-    if (q.trim().length < 2) { setResults([]); return; }
-    setSearching(true);
-    try {
-      const r = await apiFetch<any[]>(`/foods/search?q=${encodeURIComponent(q.trim())}`);
-      setResults(Array.isArray(r) ? r.slice(0, 20) : []);
-    } catch { setResults([]); }
-    finally { setSearching(false); }
+    if (q.trim().length < 2) { setResults([]); setSearching(false); return; }
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(async () => {
+      const version = ++searchVersionRef.current;
+      setSearching(true);
+      try {
+        const r = await apiFetch<any[]>(`/foods/search?q=${encodeURIComponent(q.trim())}`);
+        if (version === searchVersionRef.current) setResults(Array.isArray(r) ? r.slice(0, 20) : []);
+      } catch {
+        if (version === searchVersionRef.current) setResults([]);
+      } finally {
+        if (version === searchVersionRef.current) setSearching(false);
+      }
+    }, 350);
   }, []);
 
   async function lookupBarcode(overrideCode?: string) {
@@ -2979,9 +2997,12 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     const apiSourceType = isOff ? "off" : isIngredient ? "ingredient" : "manual";
     const isRaw = /\(raw\)/i.test(food.name);
     const hasMappedIngredient = food.ingredientIndex != null;
-    const snackIdx = mealType === "snack"
-      ? entries.filter((e: any) => e.meal === "snack").length + snackBaseRef.current
-      : undefined;
+    const snackIdx = (() => {
+      if (mealType !== "snack") return undefined;
+      if (snackSlot !== "new") return snackSlot as number;
+      const allIdxs = [...entries.filter((e: any) => e.meal === "snack").map((e: any) => e.snackIndex ?? 0), ...submittedSnackIndicesRef.current];
+      return allIdxs.length > 0 ? Math.max(...allIdxs) + 1 : 0;
+    })();
     return {
       userId: user!.id,
       name: food.name,
@@ -3004,9 +3025,12 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   }
 
   function addCustom() {
-    const snackIdx = mealType === "snack"
-      ? entries.filter((e: any) => e.meal === "snack").length + snackBaseRef.current
-      : undefined;
+    const snackIdx = (() => {
+      if (mealType !== "snack") return undefined;
+      if (snackSlot !== "new") return snackSlot as number;
+      const allIdxs = [...entries.filter((e: any) => e.meal === "snack").map((e: any) => e.snackIndex ?? 0), ...submittedSnackIndicesRef.current];
+      return allIdxs.length > 0 ? Math.max(...allIdxs) + 1 : 0;
+    })();
     addMut.mutate({
       userId: user!.id,
       name: customName.trim(),
@@ -3057,11 +3081,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               <View key={e.id} style={[styles.foodRow, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]} numberOfLines={1}>
-                    {e.name}{e.grams && e.enteredBasis ? ` (${e.grams}g ${e.enteredBasis})` : ""}
+                    {e.name}{e.grams ? ` (${e.grams}g)` : ""}
                   </Text>
                   <Text style={[styles.xs, { color: colors.mutedForeground }]}>
                     {Math.round(e.calories)} kcal · P:{Math.round(e.protein)}g · C:{Math.round(e.carbs)}g · F:{Math.round(e.fat)}g
-                    {e.grams && !e.enteredBasis ? ` · ${e.grams}g` : ""}
                     {e.fibre ? ` · Fi:${Math.round(e.fibre)}g` : ""}
                   </Text>
                 </View>
@@ -3093,32 +3116,85 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             </View>
           </View>
 
-          {/* Meal selector dropdown */}
-          <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
-            <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: "600", letterSpacing: 0.4 }}>Add to meal</Text>
-            <TouchableOpacity onPress={() => setMealDropdownOpen(v => !v)}
-              style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 11,
-                borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
-              <Feather name={mealIcon[mealType] as any} size={15} color="#6b7280" style={{ marginRight: 8 }} />
-              <Text style={{ flex: 1, color: "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mealType}</Text>
-              <Feather name={mealDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
-            </TouchableOpacity>
-            {mealDropdownOpen && (
-              <View style={{ backgroundColor: "#1e2232", borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
-                marginTop: 4, overflow: "hidden" }}>
-                {MEAL_TYPES.map((mt, i) => (
-                  <TouchableOpacity key={mt} onPress={() => { setMealType(mt); setMealDropdownOpen(false); }}
-                    style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
-                      backgroundColor: mt === mealType ? "#ff7a0014" : "transparent",
-                      borderBottomWidth: i < MEAL_TYPES.length - 1 ? 1 : 0, borderBottomColor: "#1a1e28" }}>
-                    <Feather name={mealIcon[mt] as any} size={14} color={mt === mealType ? "#ff7a00" : "#6b7280"} style={{ marginRight: 10 }} />
-                    <Text style={{ flex: 1, color: mt === mealType ? "#ff7a00" : "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mt}</Text>
-                    {mt === mealType && <Feather name="check" size={14} color="#ff7a00" />}
-                  </TouchableOpacity>
-                ))}
+          {/* Meal selector — two dropdowns when snack selected */}
+          {(() => {
+            const existingSnackIndices = [...new Set(entries.filter((e: any) => e.meal === "snack").map((e: any) => e.snackIndex ?? 0))].sort((a: number, b: number) => a - b);
+            const allSnackIdxs = [...existingSnackIndices, ...submittedSnackIndicesRef.current.filter(i => !existingSnackIndices.includes(i))].sort((a: number, b: number) => a - b);
+            const nextSnackNum = allSnackIdxs.length > 0 ? Math.max(...allSnackIdxs) + 1 : 0;
+            const snackSlotLabel = snackSlot === "new" ? `New Snack #${nextSnackNum}` : `Snack #${snackSlot}`;
+            return (
+              <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
+                <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: "600", letterSpacing: 0.4 }}>Add to meal</Text>
+                <View style={{ flexDirection: "row", gap: 8, zIndex: mealDropdownOpen || snackSlotOpen ? 100 : 1 }}>
+                  {/* Meal type picker */}
+                  <View style={{ flex: mealType === "snack" ? 1 : undefined, flexGrow: mealType === "snack" ? 1 : undefined,
+                    width: mealType === "snack" ? undefined : "100%",
+                    zIndex: mealDropdownOpen ? 110 : 1 }}>
+                    <TouchableOpacity onPress={() => { setMealDropdownOpen(v => !v); setSnackSlotOpen(false); }}
+                      style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 11,
+                        borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26",
+                        borderColor: mealType === "snack" ? "#ff7a00" : "#1a1e28" }}>
+                      <Feather name={mealIcon[mealType] as any} size={15} color={mealType === "snack" ? "#ff7a00" : "#6b7280"} style={{ marginRight: 8 }} />
+                      <Text style={{ flex: 1, color: "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mealType}</Text>
+                      <Feather name={mealDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
+                    </TouchableOpacity>
+                    {mealDropdownOpen && (
+                      <View style={{ position: "absolute", top: 46, left: 0, right: 0, backgroundColor: "#1e2232",
+                        borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden", zIndex: 200,
+                        shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, elevation: 10 }}>
+                        {MEAL_TYPES.map((mt, i) => (
+                          <TouchableOpacity key={mt} onPress={() => { setMealType(mt); setMealDropdownOpen(false); if (mt !== "snack") { setSnackSlot("new"); setSnackSlotOpen(false); } }}
+                            style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                              backgroundColor: mt === mealType ? "#ff7a0014" : "transparent",
+                              borderBottomWidth: i < MEAL_TYPES.length - 1 ? 1 : 0, borderBottomColor: "#1a1e28" }}>
+                            <Feather name={mealIcon[mt] as any} size={14} color={mt === mealType ? "#ff7a00" : "#6b7280"} style={{ marginRight: 10 }} />
+                            <Text style={{ flex: 1, color: mt === mealType ? "#ff7a00" : "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mt}</Text>
+                            {mt === mealType && <Feather name="check" size={14} color="#ff7a00" />}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Snack slot picker — only when snack selected */}
+                  {mealType === "snack" && (
+                    <View style={{ flex: 1, zIndex: snackSlotOpen ? 110 : 1 }}>
+                      <TouchableOpacity onPress={() => { setSnackSlotOpen(v => !v); setMealDropdownOpen(false); }}
+                        style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 11,
+                          borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+                        <Text style={{ flex: 1, color: "#eceef2", fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{snackSlotLabel}</Text>
+                        <Feather name={snackSlotOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
+                      </TouchableOpacity>
+                      {snackSlotOpen && (
+                        <View style={{ position: "absolute", top: 46, left: 0, right: 0, backgroundColor: "#1e2232",
+                          borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden", zIndex: 200,
+                          shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, elevation: 10 }}>
+                          {/* New slot option */}
+                          <TouchableOpacity onPress={() => { setSnackSlot("new"); setSnackSlotOpen(false); }}
+                            style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                              backgroundColor: snackSlot === "new" ? "#ff7a0014" : "transparent",
+                              borderBottomWidth: allSnackIdxs.length > 0 ? 1 : 0, borderBottomColor: "#1a1e28" }}>
+                            <Text style={{ flex: 1, color: snackSlot === "new" ? "#ff7a00" : "#eceef2", fontSize: 13, fontWeight: "600" }}>New Snack #{nextSnackNum}</Text>
+                            {snackSlot === "new" && <Feather name="check" size={13} color="#ff7a00" />}
+                          </TouchableOpacity>
+                          {/* Existing snack slots */}
+                          {allSnackIdxs.map((idx: number, i: number) => (
+                            <TouchableOpacity key={idx} onPress={() => { setSnackSlot(idx); setSnackSlotOpen(false); }}
+                              style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
+                                backgroundColor: snackSlot === idx ? "#ff7a0014" : "transparent",
+                                borderBottomWidth: i < allSnackIdxs.length - 1 ? 1 : 0, borderBottomColor: "#1a1e28" }}>
+                              <Text style={{ flex: 1, color: snackSlot === idx ? "#ff7a00" : "#eceef2", fontSize: 13, fontWeight: "600" }}>Snack #{idx}</Text>
+                              {snackSlot === idx && <Feather name="check" size={13} color="#ff7a00" />}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
               </View>
-            )}
-          </View>
+            );
+          })()}
 
           {/* Tab bar — segmented control */}
           <View style={{ flexDirection: "row", marginHorizontal: 12, marginTop: 8, marginBottom: 4,
