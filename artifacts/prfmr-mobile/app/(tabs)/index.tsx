@@ -142,6 +142,7 @@ interface FoodEntry {
   sourceType?: string;
   ingredientIndex?: number;
   normalizedGrams?: number;
+  enteredBasis?: string;
 }
 
 interface ScheduledSlot {
@@ -2131,8 +2132,20 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
 
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-      <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "700" }}>{food.name}</Text>
-      {food.brand ? <Text style={{ color: "#6b7280" }}>{food.brand}</Text> : null}
+      {/* Product header: image + name/brand/change-selection */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+        {food.imageUrl ? (
+          <Image source={{ uri: food.imageUrl }}
+            style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: "#1a1e28" }} />
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "700" }} numberOfLines={2}>{food.name}</Text>
+          {food.brand ? <Text style={{ color: "#6b7280", fontSize: 13 }}>{food.brand}</Text> : null}
+          <TouchableOpacity onPress={onBack} style={{ marginTop: 4 }}>
+            <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change selection</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {/* Amount header + Count/Grams toggle */}
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -2210,9 +2223,9 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
         </View>
       )}
 
-      {/* Estimated Nutrition */}
+      {/* Nutrition per 100g */}
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Text style={{ color: "#eceef2", fontSize: 15, fontWeight: "700" }}>Estimated Nutrition</Text>
+        <Text style={{ color: "#6b7280", fontSize: 13 }}>Nutrition per 100g</Text>
         <Text style={{ color: "#ff7a00", fontSize: 22, fontWeight: "800" }}>{cal} kcal</Text>
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
@@ -2314,10 +2327,10 @@ function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
     <View style={{ flex: 1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginVertical: 10,
         paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1,
-        backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+        backgroundColor: "#181c26", borderColor: "#ff7a00" }}>
         <Feather name="search" size={18} color="#6b7280" />
         <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 15, marginLeft: 8 }}
-          placeholder="Search foods..." placeholderTextColor="#6b7280"
+          placeholder="Search foods (e.g. chicken breast, rice)" placeholderTextColor="#6b7280"
           value={query} onChangeText={onQueryChange} autoFocus />
         {searching && <ActivityIndicator size="small" color="#ff7a00" />}
       </View>
@@ -2329,7 +2342,13 @@ function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
           query.length > 1 && !searching
             ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32 }}>No results</Text>
             : query.length < 2
-            ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32, fontSize: 13 }}>Type to search the food database</Text>
+            ? (
+              <View style={{ alignItems: "center", paddingTop: 64, gap: 10 }}>
+                <Feather name="search" size={48} color="#2a2e3a" />
+                <Text style={{ color: "#6b7280", fontSize: 14, textAlign: "center" }}>Search the Open Food Facts database</Text>
+                <Text style={{ color: "#4b5563", fontSize: 12, textAlign: "center" }}>Type at least 2 characters to search</Text>
+              </View>
+            )
             : null
         }
         renderItem={({ item }) => {
@@ -2730,12 +2749,21 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
 // ─────────────────────────────────────────
 // Meals Section
 // ─────────────────────────────────────────
+function getCurrentMealType(): string {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return "breakfast";
+  if (h >= 11 && h < 15) return "lunch";
+  if (h >= 17 && h < 22) return "dinner";
+  return "snack";
+}
+
 function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; openAddFood?: boolean; onAddFoodOpened?: () => void }) {
   const colors = useColors();
   const qc = useQueryClient();
   const { user } = useAuth();
   const [modal, setModal] = useState(false);
-  const [mealType, setMealType] = useState<string>("breakfast");
+  const [mealType, setMealType] = useState<string>(getCurrentMealType());
+  const snackBaseRef = React.useRef(0);
   const [activeTab, setActiveTab] = useState<TabId>("search");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
@@ -2805,7 +2833,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
   const addMut = useMutation({
     mutationFn: (d: any) => apiFetch("/food", { method: "POST", body: d }),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      if ((variables as any).meal === "snack") snackBaseRef.current++;
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
       closeModal();
@@ -2950,7 +2979,9 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     const apiSourceType = isOff ? "off" : isIngredient ? "ingredient" : "manual";
     const isRaw = /\(raw\)/i.test(food.name);
     const hasMappedIngredient = food.ingredientIndex != null;
-    const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
+    const snackIdx = mealType === "snack"
+      ? entries.filter((e: any) => e.meal === "snack").length + snackBaseRef.current
+      : undefined;
     return {
       userId: user!.id,
       name: food.name,
@@ -2973,7 +3004,9 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   }
 
   function addCustom() {
-    const snackIdx = mealType === "snack" ? entries.filter((e: any) => e.meal === "snack").length : undefined;
+    const snackIdx = mealType === "snack"
+      ? entries.filter((e: any) => e.meal === "snack").length + snackBaseRef.current
+      : undefined;
     addMut.mutate({
       userId: user!.id,
       name: customName.trim(),
@@ -3023,10 +3056,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             {g.items.map(e => (
               <View key={e.id} style={[styles.foodRow, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]} numberOfLines={1}>{e.name}</Text>
+                  <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]} numberOfLines={1}>
+                    {e.name}{e.grams && e.enteredBasis ? ` (${e.grams}g ${e.enteredBasis})` : ""}
+                  </Text>
                   <Text style={[styles.xs, { color: colors.mutedForeground }]}>
                     {Math.round(e.calories)} kcal · P:{Math.round(e.protein)}g · C:{Math.round(e.carbs)}g · F:{Math.round(e.fat)}g
-                    {e.grams ? ` · ${e.grams}g` : ""}
+                    {e.grams && !e.enteredBasis ? ` · ${e.grams}g` : ""}
+                    {e.fibre ? ` · Fi:${Math.round(e.fibre)}g` : ""}
                   </Text>
                 </View>
                 <View style={{ flexDirection: "row", gap: 2 }}>
