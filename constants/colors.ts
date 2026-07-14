@@ -1,6 +1,5 @@
-// Exact production token values derived from spec §23.1
-// hsl(220,20%,7%) → #0d1017  hsl(220,16%,11%) → #151921  hsl(220,15%,13%) → #181e27
-// hsl(215,10%,50%) → #737d8c  hsl(24,100%,50%) → #ff7a00  hsl(0,62%,50%) → #cc2929
+// PRFMR Web UI replication tokens.
+// Derived from the guide's HSL values and kept dark-only.
 const palette = {
   background:           "#0d1017",
   foreground:           "#eceef2",
@@ -20,7 +19,6 @@ const palette = {
   destructiveForeground:"#f8f8f8",
   ring:                 "#ff7a00",
   sidebarBackground:    "#0b0e14",
-  // Semantic semantic helpers (not design tokens, just conveniences)
   text:                 "#eceef2",
   tint:                 "#ff7a00",
   success:              "#4ade80",
@@ -37,7 +35,7 @@ const palette = {
 const colors = {
   dark:  palette,
   light: palette,
-  radius: 9,
+  radius: 12,
 
   // Font family strings for use in style objects
   fonts: {
@@ -49,6 +47,21 @@ const colors = {
     displaySb: "SpaceGrotesk_600SemiBold",
     mono:    "JetBrainsMono_400Regular",
     monoMd:  "JetBrainsMono_500Medium",
+    monoBd:  "JetBrainsMono_700Bold",
+  },
+  
+  semantic: {
+    fightCampBg: "rgba(255, 122, 0, 0.08)",
+    fightCampBorder: "rgba(255, 122, 0, 0.20)",
+    warningBg: "rgba(245, 158, 11, 0.10)",
+    warningBorder: "rgba(245, 158, 11, 0.20)",
+    successBg: "rgba(74, 222, 128, 0.10)",
+    successBorder: "rgba(74, 222, 128, 0.30)",
+    successText: "#4ade80",
+    destructiveBg: "rgba(239, 68, 68, 0.10)",
+    destructiveBorder: "rgba(239, 68, 68, 0.30)",
+    provisionalBg: "rgba(147, 197, 253, 0.10)",
+    provisionalBorder: "rgba(147, 197, 253, 0.30)",
   },
 };
 

@@ -71,6 +71,7 @@ export function useFightCampOverride(opts: UseFightCampOverrideOptions): FCOverr
   const [carbModalOpen, setCarbModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const carbChainRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissedForKeyRef = useRef<{ ea?: string; carb?: string }>({});
 
   useEffect(() => {
     if (!isFightCamp) { setLoaded(true); return; }
@@ -90,9 +91,11 @@ export function useFightCampOverride(opts: UseFightCampOverrideOptions): FCOverr
 
   useEffect(() => {
     if (!isFightCamp || !loaded) return;
-    if (isLowEA && !stored.ea) setEaModalOpen(true);
-    else if (isLowCarb && !stored.carb) setCarbModalOpen(true);
-  }, [isFightCamp, loaded, storageKey, isLowEA, isLowCarb]);
+    const dismissedEAForThisKey = dismissedForKeyRef.current.ea === storageKey;
+    const dismissedCarbForThisKey = dismissedForKeyRef.current.carb === storageKey;
+    if (isLowEA && !stored.ea && !dismissedEAForThisKey) setEaModalOpen(true);
+    else if (isLowCarb && !stored.carb && !dismissedCarbForThisKey) setCarbModalOpen(true);
+  }, [isFightCamp, loaded, storageKey, isLowEA, isLowCarb, stored.ea, stored.carb]);
 
   const writeStorage = useCallback(async (update: Partial<OverrideStorage>) => {
     const next = { ...stored, ...update };
@@ -101,26 +104,29 @@ export function useFightCampOverride(opts: UseFightCampOverrideOptions): FCOverr
   }, [storageKey, stored]);
 
   const chainCarb = useCallback(() => {
-    if (isLowCarb && !stored.carb) {
+    if (isLowCarb && !stored.carb && dismissedForKeyRef.current.carb !== storageKey) {
       if (carbChainRef.current) clearTimeout(carbChainRef.current);
       carbChainRef.current = setTimeout(() => setCarbModalOpen(true), 350);
     }
-  }, [isLowCarb, stored.carb]);
+  }, [isLowCarb, storageKey, stored.carb]);
 
   const acceptEA = useCallback(() => {
+    dismissedForKeyRef.current.ea = storageKey;
     if (eaRecommendedCalories != null) setOverrideCalories(eaRecommendedCalories);
     writeStorage({ ea: "accepted" });
     setEaModalOpen(false);
     chainCarb();
-  }, [eaRecommendedCalories, writeStorage, chainCarb]);
+  }, [eaRecommendedCalories, storageKey, writeStorage, chainCarb]);
 
   const declineEA = useCallback(() => {
+    dismissedForKeyRef.current.ea = storageKey;
     writeStorage({ ea: "declined" });
     setEaModalOpen(false);
     chainCarb();
-  }, [writeStorage, chainCarb]);
+  }, [storageKey, writeStorage, chainCarb]);
 
   const acceptCarb = useCallback(() => {
+    dismissedForKeyRef.current.carb = storageKey;
     if (carbRecommendedG != null) {
       setOverrideCarbs(carbRecommendedG);
       const currentCals = overrideCalories ?? serverCalories;
@@ -129,12 +135,23 @@ export function useFightCampOverride(opts: UseFightCampOverrideOptions): FCOverr
     }
     writeStorage({ carb: "accepted" });
     setCarbModalOpen(false);
-  }, [carbRecommendedG, overrideCalories, serverCalories, serverProtein, serverFat, writeStorage]);
+  }, [carbRecommendedG, overrideCalories, serverCalories, serverProtein, serverFat, storageKey, writeStorage]);
 
   const declineCarb = useCallback(() => {
+    dismissedForKeyRef.current.carb = storageKey;
     writeStorage({ carb: "declined" });
     setCarbModalOpen(false);
-  }, [writeStorage]);
+  }, [storageKey, writeStorage]);
+
+  const closeEAModal = useCallback(() => {
+    dismissedForKeyRef.current.ea = storageKey;
+    setEaModalOpen(false);
+  }, [storageKey]);
+
+  const closeCarbModal = useCallback(() => {
+    dismissedForKeyRef.current.carb = storageKey;
+    setCarbModalOpen(false);
+  }, [storageKey]);
 
   const markPerfToastShown = useCallback(() => {
     writeStorage({ perfToastShown: true });
@@ -152,11 +169,11 @@ export function useFightCampOverride(opts: UseFightCampOverrideOptions): FCOverr
     shouldShowPerfToast: !stored.perfToastShown,
     acceptEA,
     declineEA,
-    closeEAModal: useCallback(() => setEaModalOpen(false), []),
+    closeEAModal,
     openEAModal: useCallback(() => setEaModalOpen(true), []),
     acceptCarb,
     declineCarb,
-    closeCarbModal: useCallback(() => setCarbModalOpen(false), []),
+    closeCarbModal,
     openCarbModal: useCallback(() => setCarbModalOpen(true), []),
     markPerfToastShown,
   };

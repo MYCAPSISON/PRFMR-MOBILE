@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet,
   TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
   KeyboardAvoidingView,
 } from "react-native";
@@ -12,13 +12,14 @@ import { format, addDays, subDays, subWeeks } from "date-fns";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AuthContext";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { useRouter } from "expo-router";
-import Svg, { Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText } from "react-native-svg";
+import Svg, { Path as SvgPath, Polyline, Polygon as SvgPolygon, Circle as SvgCircle, Line as SvgLine, Text as SvgText, Rect as SvgRect } from "react-native-svg";
 import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
 import { useFightCampOverride, type FCOverrideState } from "../../hooks/useFightCampOverride";
 import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/coreFoodUnits";
 import { QuickLogModal } from "../../components/QuickLogModal";
+import { useToast } from "../../components/AppToast";
 
 // ─────────────────────────────────────────
 // Types
@@ -34,7 +35,13 @@ interface WeightCutData {
   fatLossRequired: number;
   tempCut: number;
   tempCutDisplayed: number;
+  requiredWeeklyRate?: number;
+  requiredWeeklyRatePct?: number;
+  recommendedWeeklyRate?: number;
+  recommendedWeeklyRatePct?: number;
   dayMinus4Target: number | null;
+  predictedWeekMinus1Weight?: number | null;
+  predictedDayMinus4Weight?: number | null;
   weeklyRate: number;
   weeklyRatePct: number;
   status: string;
@@ -43,6 +50,7 @@ interface WeightCutData {
   suggestedDeficitKcal: number;
   weighInTiming: "same_day" | "day_before";
   manualTempReductionKg: number | null;
+  bodyweightSource?: "log" | "profile";
 }
 
 interface MorningStatus {
@@ -77,6 +85,15 @@ interface ProvisionalReadiness {
   intensityScore: number;
   message: string;
   suggestedFix: string;
+}
+
+function showWeightLogError(err: unknown) {
+  const message = err instanceof Error ? err.message : "Please try again.";
+  Alert.alert("Weight not logged", message);
+}
+
+function getErrorMessage(err: unknown, fallback = "Please try again.") {
+  return err instanceof Error ? err.message : fallback;
 }
 
 interface ReadinessData {
@@ -242,10 +259,26 @@ interface WeightEntry {
 // ─────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────
+let lastAmqsToastTime = 0;
+const AMQS_TOAST_DEBOUNCE_MS = 5000;
+
 function getPaceInfo(weeklyRatePct: number) {
   if (weeklyRatePct < 0.5) return { label: "Easy pace", color: "#6b7280", note: "Comfortable pace — you have time." };
   if (weeklyRatePct <= 0.75) return { label: "Moderate pace", color: "#ff7a00", note: "Steady sustainable deficit." };
-  return { label: "Aggressive pace", color: "#fb923c", note: "High deficit — monitor energy and recovery." };
+  return { label: "Aggressive pace", color: "#fb923c", note: "Quite fast — consider extending timeline" };
+}
+
+function getWeightCutStatusLabel(plan: WeightCutData) {
+  if (plan.statusLabel) return plan.statusLabel;
+  if (plan.daysUntil <= 0) return "Fight date has passed";
+  if (plan.totalToLose <= 0) return "Already at or below target";
+  const pct = plan.requiredWeeklyRatePct;
+  if (typeof pct !== "number") return "On track";
+  if (pct <= 0.5) return "Steady pace";
+  if (pct <= 1.0) return "On track";
+  if (pct <= 1.5) return "Quite aggressive — consider extending timeline";
+  if (pct <= 2.0) return "Very aggressive — adjust target or date";
+  return "Timeline too tight — adjust target or date";
 }
 
 const STATUS_COLORS: Record<string, { text: string; bg: string; border: string }> = {
@@ -372,24 +405,48 @@ function ProgressBar({ value, max, color }: { value: number; max: number; color:
   );
 }
 
-function MacroCard({ label, value, unit, target, color, emoji }: {
-  label: string; value: number; unit: string; target: number; color: string; emoji: string;
+function MacroCard({ label, value, unit, target, color, icon }: {
+  label: string; value: number; unit: string; target: number; color: string; icon: string;
 }) {
   const colors = useColors();
   const pct = target > 0 ? Math.min(Math.round((value / target) * 100), 100) : 0;
   return (
-    <Card style={styles.macroCard}>
-      <View style={styles.row}>
-        <Text style={styles.macroEmoji}>{emoji}</Text>
+    <Card style={[styles.macroCard, { borderLeftColor: color }]}>
+      <View style={styles.rowBetween}>
         <Text style={[styles.macroLabel, { color: colors.mutedForeground }]}>{label}</Text>
+        <MaterialCommunityIcons name={icon as any} size={24} color={`${colors.mutedForeground}80`} />
       </View>
       <Text style={[styles.macroValue, { color: colors.foreground }]}>
         {Math.round(value)}<Text style={[styles.macroUnit, { color: colors.mutedForeground }]}>{unit}</Text>
       </Text>
-      <ProgressBar value={value} max={target} color={color} />
-      <Text style={[styles.macroMeta, { color: colors.mutedForeground }]}>Target: {Math.round(target)} · {pct}%</Text>
+      <View style={styles.rowBetween}>
+        <Text style={[styles.macroMeta, { color: colors.mutedForeground }]}>Target: {Math.round(target)}</Text>
+        <Text style={[styles.macroMeta, { color: colors.mutedForeground }]}>{pct}%</Text>
+      </View>
+      <ProgressBar value={value} max={target} color={colors.primary} />
     </Card>
   );
+}
+
+const SPORT_ICON_SOURCES = {
+  boxing: require("@/assets/sport-icons/boxing.png"),
+  wrestling: require("@/assets/sport-icons/wrestling.png"),
+  traditional: require("@/assets/sport-icons/traditional.png"),
+  mma: require("@/assets/sport-icons/mma.png"),
+  bjj: require("@/assets/sport-icons/bjj.png"),
+  kickboxing: require("@/assets/sport-icons/kickboxing.png"),
+  "muay-thai": require("@/assets/sport-icons/muay-thai.png"),
+} as const;
+
+function sportIconSource(label: string | undefined) {
+  const normalised = (label ?? "").toLowerCase().replace(/[_\s]+/g, "-");
+  if (normalised.includes("muay")) return SPORT_ICON_SOURCES["muay-thai"];
+  if (normalised.includes("kick")) return SPORT_ICON_SOURCES.kickboxing;
+  if (normalised.includes("box")) return SPORT_ICON_SOURCES.boxing;
+  if (normalised.includes("wrest")) return SPORT_ICON_SOURCES.wrestling;
+  if (normalised.includes("bjj") || normalised.includes("jiu")) return SPORT_ICON_SOURCES.bjj;
+  if (normalised.includes("mma")) return SPORT_ICON_SOURCES.mma;
+  return SPORT_ICON_SOURCES.traditional;
 }
 
 // ─────────────────────────────────────────
@@ -398,6 +455,7 @@ function MacroCard({ label, value, unit, target, color, emoji }: {
 function FightCampHero({ date }: { date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { showToast } = useToast();
 
   // Inline weight logging
   const [showWeight, setShowWeight] = useState(false);
@@ -441,19 +499,30 @@ function FightCampHero({ date }: { date: string }) {
       qc.invalidateQueries({ queryKey: ["fuel", date] });
       setShowWeight(false); setWeightVal("");
     },
+    onError: (err) => showToast({
+      title: "Weight not logged",
+      description: getErrorMessage(err),
+      variant: "destructive",
+    }),
   });
 
   const createMut = useMutation({
     mutationFn: (body: object) => apiFetch("/me/weight-cut", { method: "POST", body }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
+      if (dialogMode === "edit") {
+        showToast({ title: "Fight camp plan updated 🎯" });
+      }
       setDialogMode(null);
     },
   });
 
   const deleteMut = useMutation({
     mutationFn: () => apiFetch("/me/weight-cut", { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["weight-cut"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["weight-cut"] });
+      showToast({ title: "Weight cut plan removed" });
+    },
   });
 
   function openCreate() {
@@ -491,64 +560,73 @@ function FightCampHero({ date }: { date: string }) {
   const trend = plan ? getTrendMessage(recentWeights, plan.status) : null;
   const consistencyCount = recentWeights.length;
   const consistencyInfo = getConsistencyLabel(consistencyCount);
+  const hasWeightForDate = recentWeights.some(entry => entry.date?.slice(0, 10) === date);
+  const isPlanDateToday = date === format(new Date(), "yyyy-MM-dd");
+
+  useEffect(() => {
+    if (hasWeightForDate && showWeight) {
+      setShowWeight(false);
+      setWeightVal("");
+    }
+  }, [hasWeightForDate, showWeight]);
 
   // ─── CREATE / EDIT MODAL ───────────────────────────────────────
   const formModal = (
     <Modal visible={dialogMode !== null} animationType="slide" presentationStyle="pageSheet"
       onRequestClose={() => setDialogMode(null)}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-            padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <View>
-              <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>
+              <Text style={{ color: colors.foreground, fontSize: 17, fontWeight: "700" }}>
                 {dialogMode === "edit" ? "Edit Fight Camp Plan" : "Set Up Fight Camp Plan"}
               </Text>
-              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>
                 {dialogMode === "edit"
                   ? "Update your target or timeline — the plan recalculates automatically."
                   : "Plan a gradual weight cut targeting 0.5–1.0% bodyweight per week."}
               </Text>
             </View>
             <TouchableOpacity onPress={() => setDialogMode(null)}>
-              <Feather name="x" size={22} color="#6b7280" />
+              <Feather name="x" size={22} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: 16 }}>
             {/* Current Weight */}
-            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Current Weight (kg)</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Current Weight (kg)</Text>
             <TextInput
-              style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 10,
-                color: "#eceef2", padding: 12, fontSize: 15, marginBottom: 14 }}
+              style={{ backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 10,
+                color: colors.foreground, padding: 12, fontSize: 15, marginBottom: 14 }}
               placeholder="e.g. 77.2"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={colors.mutedForeground}
               keyboardType="decimal-pad"
               value={formCW}
               onChangeText={setFormCW}
             />
             {/* Fight Weight */}
-            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Weight (kg)</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Weight (kg)</Text>
             <TextInput
-              style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 10,
-                color: "#eceef2", padding: 12, fontSize: 15, marginBottom: 14 }}
+              style={{ backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 10,
+                color: colors.foreground, padding: 12, fontSize: 15, marginBottom: 14 }}
               placeholder="e.g. 72.0"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={colors.mutedForeground}
               keyboardType="decimal-pad"
               value={formTW}
               onChangeText={setFormTW}
             />
             {/* Fight Date */}
-            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Date (YYYY-MM-DD)</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Date (YYYY-MM-DD)</Text>
             <TextInput
-              style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 10,
-                color: "#eceef2", padding: 12, fontSize: 15, marginBottom: 14 }}
+              style={{ backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 10,
+                color: colors.foreground, padding: 12, fontSize: 15, marginBottom: 14 }}
               placeholder="2025-09-15"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={colors.mutedForeground}
               value={formDate}
               onChangeText={setFormDate}
             />
             {/* Weigh-In Timing */}
-            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Weigh-In Timing</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Weigh-In Timing</Text>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 6 }}>
               {([
                 { value: "same_day" as const, label: "Same day", sub: "Weigh in on fight day" },
@@ -556,37 +634,37 @@ function FightCampHero({ date }: { date: string }) {
               ] as const).map(opt => (
                 <TouchableOpacity key={opt.value} onPress={() => setFormTiming(opt.value)}
                   style={{ flex: 1, borderWidth: 1, borderRadius: 10, padding: 10, alignItems: "center",
-                    borderColor: formTiming === opt.value ? "#ff7a00" : "#1a1e28",
-                    backgroundColor: formTiming === opt.value ? "#ff7a0019" : "#13161d" }}>
-                  <Text style={{ color: formTiming === opt.value ? "#eceef2" : "#6b7280", fontWeight: "600", fontSize: 13 }}>{opt.label}</Text>
-                  <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 2, textAlign: "center" }}>{opt.sub}</Text>
+                    borderColor: formTiming === opt.value ? colors.primary : colors.border,
+                    backgroundColor: formTiming === opt.value ? `${colors.primary}19` : colors.input }}>
+                  <Text style={{ color: formTiming === opt.value ? colors.foreground : colors.mutedForeground, fontWeight: "600", fontSize: 13 }}>{opt.label}</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 2, textAlign: "center" }}>{opt.sub}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={{ color: "#6b7280", fontSize: 11, marginBottom: 14 }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 11, marginBottom: 14 }}>
               {formTiming === "same_day"
                 ? "Same-day: plan targets fight weight by fight week."
                 : "Day-before timing: a small additional buffer is factored in."}
             </Text>
             {/* Advanced options */}
             <TouchableOpacity onPress={() => setShowAdvanced(v => !v)} style={{ marginBottom: 10 }}>
-              <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "600" }}>
+              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>
                 {showAdvanced ? "▲" : "▼"} Advanced options
               </Text>
             </TouchableOpacity>
             {showAdvanced && (
-              <View style={{ backgroundColor: "#13161d", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#1a1e28", marginBottom: 14 }}>
-                <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Manual temp. reduction override (kg)</Text>
+              <View style={{ backgroundColor: colors.input, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.border, marginBottom: 14 }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Manual temp. reduction override (kg)</Text>
                 <TextInput
-                  style={{ backgroundColor: "#0f1117", borderWidth: 1, borderColor: "#1a1e28", borderRadius: 8,
-                    color: "#eceef2", padding: 10, fontSize: 14, marginBottom: 8 }}
+                  style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+                    color: colors.foreground, padding: 10, fontSize: 14, marginBottom: 8 }}
                   placeholder="Leave blank to use automatic estimate"
-                  placeholderTextColor="#6b7280"
+                  placeholderTextColor={colors.mutedForeground}
                   keyboardType="decimal-pad"
                   value={formManualTemp}
                   onChangeText={setFormManualTemp}
                 />
-                <Text style={{ color: "#6b7280", fontSize: 11, lineHeight: 16 }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 11, lineHeight: 16 }}>
                   {"Overrides the automatic water-weight estimate (2–6% BW) with your own value.\nLeave blank to keep automatic calculation.\nThis app does not provide acute weight-cut guidance."}
                 </Text>
               </View>
@@ -595,13 +673,13 @@ function FightCampHero({ date }: { date: string }) {
             <TouchableOpacity
               onPress={handleSubmit}
               disabled={createMut.isPending || !formCW || !formTW || !formDate}
-              style={{ backgroundColor: "#ff7a00", borderRadius: 12, padding: 14, alignItems: "center",
+              style={{ backgroundColor: colors.primary, borderRadius: 12, padding: 14, alignItems: "center",
                 opacity: (createMut.isPending || !formCW || !formTW || !formDate) ? 0.5 : 1 }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
                 {createMut.isPending ? "Saving…" : dialogMode === "edit" ? "Update Plan" : "Start Camp Plan"}
               </Text>
             </TouchableOpacity>
-            <Text style={{ color: "#6b7280", fontSize: 10, textAlign: "center", marginTop: 10, marginBottom: 20 }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 10, textAlign: "center", marginTop: 10, marginBottom: 20 }}>
               Educational tool only — not medical or nutritional advice.
             </Text>
           </ScrollView>
@@ -614,72 +692,72 @@ function FightCampHero({ date }: { date: string }) {
   const breakdownModal = plan ? (
     <Modal visible={showBreakdown} animationType="slide" presentationStyle="pageSheet"
       onRequestClose={() => setShowBreakdown(false)}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-          padding: 16, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+          padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
           <View>
-            <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>Plan breakdown</Text>
-            <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>How your weight cut is structured.</Text>
+            <Text style={{ color: colors.foreground, fontSize: 17, fontWeight: "700" }}>Plan breakdown</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>How your weight cut is structured.</Text>
           </View>
-          <TouchableOpacity onPress={() => setShowBreakdown(false)}><Feather name="x" size={22} color="#6b7280" /></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowBreakdown(false)}><Feather name="x" size={22} color={colors.mutedForeground} /></TouchableOpacity>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <View style={{ backgroundColor: "#13161d", borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden", marginBottom: 14 }}>
+          <View style={{ backgroundColor: colors.input, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden", marginBottom: 14 }}>
             {/* Fat loss target */}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-              <Text style={{ color: "#6b7280", fontSize: 13 }}>Fat loss target</Text>
-              <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>{(plan.fatLossRequired ?? plan.totalToLose).toFixed(1)} kg</Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Fat loss target</Text>
+              <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>{(plan.fatLossRequired ?? plan.totalToLose).toFixed(1)} kg</Text>
             </View>
             {/* Temp cut */}
             {(plan.tempCutDisplayed ?? 0) > 0 && (
-              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-                <Text style={{ color: "#6b7280", fontSize: 13 }}>Temporary reduction</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>~{(plan.tempCutDisplayed).toFixed(1)} kg</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Temporary reduction</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>~{(plan.tempCutDisplayed).toFixed(1)} kg</Text>
               </View>
             )}
             {(plan.tempCutDisplayed ?? 0) === 0 && (plan.tempCut ?? 0) > 0 && (
-              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-                <Text style={{ color: "#6b7280", fontSize: 13 }}>Estimated temp.</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>~{(plan.tempCut).toFixed(1)} kg</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Estimated temp.</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>~{(plan.tempCut).toFixed(1)} kg</Text>
               </View>
             )}
             {/* D-4 row — only within 10 days */}
             {plan.dayMinus4Target !== null && plan.daysUntil <= 10 && (
-              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-                <Text style={{ color: "#6b7280", fontSize: 13 }}>Target by D−4</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>≤ {(plan.dayMinus4Target!).toFixed(1)} kg</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Target by D−4</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>≤ {(plan.dayMinus4Target!).toFixed(1)} kg</Text>
               </View>
             )}
             {/* Fat-loss pace */}
             {pace && (
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 13, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-                <Text style={{ color: "#6b7280", fontSize: 13 }}>Fat-loss pace</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 13, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Fat-loss pace</Text>
                 <View style={{ alignItems: "flex-end" }}>
                   <View style={{ backgroundColor: pace.color + "20", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                     <Text style={{ color: pace.color, fontWeight: "700", fontSize: 12 }}>{pace.label}</Text>
                   </View>
-                  <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 3 }}>{pace.note}</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 3 }}>{pace.note}</Text>
                 </View>
               </View>
             )}
             {/* Daily deficit */}
             {plan.suggestedDeficitKcal > 0 && (
               <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 13 }}>
-                <Text style={{ color: "#6b7280", fontSize: 13 }}>Daily deficit target</Text>
-                <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>~{Math.round(plan.suggestedDeficitKcal)} kcal</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Daily deficit target</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}>~{Math.round(plan.suggestedDeficitKcal)} kcal</Text>
               </View>
             )}
           </View>
           {/* Weekly targets */}
           {plan.weeklyTargets?.length > 0 && (
-            <View style={{ backgroundColor: "#13161d", borderRadius: 12, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden" }}>
-              <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
-                <Text style={{ color: "#6b7280", fontWeight: "700", fontSize: 11, letterSpacing: 0.5 }}>WEEKLY WEIGHT TARGETS</Text>
+            <View style={{ backgroundColor: colors.input, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
+              <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.mutedForeground, fontWeight: "700", fontSize: 11, letterSpacing: 0.5 }}>WEEKLY WEIGHT TARGETS</Text>
               </View>
               {plan.weeklyTargets.map((wt) => (
-                <View key={wt.week} style={{ flexDirection: "row", justifyContent: "space-between", padding: 11, borderBottomWidth: 1, borderBottomColor: "#1a1e2840" }}>
-                  <Text style={{ color: "#6b7280", fontSize: 13 }}>Week {wt.week}</Text>
-                  <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 13 }}>{wt.targetWeight.toFixed(1)} kg</Text>
+                <View key={wt.week} style={{ flexDirection: "row", justifyContent: "space-between", padding: 11, borderBottomWidth: 1, borderBottomColor: `${colors.border}40` }}>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Week {wt.week}</Text>
+                  <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 13 }}>{wt.targetWeight.toFixed(1)} kg</Text>
                 </View>
               ))}
             </View>
@@ -717,22 +795,22 @@ function FightCampHero({ date }: { date: string }) {
     <>
       {formModal}
       {breakdownModal}
-      <Card>
+      <Card style={styles.fightCampCard}>
         {/* Header row: Fight Camp label | status badge | edit | delete */}
         <View style={styles.rowBetween}>
           <View style={styles.row}>
-            <Feather name="target" size={13} color={colors.primary} />
-            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>Fight Camp</Text>
+            <Feather name="target" size={14} color={colors.primary} />
+            <Text style={styles.fightCampHeaderText}>Fight Camp</Text>
           </View>
           <View style={styles.row}>
             {statusColor && (
-              <View style={{ backgroundColor: statusColor.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+              <View style={{ backgroundColor: statusColor.bg, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3,
                 borderWidth: 1, borderColor: statusColor.border, marginRight: 8 }}>
-                <Text style={{ color: statusColor.text, fontWeight: "700", fontSize: 11 }}>{plan.statusLabel}</Text>
+                <Text style={{ color: statusColor.text, fontWeight: "700", fontSize: 12, fontFamily: "Inter_700Bold" }}>{getWeightCutStatusLabel(plan)}</Text>
               </View>
             )}
             <TouchableOpacity onPress={openEdit} style={{ marginRight: 10 }}>
-              <Feather name="edit-2" size={15} color={colors.mutedForeground} />
+              <Feather name="edit-2" size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => {
               Alert.alert("Delete plan", "Remove this fight camp plan?", [
@@ -740,27 +818,35 @@ function FightCampHero({ date }: { date: string }) {
                 { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
               ]);
             }}>
-              <Feather name="trash-2" size={15} color="#f87171" />
+              <Feather name="trash-2" size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Countdown */}
-        <Text style={[styles.heroNum, { color: colors.foreground, marginTop: 6 }]}>
-          {plan.daysUntil}{" "}
-          <Text style={[styles.heroSub, { color: colors.mutedForeground }]}>days to fight night</Text>
-        </Text>
+        <View style={styles.fightCountdownRow}>
+          <Feather name="calendar" size={21} color={colors.primary} />
+          <Text style={styles.fightCountdownText}>
+            {plan.daysUntil === 1 ? "1 day" : `${plan.daysUntil} days`}{" "}
+            <Text style={styles.fightCountdownSub}>to fight night</Text>
+          </Text>
+        </View>
 
         {/* Inline weight logging */}
-        {!showWeight ? (
+        {!hasWeightForDate && !showWeight ? (
           <TouchableOpacity
-            style={{ flexDirection: "row", alignItems: "center", marginTop: 8, marginBottom: 4,
-              backgroundColor: colors.secondary, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: colors.border }}
+            style={styles.fightWeightCta}
             onPress={() => setShowWeight(true)}>
-            <Feather name="plus-circle" size={14} color={colors.primary} />
-            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600", marginLeft: 6 }}>Log today's weight →</Text>
+            <MaterialCommunityIcons name="scale-balance" size={17} color={colors.primary} />
+            <View style={{ flex: 1, marginLeft: 11 }}>
+              <Text style={styles.fightWeightCtaTitle}>
+                {isPlanDateToday ? "Log today's weight" : "Log weight for this date"}
+              </Text>
+              <Text style={styles.fightWeightCtaSub}>Updates your cut trend</Text>
+            </View>
+            <Text style={styles.fightWeightCtaTap}>Tap →</Text>
           </TouchableOpacity>
-        ) : (
+        ) : !hasWeightForDate ? (
           <View style={{ marginTop: 8, marginBottom: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
               <Feather name="activity" size={13} color={colors.mutedForeground} />
@@ -787,51 +873,56 @@ function FightCampHero({ date }: { date: string }) {
               </TouchableOpacity>
             </View>
           </View>
-        )}
+        ) : null}
 
         {/* 3-panel weight row */}
-        <View style={{ flexDirection: "row", marginTop: 10, backgroundColor: colors.secondary,
-          borderRadius: 10, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
-          <View style={{ flex: 1, alignItems: "center", padding: 12, borderRightWidth: 1, borderRightColor: colors.border }}>
-            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 17 }}>{plan.currentWeight}</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>Current</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>kg</Text>
+        <View style={styles.fightStatsRow}>
+          <View style={styles.fightStatCell}>
+            <Text style={styles.fightStatNumber}>{plan.currentWeight}</Text>
+            <Text style={styles.fightStatLabel}>CURRENT KG</Text>
           </View>
-          <View style={{ flex: 1, alignItems: "center", padding: 10, justifyContent: "center",
-            borderRightWidth: 1, borderRightColor: colors.border }}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 2 }}>↓</Text>
-            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>{plan.totalToLose.toFixed(1)} kg to go</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{plan.weeklyRate.toFixed(2)} kg/wk</Text>
+          <View style={styles.fightStatCell}>
+            <Feather name="trending-down" size={17} color={colors.primary} style={{ marginBottom: 4 }} />
+            <Text style={styles.fightMiddleNumber}>{plan.totalToLose.toFixed(1)} kg to go</Text>
+            <Text style={styles.fightMiddleLabel}>{plan.weeklyRate.toFixed(2)} kg/wk fat loss</Text>
           </View>
-          <View style={{ flex: 1, alignItems: "center", padding: 12 }}>
-            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 17 }}>{plan.targetWeight}</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>Fight wt</Text>
+          <View style={styles.fightStatCell}>
+            <Text style={styles.fightStatNumber}>{plan.targetWeight}</Text>
+            <Text style={styles.fightStatLabel}>FIGHT WEIGHT</Text>
           </View>
         </View>
 
-        {/* Pace badge row — taps to breakdown */}
-        <TouchableOpacity onPress={() => setShowBreakdown(true)} style={{ marginTop: 10 }} activeOpacity={0.7}>
-          {pace && (
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
+        {/* Pace badge row */}
+        {pace && (
+          <TouchableOpacity
+            onPress={() => setShowBreakdown(true)}
+            style={styles.fightSectionRow}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Open plan breakdown"
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
               <View style={{ backgroundColor: pace.color + "20", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
                 borderWidth: 1, borderColor: pace.color + "40" }}>
-                <Text style={{ color: pace.color, fontWeight: "700", fontSize: 12 }}>{pace.label}</Text>
+                <Text style={{ color: pace.color, fontWeight: "700", fontSize: 12, fontFamily: "Inter_700Bold" }}>{pace.label}</Text>
               </View>
-              <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
-              <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 2 }}>Plan breakdown</Text>
+              {!!pace.note && (
+                <Text style={styles.fightPaceNote} numberOfLines={1}>{pace.note}</Text>
+              )}
             </View>
-          )}
-        </TouchableOpacity>
+            <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
 
         {/* This week's target */}
         {thisWeekTarget && (
-          <View style={{ marginTop: 10, backgroundColor: colors.secondary, borderRadius: 8, padding: 10,
-            borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>THIS WEEK'S TARGET</Text>
-            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14, marginTop: 2 }}>
+          <View style={styles.fightSectionBlock}>
+            <Text style={styles.fightInlineTarget}>
+              <Text style={styles.fightTargetLabel}>THIS WEEK'S TARGET</Text>
+              {"  "}
               {thisWeekTarget.targetWeight.toFixed(1)} kg
               {plan.suggestedDeficitKcal > 0 && (
-                <Text style={{ color: colors.mutedForeground, fontWeight: "400" }}> · ~{Math.round(plan.suggestedDeficitKcal)} kcal deficit</Text>
+                <Text style={styles.fightTargetMuted}> · ~{Math.round(plan.suggestedDeficitKcal)} kcal deficit/day</Text>
               )}
             </Text>
           </View>
@@ -839,37 +930,36 @@ function FightCampHero({ date }: { date: string }) {
 
         {/* Trend message */}
         {trend && (
-          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
-            <Feather name={trend.isUp ? "trending-up" : "zap"} size={13}
+          <View style={styles.fightTrendBlock}>
+            <Feather name={trend.isUp ? "trending-up" : "zap"} size={trend.isUp ? 22 : 15}
               color={trend.isUp ? "#fb923c" : colors.primary} style={{ marginRight: 5 }} />
-            <Text style={{ color: trend.isUp ? "#fb923c" : colors.mutedForeground, fontSize: 12, flex: 1 }}>
+            <Text style={[styles.fightTrendText, { color: trend.isUp ? colors.warning : "rgba(236,238,242,0.72)" }]}>
               {trend.text}
             </Text>
           </View>
         )}
 
         {/* Consistency row */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-          <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
-            Weight logged: {consistencyCount} of last 7 days
+        <View style={styles.fightConsistencyRow}>
+          <Text style={styles.fightConsistencyText}>
+            Weight logged: <Text style={styles.fightConsistencyStrong}>{consistencyCount} of last 7 days</Text>
           </Text>
           {consistencyInfo && (
-            <View style={{ backgroundColor: consistencyInfo.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 }}>
-              <Text style={{ color: consistencyInfo.color, fontWeight: "700", fontSize: 11 }}>{consistencyInfo.label}</Text>
+            <View style={{ backgroundColor: consistencyInfo.bg, borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(135,145,163,0.55)" }}>
+              <Text style={{ color: consistencyInfo.color, fontWeight: "700", fontSize: 11, fontFamily: "Inter_700Bold" }}>{consistencyInfo.label}</Text>
             </View>
           )}
         </View>
 
         {/* Share row */}
-        <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", marginTop: 10,
-          paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border }}>
+        <View style={styles.fightShareRow}>
           <Feather name="share" size={14} color={colors.mutedForeground} />
           <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 6 }}>Try sharing a moment</Text>
-        </TouchableOpacity>
+        </View>
 
-        {/* Disclaimer */}
-        <Text style={{ color: colors.mutedForeground, fontSize: 10, marginTop: 6, lineHeight: 14 }}>
-          Educational tool only. Consult a sports nutritionist for individual guidance.
+        {/* Planner note */}
+        <Text style={styles.fightPlannerNote}>
+          This planner focuses on gradual fat loss. Some athletes temporarily reduce body weight before weigh-ins. Weight naturally fluctuates day to day — focus on trends.
         </Text>
       </Card>
     </>
@@ -884,6 +974,7 @@ function MorningCheckInGate({ date }: { date: string }) {
   const router = useRouter();
   const colors = useColors();
   const qc = useQueryClient();
+  const { showToast } = useToast();
 
   const [visible, setVisible] = useState(false);
   const [seenLoaded, setSeenLoaded] = useState(false);
@@ -946,7 +1037,13 @@ function MorningCheckInGate({ date }: { date: string }) {
       qc.invalidateQueries({ queryKey: ["readiness", date] });
       qc.invalidateQueries({ queryKey: ["fuel", date] });
       setShowWeightForm(false); setGateWtVal("");
+      showToast({ title: "Weight logged" });
     },
+    onError: (err) => showToast({
+      title: "Weight not logged",
+      description: getErrorMessage(err),
+      variant: "destructive",
+    }),
   });
 
   // Only show on today's date, after seen-state is loaded
@@ -968,48 +1065,52 @@ function MorningCheckInGate({ date }: { date: string }) {
           justifyContent: "center", alignItems: "center", padding: 20,
         }}>
           <View style={{
-            backgroundColor: "#13161d", borderRadius: 20, width: "100%", maxWidth: 400,
-            borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden",
+            backgroundColor: "#0b0f16", borderRadius: 14, width: "100%", maxWidth: 400,
+            borderWidth: 1.2, borderColor: "#e5e7eb", overflow: "hidden",
           }}>
             {/* Header */}
-            <View style={{ padding: 20, paddingBottom: 0 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-                <Text style={{ color: "#eceef2", fontSize: 17, fontWeight: "700" }}>Start your day</Text>
-                <TouchableOpacity onPress={markSeen} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Feather name="x" size={20} color="#6b7280" />
+            <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 0 }}>
+              <View style={{ alignItems: "center", justifyContent: "center", marginBottom: 6, minHeight: 28 }}>
+                <Text style={{ color: colors.foreground, fontSize: 17, lineHeight: 22, fontWeight: "700", fontFamily: "Inter_700Bold" }}>Start your day</Text>
+                <TouchableOpacity
+                  onPress={markSeen}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={{ position: "absolute", right: 0, top: 0, width: 28, height: 28, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Feather name="x" size={22} color={colors.mutedForeground} />
                 </TouchableOpacity>
               </View>
-              <Text style={{ color: "#6b7280", fontSize: 13, lineHeight: 18 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 15, lineHeight: 22, textAlign: "center", fontFamily: "Inter_400Regular" }}>
                 Complete your check-in to get accurate readiness and fuel targets
               </Text>
             </View>
 
-            <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ padding: 16 }}>
+            <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ padding: 20, paddingTop: 18 }}>
               {/* ── SLEEP ROW ── */}
               {status.hasSleep ? (
-                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
-                  <Feather name="moon" size={16} color="#ff7a00" />
-                  <Text style={{ color: "#6b7280", fontSize: 14, flex: 1, marginLeft: 10 }}>Sleep logged</Text>
-                  <Feather name="check" size={16} color="#4ade80" />
+                <View style={[gateRow, { borderColor: colors.border }]}>
+                  <Feather name="moon" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.mutedForeground, fontSize: 15, flex: 1, marginLeft: 12, fontWeight: "600" }}>Sleep logged</Text>
+                  <Feather name="check" size={18} color={colors.success} />
                 </View>
               ) : showSleepForm ? (
-                <View style={{ backgroundColor: "#0f1117", borderRadius: 12, padding: 12,
-                  borderWidth: 1, borderColor: "#ff7a0040", marginBottom: 8 }}>
+                <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 12,
+                  borderWidth: 1, borderColor: `${colors.primary}40`, marginBottom: 8 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
-                    <Feather name="moon" size={14} color="#ff7a00" />
-                    <Text style={{ color: "#6b7280", fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Hours slept</Text>
+                    <Feather name="moon" size={14} color={colors.primary} />
+                    <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Hours slept</Text>
                   </View>
                   <TextInput
-                    style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28",
-                      borderRadius: 8, color: "#eceef2", padding: 10, fontSize: 15, marginBottom: 10 }}
+                    style={{ backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border,
+                      borderRadius: 8, color: colors.foreground, padding: 10, fontSize: 15, marginBottom: 10 }}
                     placeholder="e.g. 7.5"
-                    placeholderTextColor="#6b7280"
+                    placeholderTextColor={colors.mutedForeground}
                     keyboardType="decimal-pad"
                     value={gateSlH}
                     onChangeText={setGateSlH}
                     autoFocus
                   />
-                  <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Quality</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Quality</Text>
                   <View style={{ flexDirection: "row", gap: 6, marginBottom: 12 }}>
                     {[1, 2, 3, 4, 5].map(q => (
                       <TouchableOpacity key={q} onPress={() => setGateSlQ(q)}
@@ -1024,7 +1125,7 @@ function MorningCheckInGate({ date }: { date: string }) {
                     <TouchableOpacity
                       onPress={() => { const h = parseFloat(gateSlH); if (!isNaN(h) && h > 0) sleepMut.mutate({ hoursSlept: h, sleepQuality: gateSlQ }); }}
                       disabled={sleepMut.isPending || !gateSlH}
-                      style={{ flex: 1, backgroundColor: "#ff7a00", borderRadius: 8, padding: 10, alignItems: "center",
+                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, padding: 10, alignItems: "center",
                         opacity: (!gateSlH || sleepMut.isPending) ? 0.5 : 1 }}>
                       <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
                         {sleepMut.isPending ? "Saving…" : "Save"}
@@ -1032,43 +1133,43 @@ function MorningCheckInGate({ date }: { date: string }) {
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => { setShowSleepForm(false); setGateSlH(""); setGateSlQ(null); }}
                       style={{ paddingHorizontal: 14, justifyContent: "center" }}>
-                      <Text style={{ color: "#6b7280", fontSize: 13 }}>Cancel</Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Cancel</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ) : (
-                <View style={[gateRow, { borderColor: "#1a1e28", marginBottom: 8 }]}>
-                  <Feather name="moon" size={16} color="#ff7a00" />
-                  <Text style={{ color: "#eceef2", fontSize: 14, flex: 1, marginLeft: 10, fontWeight: "500" }}>
+                <View style={[gateRow, { borderColor: colors.border, marginBottom: 8 }]}>
+                  <Feather name="moon" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.foreground, fontSize: 15, flex: 1, marginLeft: 12, fontWeight: "600" }}>
                     Log last night's sleep
                   </Text>
                   <TouchableOpacity onPress={() => setShowSleepForm(true)}
-                    style={{ borderWidth: 1, borderColor: "#ff7a00", borderRadius: 6,
+                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: 6,
                       paddingHorizontal: 10, paddingVertical: 4 }}>
-                    <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "700" }}>Log</Text>
+                    <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>Log</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
               {/* ── WEIGHT ROW ── */}
               {status.hasWeight ? (
-                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
-                  <Feather name="activity" size={16} color="#ff7a00" />
-                  <Text style={{ color: "#6b7280", fontSize: 14, flex: 1, marginLeft: 10 }}>Weight logged</Text>
-                  <Feather name="check" size={16} color="#4ade80" />
+                <View style={[gateRow, { borderColor: colors.border }]}>
+                  <Feather name="activity" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.mutedForeground, fontSize: 15, flex: 1, marginLeft: 12, fontWeight: "600" }}>Weight logged</Text>
+                  <Feather name="check" size={18} color={colors.success} />
                 </View>
               ) : showWeightForm ? (
-                <View style={{ backgroundColor: "#0f1117", borderRadius: 12, padding: 12,
-                  borderWidth: 1, borderColor: "#ff7a0040", marginBottom: 8 }}>
+                <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 12,
+                  borderWidth: 1, borderColor: `${colors.primary}40`, marginBottom: 8 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
-                    <Feather name="activity" size={14} color="#ff7a00" />
-                    <Text style={{ color: "#6b7280", fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Morning weight (kg)</Text>
+                    <Feather name="activity" size={14} color={colors.primary} />
+                    <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Morning weight (kg)</Text>
                   </View>
                   <TextInput
-                    style={{ backgroundColor: "#13161d", borderWidth: 1, borderColor: "#1a1e28",
-                      borderRadius: 8, color: "#eceef2", padding: 10, fontSize: 15, marginBottom: 10 }}
+                    style={{ backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border,
+                      borderRadius: 8, color: colors.foreground, padding: 10, fontSize: 15, marginBottom: 10 }}
                     placeholder="e.g. 77.2"
-                    placeholderTextColor="#6b7280"
+                    placeholderTextColor={colors.mutedForeground}
                     keyboardType="decimal-pad"
                     value={gateWtVal}
                     onChangeText={setGateWtVal}
@@ -1078,7 +1179,7 @@ function MorningCheckInGate({ date }: { date: string }) {
                     <TouchableOpacity
                       onPress={() => { const w = parseFloat(gateWtVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}
                       disabled={weightMut.isPending || !gateWtVal}
-                      style={{ flex: 1, backgroundColor: "#ff7a00", borderRadius: 8, padding: 10, alignItems: "center",
+                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, padding: 10, alignItems: "center",
                         opacity: (!gateWtVal || weightMut.isPending) ? 0.5 : 1 }}>
                       <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
                         {weightMut.isPending ? "Saving…" : "Save"}
@@ -1086,49 +1187,49 @@ function MorningCheckInGate({ date }: { date: string }) {
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => { setShowWeightForm(false); setGateWtVal(""); }}
                       style={{ paddingHorizontal: 14, justifyContent: "center" }}>
-                      <Text style={{ color: "#6b7280", fontSize: 13 }}>Cancel</Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Cancel</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ) : (
-                <View style={[gateRow, { borderColor: "#1a1e28", marginBottom: 8 }]}>
-                  <Feather name="activity" size={16} color="#ff7a00" />
-                  <Text style={{ color: "#eceef2", fontSize: 14, flex: 1, marginLeft: 10, fontWeight: "500" }}>
+                <View style={[gateRow, { borderColor: colors.border, marginBottom: 8 }]}>
+                  <Feather name="activity" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.foreground, fontSize: 15, flex: 1, marginLeft: 12, fontWeight: "600" }}>
                     Log today's weight
                   </Text>
                   <TouchableOpacity onPress={() => setShowWeightForm(true)}
-                    style={{ borderWidth: 1, borderColor: "#ff7a0060", borderRadius: 6,
+                    style={{ borderWidth: 1, borderColor: `${colors.primary}60`, borderRadius: 6,
                       paddingHorizontal: 10, paddingVertical: 4 }}>
-                    <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "700" }}>Log</Text>
+                    <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>Log</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
               {/* ── TRAINING ROW ── */}
               {status.hasPlannedTraining ? (
-                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
-                  <Feather name="zap" size={16} color="#ff7a00" />
-                  <Text style={{ color: "#6b7280", fontSize: 14, flex: 1, marginLeft: 10 }}>Session created</Text>
-                  <Feather name="check" size={16} color="#4ade80" />
+                <View style={[gateRow, { borderColor: colors.border }]}>
+                  <Feather name="zap" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.mutedForeground, fontSize: 15, flex: 1, marginLeft: 12, fontWeight: "600" }}>Session created</Text>
+                  <Feather name="check" size={18} color={colors.success} />
                 </View>
               ) : (
-                <View style={[gateRow, { borderColor: "#1a1e28" }]}>
-                  <Feather name="zap" size={16} color="#ff7a00" />
-                  <Text style={{ color: "#eceef2", fontSize: 14, flex: 1, marginLeft: 10, fontWeight: "500" }}>
+                <View style={[gateRow, { borderColor: colors.border }]}>
+                  <Feather name="zap" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.foreground, fontSize: 15, flex: 1, marginLeft: 12, fontWeight: "600" }}>
                     Create today's session
                   </Text>
                   <TouchableOpacity
                     onPress={() => { markSeen(); router.push("/(tabs)/training" as any); }}
-                    style={{ borderWidth: 1, borderColor: "#ff7a00", borderRadius: 6,
+                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: 6,
                       paddingHorizontal: 10, paddingVertical: 4 }}>
-                    <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "700" }}>Add</Text>
+                    <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>Add</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
               {/* Incomplete notice */}
               {incomplete && (
-                <Text style={{ color: "#6b7280", fontSize: 12, textAlign: "center", marginTop: 12, lineHeight: 17 }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center", marginTop: 16, lineHeight: 18 }}>
                   Your macro and fuel targets will be less accurate
                 </Text>
               )}
@@ -1136,8 +1237,8 @@ function MorningCheckInGate({ date }: { date: string }) {
               {/* Continue button */}
               <TouchableOpacity
                 onPress={markSeen}
-                style={{ backgroundColor: "#ff7a00", borderRadius: 12, padding: 14,
-                  alignItems: "center", marginTop: 12 }}>
+                style={{ backgroundColor: colors.primary, borderRadius: 8, borderWidth: 1.2, borderColor: "#e5e7eb", padding: 13,
+                  alignItems: "center", marginTop: 16 }}>
                 <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -1152,11 +1253,13 @@ function MorningCheckInGate({ date }: { date: string }) {
 const gateRow: object = {
   flexDirection: "row" as const,
   alignItems: "center" as const,
-  padding: 12,
+  minHeight: 54,
+  paddingHorizontal: 14,
+  paddingVertical: 10,
   borderRadius: 10,
   borderWidth: 1,
-  marginBottom: 8,
-  backgroundColor: "#0f111780",
+  marginBottom: 10,
+  backgroundColor: "rgba(13, 16, 23, 0.50)",
 };
 
 // ─────────────────────────────────────────
@@ -1166,6 +1269,7 @@ function MorningCheckIn({ date }: { date: string }) {
   const colors = useColors();
   const router = useRouter();
   const qc = useQueryClient();
+  const { showToast } = useToast();
   const [showSleep, setShowSleep] = useState(false);
   const [sleepH, setSleepH] = useState("");
   const [sleepQ, setSleepQ] = useState<number | null>(null);
@@ -1193,8 +1297,16 @@ function MorningCheckIn({ date }: { date: string }) {
       qc.invalidateQueries({ queryKey: ["morning-status", date] });
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
       qc.invalidateQueries({ queryKey: ["weights-range"] });
+      qc.invalidateQueries({ queryKey: ["readiness", date] });
+      qc.invalidateQueries({ queryKey: ["fuel", date] });
       setShowWeight(false); setWeightVal("");
+      showToast({ title: "Weight logged — trend updated ✅" });
     },
+    onError: (err) => showToast({
+      title: "Weight not logged",
+      description: getErrorMessage(err),
+      variant: "destructive",
+    }),
   });
 
   const restMut = useMutation({
@@ -1213,7 +1325,7 @@ function MorningCheckIn({ date }: { date: string }) {
   if (done === 3) return null;
 
   return (
-    <Card>
+    <Card style={styles.morningCard}>
       <View style={styles.rowBetween}>
         <Text style={[styles.cardTitle, { color: colors.foreground }]}>Morning Check-In</Text>
         <SmallBadge label={`${done}/3`} color={colors.primary} bg={"rgba(255,122,0,0.1)"} />
@@ -1384,7 +1496,7 @@ function ReadinessSummaryCard({ date }: { date: string }) {
     : fuelBadgeStyle(fLabel);
 
   return (
-    <Card>
+    <Card style={[styles.outlineCard, styles.readinessSummaryCard]}>
       <View style={styles.rowBetween}>
         {/* READINESS column */}
         <View style={{ flex: 1 }}>
@@ -1469,7 +1581,7 @@ function ProvisionalCheckIn({ date }: { date: string }) {
       <Card>
         <View style={styles.rowBetween}>
           <View style={styles.row}>
-            <Feather name="check-circle" size={15} color="#4ade80" />
+            <Feather name="check-circle" size={15} color="#ff7a00" />
             <Text style={[styles.cardTitle, { color: colors.foreground, marginLeft: 7 }]}>Quick Check-in</Text>
             <View style={[styles.badge, { backgroundColor: "rgba(147,197,253,0.1)", borderColor: "rgba(147,197,253,0.3)", marginLeft: 8 }]}>
               <Text style={[styles.badgeText, { color: "#93c5fd" }]}>Estimated</Text>
@@ -1590,6 +1702,8 @@ function DailyIntakeCard({
   isRestDay?: boolean;
 }) {
   const colors = useColors();
+  const [showInfo, setShowInfo] = useState(false);
+  const [showEstimateDetails, setShowEstimateDetails] = useState(false);
   const { data: localTargets } = useQuery<Targets>({
     queryKey: ["targets", date],
     queryFn: () => apiFetch(`/me/targets/effective?date=${date}`),
@@ -1629,34 +1743,67 @@ function DailyIntakeCard({
   // EA row styling
   const eaIsWarn = (effectiveEA != null ? effectiveEA < 30 : originallyLowEA) && eaDecision !== "accepted";
   const eaIsAccepted = originallyLowEA && eaDecision === "accepted";
+  const tdee = Math.round((t as any).tdee ?? Math.max(cal, cal + Math.round((t as any).suggestedDeficitKcal ?? 0)));
+  const dailyDeficit = Math.max(0, Math.round((t as any).suggestedDeficitKcal ?? (tdee - cal)));
 
   return (
-    <Card>
+    <Card style={[styles.outlineCard, styles.dailyIntakeCard]}>
       <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Daily Intake Estimates</Text>
-        {isFightCamp && (
-          <SmallBadge label="Fight Camp" color={colors.primary} bg={"rgba(255,122,0,0.1)"} />
-        )}
+        <Text style={[styles.dailyTitle, { color: colors.foreground, flex: 1 }]} allowFontScaling={false}>Daily Intake Estimates</Text>
+        <TouchableOpacity onPress={() => setShowInfo(v => !v)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Show intake estimate guidance">
+          <Feather name="info" size={20} color={colors.foreground} />
+        </TouchableOpacity>
+      </View>
+      {showInfo && (
+        <View style={styles.intakeInfoPopover}>
+          <Text style={styles.intakeInfoTitle} allowFontScaling={false}>Goal Mode: Fight Camp Fat Loss</Text>
+          <Text style={styles.intakeInfoOrange} allowFontScaling={false}>
+            {isRestDay ? "Rest day — target is based on NEAT only." : "Training day — target includes logged activity."}
+          </Text>
+          <Text style={styles.intakeInfoBody} allowFontScaling={false}>
+            Training is baked into the calorie target. An EA floor of 30 kcal/kg FFM prevents under-fuelling. Macros adapt to your training load each day.
+          </Text>
+          <Text style={styles.intakeInfoMuted} allowFontScaling={false}>
+            Daily deficit: {dailyDeficit} kcal · TDEE: {tdee} kcal
+          </Text>
+          <Text style={styles.intakeInfoMuted} allowFontScaling={false}>
+            These are estimates only. Adjust based on trends and performance. Not medical advice.
+          </Text>
+        </View>
+      )}
+      {isFightCamp && (
+        <View style={styles.intakeBadge}>
+          <Text style={styles.intakeBadgeText} allowFontScaling={false}>Fight Camp</Text>
+        </View>
+      )}
+      <Text style={[styles.dailySubtitle, { color: colors.mutedForeground }]} allowFontScaling={false}>
+        {isFightCamp ? "Targets controlled by fight camp plan." : "Targets adapt to your logged training."}
+      </Text>
+
+      <View style={styles.intakeGrid}>
+        {[
+          { value: String(cal), label: "Calories" },
+          { value: `${Math.round(t.targetProtein)}g`, label: "Protein" },
+          { value: `${carbs}g`, label: "Carbs" },
+          { value: `${Math.round(t.targetFat)}g`, label: "Fat" },
+        ].map(item => (
+          <View key={item.label} style={[styles.intakeCell, { backgroundColor: colors.secondary + "26" }]}>
+            <Text style={[styles.intakeValue, { color: colors.foreground }]} allowFontScaling={false}>{item.value}</Text>
+            <Text style={[styles.intakeLabel, { color: colors.mutedForeground }]} allowFontScaling={false}>{item.label}</Text>
+          </View>
+        ))}
       </View>
 
-      <View style={styles.macroRow}>
-        <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: colors.foreground, fontSize: 22 }]}>{cal}</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>cal</Text>
+      {isFightCamp && (
+        <View style={[styles.intakeCallout, { backgroundColor: colors.semantic.fightCampBg, borderColor: colors.semantic.fightCampBorder }]}>
+          <View style={styles.intakeCalloutRow}>
+            <Text style={styles.intakeCalloutEmoji} allowFontScaling={false}>🥊</Text>
+            <Text style={styles.intakeCalloutText} allowFontScaling={false}>
+              Fight Camp plan is controlling your targets. Training kcal are added back dynamically when logging activities.
+            </Text>
+          </View>
         </View>
-        <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: "#93c5fd", fontSize: 22 }]}>{Math.round(t.targetProtein)}g</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>protein</Text>
-        </View>
-        <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: "#f59e0b", fontSize: 22 }]}>{carbs}g</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>carbs</Text>
-        </View>
-        <View style={{ alignItems: "center", flex: 1 }}>
-          <Text style={[styles.heroNum, { color: "#facc15", fontSize: 22 }]}>{Math.round(t.targetFat)}g</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>fat</Text>
-        </View>
-      </View>
+      )}
 
       {/* EA row */}
       {showEARow && (
@@ -1666,18 +1813,18 @@ function DailyIntakeCard({
             ? { backgroundColor: "rgba(249,115,22,0.1)", borderColor: "rgba(249,115,22,0.3)", borderWidth: 1 }
             : { backgroundColor: colors.secondary + "80" },
         ]}>
-          <Text style={[styles.xs, { color: eaIsWarn ? "#fb923c" : colors.mutedForeground, flex: 1 }]}>
+          <Text style={[styles.xs, { color: eaIsWarn ? "#fb923c" : colors.mutedForeground, flex: 1 }]} allowFontScaling={false}>
             Energy Availability
           </Text>
-          <Text style={[styles.xs, { color: eaIsWarn ? "#fb923c" : colors.mutedForeground, fontVariant: ["tabular-nums"] }]}>
+          <Text style={[styles.xs, { color: eaIsWarn ? "#fb923c" : colors.mutedForeground, fontVariant: ["tabular-nums"] }]} allowFontScaling={false}>
             {effectiveEA ?? t.eaValue} kcal/kg FFM
           </Text>
           {eaIsAccepted && (
-            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>· adjusted ✓</Text>
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginLeft: 4 }]} allowFontScaling={false}>· adjusted ✓</Text>
           )}
           {(eaIsWarn || eaIsAccepted) && (
             <TouchableOpacity onPress={fcOverride!.openEAModal} style={{ marginLeft: 6 }}>
-              <Text style={[styles.xs, { color: "#fb923c", textDecorationLine: "underline" }]}>
+              <Text style={[styles.xs, { color: "#fb923c", textDecorationLine: "underline" }]} allowFontScaling={false}>
                 {eaDecision === "declined" ? "Review" : eaIsAccepted ? "Review" : "Review →"}
               </Text>
             </TouchableOpacity>
@@ -1688,24 +1835,36 @@ function DailyIntakeCard({
       {/* Low carb row */}
       {showCarbRow && !postOverrideIsLowCarb && originallyLowCarb && carbDecision === "accepted" && (
         <View style={[styles.eaRow, { backgroundColor: colors.secondary + "80" }]}>
-          <Text style={[styles.xs, { color: colors.mutedForeground, flex: 1 }]}>Carbs adjusted to 3 g/kg</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>· adjusted ✓</Text>
+          <Text style={[styles.xs, { color: colors.mutedForeground, flex: 1 }]} allowFontScaling={false}>Carbs adjusted to 3 g/kg</Text>
+          <Text style={[styles.xs, { color: colors.mutedForeground }]} allowFontScaling={false}>· adjusted ✓</Text>
           <TouchableOpacity onPress={fcOverride!.openCarbModal} style={{ marginLeft: 6 }}>
-            <Text style={[styles.xs, { color: colors.mutedForeground, textDecorationLine: "underline" }]}>Review</Text>
+            <Text style={[styles.xs, { color: colors.mutedForeground, textDecorationLine: "underline" }]} allowFontScaling={false}>Review</Text>
           </TouchableOpacity>
         </View>
       )}
       {showCarbRow && postOverrideIsLowCarb && carbDecision !== "accepted" && (
         <View style={[styles.eaRow, { backgroundColor: "rgba(234,179,8,0.1)", borderColor: "rgba(234,179,8,0.3)", borderWidth: 1 }]}>
-          <Text style={[styles.xs, { color: "#facc15", flex: 1 }]}>Carbs below 3 g/kg</Text>
+          <Text style={[styles.xs, { color: "#facc15", flex: 1 }]} allowFontScaling={false}>Carbs below 3 g/kg</Text>
           <TouchableOpacity onPress={fcOverride!.openCarbModal}>
-            <Text style={[styles.xs, { color: "#facc15", textDecorationLine: "underline" }]}>
+            <Text style={[styles.xs, { color: "#facc15", textDecorationLine: "underline" }]} allowFontScaling={false}>
               {carbDecision === "declined" ? "Review" : "Review →"}
             </Text>
           </TouchableOpacity>
         </View>
       )}
 
+      <Text style={[styles.dailyDisclaimer, { color: colors.mutedForeground }]} allowFontScaling={false}>
+        These values are estimates based on logged activity and body metrics. They are not medical or nutrition advice.
+      </Text>
+      <TouchableOpacity style={styles.estimateToggle} onPress={() => setShowEstimateDetails(v => !v)} activeOpacity={0.8}>
+        <Feather name={showEstimateDetails ? "chevron-up" : "chevron-down"} size={17} color={colors.mutedForeground} />
+        <Text style={styles.estimateToggleText} allowFontScaling={false}>How estimates are calculated</Text>
+      </TouchableOpacity>
+      {showEstimateDetails && (
+        <Text style={styles.estimateDetailsText} allowFontScaling={false}>
+          All values are estimates for personal tracking only. These are not prescriptions or medical recommendations. If you have a medical condition, eating disorder history, or are under 18, consult a qualified professional.
+        </Text>
+      )}
     </Card>
   );
 }
@@ -1717,6 +1876,7 @@ function SupplementsToday({ date }: { date: string }) {
   const colors = useColors();
   const qc = useQueryClient();
   const router = useRouter();
+  const { showToast } = useToast();
   const displayDate = format(new Date(date + "T12:00:00"), "MMM d");
 
   const { data: slots = [] } = useQuery<ScheduledSlot[]>({
@@ -1742,50 +1902,118 @@ function SupplementsToday({ date }: { date: string }) {
         taken: d.taken,
         date,
       }}),
-    onSuccess: () => {
+    onMutate: () => ({
+      previousAmqsScore: qc.getQueryData<AmqsScore | null>(["amqs-score", date])?.score ?? null,
+    }),
+    onSuccess: (_data, variables, context) => {
       qc.invalidateQueries({ queryKey: ["supplement-intakes", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
+      if (!variables.taken) return;
+
+      setTimeout(async () => {
+        try {
+          const nextAmqs = await apiFetch<AmqsScore>(`/me/amqs/score/${date}`);
+          const oldScore = context?.previousAmqsScore;
+          const delta = typeof oldScore === "number" ? nextAmqs.score - oldScore : 0;
+          if (delta > 0) {
+            showToast({
+              title: `AMQS +${delta}`,
+              description: "Supplement boosted your micronutrient score.",
+              actionLabel: "See updated gaps",
+              onAction: () => router.replace("/(tabs)" as any),
+            });
+            return;
+          }
+        } catch {
+          // Fall through to the generic dashboard-updated toast.
+        }
+
+        showToast({
+          title: "Logged — dashboard updated",
+          description: "Supplement marked as taken. AMQS recalculating.",
+        });
+      }, 300);
     },
+    onError: (err) => showToast({
+      title: "Supplement not logged",
+      description: getErrorMessage(err),
+      variant: "destructive",
+    }),
   });
 
   return (
-    <Card>
+    <Card style={[styles.outlineCard, styles.suppCard]}>
       <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Supplements — {displayDate}</Text>
-        <TouchableOpacity onPress={() => router.push("/(tabs)/supplements" as any)}>
-          <SmallBadge label="Manage" color={colors.mutedForeground} bg={colors.secondary} />
+        <View style={styles.suppHeaderLeft}>
+          <MaterialCommunityIcons name="pill" size={22} color={colors.foreground} />
+          <Text style={[styles.suppTitle, { color: colors.foreground }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82} allowFontScaling={false}>
+            Supplements — {displayDate}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.suppManageBtn} onPress={() => router.push("/(tabs)/supplements" as any)}>
+          <Text style={styles.suppManageText} allowFontScaling={false}>Manage</Text>
         </TouchableOpacity>
       </View>
+      <Text style={[styles.suppSubtitle, { color: colors.mutedForeground }]} allowFontScaling={false}>
+        Scheduled for today ({takenSet.size} of {slots.length} taken)
+      </Text>
       {slots.length === 0 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground }]}>
           No supplements scheduled today. Enable reminders on your supplements to see them here.
         </Text>
       ) : (
-        slots.map(slot => {
+        <>
+        {slots.map(slot => {
           const key = iKey({ supplementId: slot.supplementId, stackId: slot.stackId, reminderId: slot.reminderId });
           const taken = takenSet.has(key);
+          const takenGreen = "#10b981";
+          const takenBorder = "rgba(16,185,129,0.55)";
+          const takenBackground = "rgba(16,185,129,0.14)";
           return (
             <TouchableOpacity key={`${slot.stackId}-${slot.reminderId}-${slot.supplementId}`}
-              style={[styles.suppRow, { borderColor: colors.border }]}
+              style={[
+                styles.suppRow,
+                {
+                  borderColor: taken ? takenBorder : "#e5e7eb",
+                  backgroundColor: taken ? takenBackground : "transparent",
+                },
+              ]}
               onPress={() => toggleMut.mutate({ supplementId: slot.supplementId, stackId: slot.stackId, reminderId: slot.reminderId, taken: !taken })}>
-              <View style={[styles.suppCheck, { borderColor: taken ? colors.primary : colors.border, backgroundColor: taken ? "rgba(255,122,0,0.1)" : "transparent" }]}>
-                {taken && <Feather name="check" size={11} color={colors.primary} />}
-              </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]}>{slot.supplementName}</Text>
+                <Text
+                  style={[
+                    styles.suppItemTitle,
+                    {
+                      color: taken ? colors.mutedForeground : colors.foreground,
+                      opacity: taken ? 0.85 : 1,
+                      textDecorationLine: taken ? "line-through" : "none",
+                    },
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  allowFontScaling={false}
+                >
+                  {slot.supplementName}
+                  {slot.doseAmount != null && slot.doseUnit && (
+                    <Text style={{ color: colors.mutedForeground, fontWeight: "500", textDecorationLine: taken ? "line-through" : "none" }}> ({slot.doseAmount} {slot.doseUnit})</Text>
+                  )}
+                </Text>
                 {/* Sub-line: "StackName at HH:MM" for stack slots, "at HH:MM" for direct reminders (§23.6) */}
-                <Text style={[styles.xs, { color: colors.mutedForeground }]}>
+                <Text style={[styles.suppItemMeta, { color: colors.mutedForeground, opacity: taken ? 0.9 : 1 }]} numberOfLines={1} allowFontScaling={false}>
                   {slot.stackName ? `${slot.stackName} at ${slot.time}` : `at ${slot.time}`}
                 </Text>
-                {slot.doseAmount != null && slot.doseUnit && (
-                  <Text style={[styles.xs, { color: colors.mutedForeground, opacity: 0.7 }]}>
-                    {slot.doseAmount} {slot.doseUnit}
-                  </Text>
-                )}
+              </View>
+              <View style={[styles.suppCheck, { borderColor: "#e5e7eb", backgroundColor: taken ? takenGreen : "transparent" }]}>
+                <Feather name={taken ? "check" : "plus"} size={taken ? 18 : 16} color={taken ? "#ffffff" : colors.foreground} />
               </View>
             </TouchableOpacity>
           );
-        })
+        })}
+        <Text style={styles.suppFooter} allowFontScaling={false}>
+          Personal tracking only. Not medical advice.
+        </Text>
+        </>
       )}
     </Card>
   );
@@ -1797,25 +2025,64 @@ function SupplementsToday({ date }: { date: string }) {
 function TrainingToday({ date }: { date: string }) {
   const colors = useColors();
   const router = useRouter();
+  const qc = useQueryClient();
   const displayDate = format(new Date(date + "T12:00:00"), "MMM d");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualKcal, setManualKcal] = useState("");
+  const [manualLabel, setManualLabel] = useState("");
   const { data: sessions = [] } = useQuery<WorkoutSession[]>({
     queryKey: ["sessions", date],
     queryFn: () => apiFetch(`/workouts/sessions?start=${date}&end=${date}`),
   });
 
+  const manualBurnMut = useMutation({
+    mutationFn: () => {
+      const caloriesBurned = Math.round(parseFloat(manualKcal));
+      if (!Number.isFinite(caloriesBurned) || caloriesBurned < 1) throw new Error("Enter calories burned.");
+      return apiFetch("/me/training/manual-burn", {
+        method: "POST",
+        body: { caloriesBurned, date, label: manualLabel.trim() || "Manual entry" },
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sessions", date] });
+      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["training-summary", date] });
+      setManualOpen(false);
+      setManualKcal("");
+      setManualLabel("");
+    },
+    onError: (err: any) => Alert.alert("Manual training not logged", err?.message ?? "Please try again."),
+  });
+
   return (
-    <Card>
-      <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Training — {displayDate}</Text>
-        <TouchableOpacity
-          style={[styles.btnSm, { backgroundColor: colors.primary, flexDirection: "row", alignItems: "center" }]}
-          onPress={() => router.push("/(tabs)/training" as any)}>
-          <Feather name="plus" size={12} color="#fff" />
-          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700", marginLeft: 3 }}>Log Session</Text>
-        </TouchableOpacity>
+    <Card style={[styles.outlineCard, styles.trainingCard]}>
+      <View style={styles.trainingHeader}>
+        <View style={[styles.row, { flex: 1, minWidth: 0 }]}>
+          <MaterialCommunityIcons name="dumbbell" size={18} color={colors.foreground} />
+          <Text style={[styles.trainingTitle, { color: colors.foreground }]}>Training — {displayDate}</Text>
+        </View>
+          <View style={styles.trainingHeaderActions}>
+            <TouchableOpacity style={styles.trainingGhostBtn} onPress={() => setManualOpen(true)}>
+            <Feather name="activity" size={16} color={colors.foreground} />
+            <Text style={styles.trainingGhostText}>Manual</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.trainingGhostBtn} onPress={() => router.push({ pathname: "/(tabs)/training" as any, params: { date } })}>
+            <MaterialCommunityIcons name="dumbbell" size={16} color={colors.foreground} />
+            <Text style={styles.trainingGhostText}>Log</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       {sessions.length === 0 ? (
-        <Text style={[styles.empty, { color: colors.mutedForeground }]}>No workouts logged for this date.</Text>
+        <View style={styles.trainingEmpty}>
+          <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, alignSelf: "flex-start" }]}>No workouts logged</Text>
+          <MaterialCommunityIcons name="dumbbell" size={36} color="rgba(135,145,163,0.18)" />
+          <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, textAlign: "center" }]}>No training logged for this day.</Text>
+          <TouchableOpacity style={styles.trainingPlanBtn} onPress={() => router.push({ pathname: "/(tabs)/training" as any, params: { date } })}>
+            <MaterialCommunityIcons name="dumbbell" size={18} color={colors.primary} />
+            <Text style={styles.trainingPlanText}>Plan training</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         sessions.map(s => (
           <View key={s.id} style={[styles.sessionItem, { borderColor: colors.border }]}>
@@ -1826,6 +2093,40 @@ function TrainingToday({ date }: { date: string }) {
           </View>
         ))
       )}
+      <Modal visible={manualOpen} transparent animationType="fade" onRequestClose={() => setManualOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: "#e5e7eb" }]}>
+            <View style={styles.rowBetween}>
+              <Text style={[styles.cardTitle, { color: colors.foreground }]}>Manual training</Text>
+              <TouchableOpacity onPress={() => setManualOpen(false)}>
+                <Feather name="x" size={22} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 8 }]}>
+              Log calories burned without creating a structured session.
+            </Text>
+            <TextInput
+              style={[styles.input, { color: colors.foreground, backgroundColor: colors.secondary, borderColor: colors.border, marginTop: 14 }]}
+              placeholder="Calories burned"
+              placeholderTextColor={colors.mutedForeground}
+              keyboardType="number-pad"
+              value={manualKcal}
+              onChangeText={setManualKcal}
+            />
+            <TextInput
+              style={[styles.input, { color: colors.foreground, backgroundColor: colors.secondary, borderColor: colors.border, marginTop: 10 }]}
+              placeholder="Label, e.g. Pads"
+              placeholderTextColor={colors.mutedForeground}
+              value={manualLabel}
+              onChangeText={setManualLabel}
+              maxLength={50}
+            />
+            <TouchableOpacity style={[styles.primaryBtn, { marginTop: 14 }]} onPress={() => manualBurnMut.mutate()} disabled={manualBurnMut.isPending}>
+              {manualBurnMut.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700" }}>Log manual burn</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Card>
   );
 }
@@ -1836,15 +2137,35 @@ function TrainingToday({ date }: { date: string }) {
 function AmqsCard({ date }: { date: string }) {
   const colors = useColors();
   const router = useRouter();
-  const { data: amqs } = useQuery<AmqsScore>({
+  const { isAuthenticated } = useAuth();
+  const { data: amqs } = useQuery<AmqsScore | null>({
     queryKey: ["amqs-score", date],
-    queryFn: () => apiFetch(`/me/amqs/score/${date}`),
+    queryFn: async () => {
+      try {
+        return await apiFetch<AmqsScore>(`/me/amqs/score/${date}`);
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403 || err.status === 404)) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: isAuthenticated,
     retry: false,
   });
-  const { data: trend } = useQuery<AmqsTrend>({
+  const { data: trend } = useQuery<AmqsTrend | null>({
     queryKey: ["amqs-trend", date],
-    queryFn: () => apiFetch(`/me/amqs/trend/${date}`),
-    enabled: !!amqs,
+    queryFn: async () => {
+      try {
+        return await apiFetch<AmqsTrend>(`/me/amqs/trend/${date}`);
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403 || err.status === 404)) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: isAuthenticated && !!amqs,
     retry: false,
   });
 
@@ -1864,8 +2185,7 @@ function AmqsCard({ date }: { date: string }) {
   if (!amqs) return null;
 
   return (
-    <TouchableOpacity onPress={() => router.push("/amqs" as any)} activeOpacity={0.8}>
-      <Card style={{ borderColor: tierColor + "30" }}>
+    <Card style={{ borderColor: tierColor + "30" }}>
         <View style={styles.rowBetween}>
           <View>
             <Text style={[styles.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>
@@ -1873,7 +2193,14 @@ function AmqsCard({ date }: { date: string }) {
             </Text>
             <Text style={[styles.xxs, { color: colors.mutedForeground, letterSpacing: 0.5 }]}>ATHLETE SCORE (AMQS)</Text>
           </View>
-          <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+          <TouchableOpacity
+            onPress={() => router.push("/amqs" as any)}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Open micronutrient quality details"
+          >
+            <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </View>
 
         {isEmptyState ? (
@@ -1961,8 +2288,7 @@ function AmqsCard({ date }: { date: string }) {
             </Text>
           </>
         )}
-      </Card>
-    </TouchableOpacity>
+    </Card>
   );
 }
 
@@ -1991,6 +2317,7 @@ function AmqsSparkline({ scores, color }: { scores: { date: string; score: numbe
 function WeightTrend({ date }: { date: string }) {
   const colors = useColors();
   const start = format(subWeeks(new Date(date + "T12:00:00"), 4), "yyyy-MM-dd");
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   const { data: weights = [] } = useQuery<WeightEntry[]>({
     queryKey: ["weights-range", start, date],
@@ -2002,8 +2329,8 @@ function WeightTrend({ date }: { date: string }) {
   const maxW = last7.length ? Math.max(...last7.map(w => w.weight)) : 1;
   const rng = (maxW - minW) || 1;
 
-  const SVG_W = 300, SVG_H = 130;
-  const PAD = { t: 10, r: 10, b: 28, l: 42 };
+  const SVG_W = 300, SVG_H = 240;
+  const PAD = { t: 18, r: 10, b: 38, l: 44 };
   const cW = SVG_W - PAD.l - PAD.r;
   const cH = SVG_H - PAD.t - PAD.b;
 
@@ -2014,47 +2341,117 @@ function WeightTrend({ date }: { date: string }) {
     return PAD.t + cH - ((w - minW) / rng) * cH;
   }
 
-  const pts = last7.map((e, i) => `${xOf(i)},${yOf(e.weight)}`).join(" ");
+  const chartPoints = last7.map((e, i) => ({ x: xOf(i), y: yOf(e.weight) }));
+  const pts = chartPoints.map(p => `${p.x},${p.y}`).join(" ");
+  const smoothPath = chartPoints.reduce((path, point, index, points) => {
+    if (index === 0) return `M ${point.x} ${point.y}`;
+    const prev = points[index - 1];
+    const midX = (prev.x + point.x) / 2;
+    return `${path} Q ${prev.x} ${prev.y} ${midX} ${(prev.y + point.y) / 2} T ${point.x} ${point.y}`;
+  }, "");
+  const areaPts = `${PAD.l},${PAD.t + cH} ${pts} ${xOf(last7.length - 1)},${PAD.t + cH}`;
+  const activeIndex = selectedIndex;
+  const active = activeIndex != null ? last7[activeIndex] : null;
+  const activeX = activeIndex != null ? xOf(activeIndex) : 0;
+  const activeY = active ? yOf(active.weight) : 0;
+  const tooltipW = 108;
+  const tooltipH = 52;
+  const tooltipX = Math.max(PAD.l + 2, Math.min(activeX - tooltipW - 12, SVG_W - PAD.r - tooltipW));
+  const tooltipY = Math.max(PAD.t + 8, activeY - tooltipH / 2);
+
+  useEffect(() => {
+    if (last7.length >= 2) {
+      setSelectedIndex(current => (current != null && current < last7.length ? current : last7.length - 1));
+    } else {
+      setSelectedIndex(null);
+    }
+  }, [date, last7.length]);
 
   return (
-    <Card>
+    <Card style={styles.chartCard}>
       <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Weight Trend</Text>
-        <Text style={[styles.xs, { color: colors.mutedForeground }]}>Last 7 recorded</Text>
+        <View>
+          <Text style={[styles.cardTitle, { color: colors.foreground, fontSize: 24 }]}>Weight Trend</Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, marginTop: 4 }]}>Last 7 recorded entries</Text>
+        </View>
+        <View style={[styles.iconTile, { backgroundColor: colors.secondary }]}>
+          <MaterialCommunityIcons name="scale-balance" size={26} color={colors.mutedForeground} />
+        </View>
       </View>
       {last7.length < 2 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground }]}>
           Record more weight data to see trends.
         </Text>
       ) : (
-        <Svg width="100%" height={SVG_H} viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ marginTop: 8 }}>
-          {[0, 0.5, 1].map(pct => {
-            const y = PAD.t + pct * cH;
-            const val = (maxW - pct * rng).toFixed(1);
+        <>
+        <View style={{ marginTop: 8, height: SVG_H }}>
+          <Svg width="100%" height={SVG_H} viewBox={`0 0 ${SVG_W} ${SVG_H}`} pointerEvents="none">
+            {[0, 0.5, 1].map(pct => {
+              const y = PAD.t + pct * cH;
+              const val = (maxW - pct * rng).toFixed(1);
+              return (
+                <React.Fragment key={String(pct)}>
+                  <SvgLine x1={PAD.l} y1={y} x2={SVG_W - PAD.r} y2={y}
+                    stroke={colors.border} strokeWidth={1} strokeDasharray="3,3" />
+                  <SvgText x={PAD.l - 5} y={y + 4} fontSize={9} fill={colors.mutedForeground} textAnchor="end">{val}</SvgText>
+                </React.Fragment>
+              );
+            })}
+            {last7.map((e, i) => (
+              (i === 0 || i === Math.floor(last7.length / 2) || i === last7.length - 1) ? (
+                <SvgText key={e.date} x={xOf(i)} y={SVG_H - 8} fontSize={11} fill={colors.mutedForeground} textAnchor="middle">
+                  {format(new Date(e.date + "T12:00:00"), "MMM d")}
+                </SvgText>
+              ) : null
+            ))}
+            <SvgPolygon points={areaPts} fill="rgba(255,122,0,0.12)" />
+            <SvgPath d={smoothPath} fill="none" stroke="#ff7a00" strokeWidth={2.5}
+              strokeLinejoin="round" strokeLinecap="round" />
+            {last7.map((e, i) => (
+              <SvgCircle key={e.date} cx={xOf(i)} cy={yOf(e.weight)} r={3.5}
+                fill="#ff7a00" stroke="#0f1117" strokeWidth={1.5} />
+            ))}
+            {active && activeIndex != null && (
+              <>
+                <SvgLine x1={activeX} y1={PAD.t} x2={activeX} y2={PAD.t + cH}
+                  stroke="#e5e7eb" strokeWidth={1.2} />
+                <SvgCircle cx={activeX} cy={activeY} r={5}
+                  fill="#ff7a00" stroke="#f6f8fb" strokeWidth={2} />
+                <SvgRect x={tooltipX} y={tooltipY} width={tooltipW} height={tooltipH} rx={7}
+                  fill="#151922" stroke="#242a36" strokeWidth={1} />
+                <SvgText x={tooltipX + 10} y={tooltipY + 20} fontSize={13} fill={colors.mutedForeground}>
+                  {format(new Date(active.date + "T12:00:00"), "MMM d")}
+                </SvgText>
+                <SvgText x={tooltipX + 10} y={tooltipY + 42} fontSize={13} fill={colors.foreground}>
+                  weight : {active.weight}
+                </SvgText>
+              </>
+            )}
+          </Svg>
+        </View>
+        <View style={styles.chartSelectorRow}>
+          {last7.map((e, i) => {
+            const isSelected = i === selectedIndex;
             return (
-              <React.Fragment key={String(pct)}>
-                <SvgLine x1={PAD.l} y1={y} x2={SVG_W - PAD.r} y2={y}
-                  stroke="#1a1e28" strokeWidth={1} strokeDasharray="3,3" />
-                <SvgText x={PAD.l - 5} y={y + 4} fontSize={9} fill="#6b7280" textAnchor="end">{val}</SvgText>
-              </React.Fragment>
+            <TouchableOpacity
+              key={`${e.date}-selector`}
+              activeOpacity={0.8}
+              onPress={() => setSelectedIndex(i)}
+              style={[
+                styles.chartSelectorChip,
+                isSelected && styles.chartSelectorChipActive,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Show weight for ${format(new Date(e.date + "T12:00:00"), "MMM d")}`}
+            >
+              <Text style={[styles.chartSelectorText, isSelected && styles.chartSelectorTextActive]}>
+                {format(new Date(e.date + "T12:00:00"), "MMM d")}
+              </Text>
+            </TouchableOpacity>
             );
           })}
-          {last7.map((e, i) => (
-            (i === 0 || i === Math.floor(last7.length / 2) || i === last7.length - 1) ? (
-              <SvgText key={e.date} x={xOf(i)} y={SVG_H - 4} fontSize={9} fill="#6b7280" textAnchor="middle">
-                {format(new Date(e.date + "T12:00:00"), "dd/M")}
-              </SvgText>
-            ) : null
-          ))}
-          <Polyline points={pts} fill="none" stroke="#ff7a00" strokeWidth={2.5}
-            strokeLinejoin="round" strokeLinecap="round" />
-          {last7.map((e, i) => (
-            <SvgCircle key={e.date} cx={xOf(i)} cy={yOf(e.weight)} r={3.5}
-              fill="#ff7a00" stroke="#0f1117" strokeWidth={1.5} />
-          ))}
-          <SvgCircle cx={xOf(last7.length - 1)} cy={yOf(last7[last7.length - 1].weight)} r={5}
-            fill="#ff7a00" stroke="#0f1117" strokeWidth={2} />
-        </Svg>
+        </View>
+        </>
       )}
       {last7.length >= 2 && (
         <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 4, textAlign: "right" }]}>
@@ -2085,6 +2482,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   food: NormalizedFood; grams: string; onGramsChange: (g: string) => void;
   onConfirm: (ingredientIndex?: number) => void; onBack: () => void; isPending: boolean;
 }) {
+  const colors = useColors();
   const unit = getCoreFoodUnit(food.name);
   const [entryMode, setEntryMode] = useState<"count" | "grams">(unit ? "count" : "grams");
   const [count, setCount] = useState(unit?.defaultCount ?? 1);
@@ -2141,10 +2539,10 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
             style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: "#1a1e28" }} />
         ) : null}
         <View style={{ flex: 1 }}>
-          <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "700" }} numberOfLines={2}>{food.name}</Text>
-          {food.brand ? <Text style={{ color: "#6b7280", fontSize: 13 }}>{food.brand}</Text> : null}
+          <Text style={{ color: colors.foreground, fontSize: 20, fontWeight: "700" }} numberOfLines={2}>{food.name}</Text>
+          {food.brand ? <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{food.brand}</Text> : null}
           <TouchableOpacity onPress={onBack} style={{ marginTop: 4 }}>
-            <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>Change selection</Text>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "600" }}>Change selection</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -2179,12 +2577,12 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
                 {(["small", "medium", "large"] as UnitSize[]).map(s => (
                   <TouchableOpacity key={s} onPress={() => setSize(s)}
                     style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
-                      borderWidth: 1, borderColor: s === size ? "#ff7a00" : "#1a1e28",
+                      borderWidth: 1, borderColor: s === size ? colors.primary : colors.border,
                       backgroundColor: s === size ? "rgba(255,122,0,0.15)" : "#181c26" }}>
-                    <Text style={{ color: s === size ? "#eceef2" : "#6b7280", fontWeight: "700", fontSize: 13 }}>
+                    <Text style={{ color: s === size ? colors.foreground : colors.mutedForeground, fontWeight: "700", fontSize: 13 }}>
                       {s.charAt(0).toUpperCase() + s.slice(1)}
                     </Text>
-                    <Text style={{ color: s === size ? "#ff7a0099" : "#4b5563", fontSize: 10, marginTop: 2 }}>
+                    <Text style={{ color: s === size ? `${colors.primary}99` : "#4b5563", fontSize: 10, marginTop: 2 }}>
                       {unit.gramsBySize![s]}g
                     </Text>
                   </TouchableOpacity>
@@ -2192,7 +2590,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
               </View>
             </View>
           )}
-          <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", textTransform: "capitalize" }}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "capitalize" }}>
             {unit.unitLabel}s
           </Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 20 }}>
@@ -2205,7 +2603,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
               style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
               <Text style={{ color: "#ff7a00", fontSize: 28, fontWeight: "300", lineHeight: 30 }}>+</Text>
             </TouchableOpacity>
-            <Text style={{ color: "#6b7280", fontSize: 13 }}>≈{g}g total</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>≈{g}g total</Text>
           </View>
         </View>
       ) : (
@@ -2763,6 +3161,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const colors = useColors();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const router = useRouter();
+  const { showToast } = useToast();
   const [modal, setModal] = useState(false);
   const [mealType, setMealType] = useState<string>(getCurrentMealType());
   const submittedSnackIndicesRef = React.useRef<number[]>([]);
@@ -2838,7 +3238,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
   const addMut = useMutation({
     mutationFn: (d: any) => apiFetch("/food", { method: "POST", body: d }),
-    onSuccess: (_, variables) => {
+    onMutate: () => ({
+      previousAmqs: qc.getQueryData<AmqsScore | null>(["amqs-score", date]),
+    }),
+    onSuccess: (_, variables, context) => {
       const si = (variables as any).snackIndex;
       if (typeof si === "number" && !submittedSnackIndicesRef.current.includes(si)) {
         submittedSnackIndicesRef.current.push(si);
@@ -2846,9 +3249,48 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
       closeModal();
+
+      const name = String((variables as any).name ?? "Food");
+      const now = Date.now();
+      if (now - lastAmqsToastTime < AMQS_TOAST_DEBOUNCE_MS) {
+        showToast({
+          title: "Logged — dashboard updated",
+          description: `${name} added.`,
+        });
+        return;
+      }
+
+      lastAmqsToastTime = now;
+      setTimeout(async () => {
+        try {
+          const nextAmqs = await apiFetch<AmqsScore>(`/me/amqs/score/${date}`);
+          const oldScore = context?.previousAmqs?.score;
+          const delta = typeof oldScore === "number" ? nextAmqs.score - oldScore : 0;
+          if (delta > 0) {
+            showToast({
+              title: `AMQS +${delta}`,
+              description: `${name} boosted your micronutrient score.`,
+              actionLabel: "See updated gaps",
+              onAction: () => router.push("/amqs" as any),
+            });
+            return;
+          }
+        } catch {
+          // Fall through to the generic dashboard-updated toast.
+        }
+
+        showToast({
+          title: "Logged — dashboard updated",
+          description: `${name} added. AMQS recalculating.`,
+        });
+      }, 300);
     },
     onError: (err: any) => {
-      Alert.alert("Could not add food", err?.message ?? "Unknown error");
+      showToast({
+        title: "Failed to add food",
+        description: err?.message ?? "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
@@ -3058,48 +3500,92 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     breakfast: "coffee", lunch: "sun", dinner: "moon", snack: "package",
   };
 
+  function duplicateFoodEntry(e: FoodEntry) {
+    addMut.mutate({
+      userId: user!.id,
+      name: e.name,
+      calories: Math.round(e.calories || 0),
+      protein: Math.round(e.protein || 0),
+      carbs: Math.round(e.carbs || 0),
+      fat: Math.round(e.fat || 0),
+      fibre: Math.round(e.fibre || 0),
+      grams: Math.round(e.grams || 100),
+      meal: e.meal,
+      date,
+      sourceType: "manual",
+      macroSource: "ingredient",
+      microSource: "none",
+      enteredBasis: "cooked",
+    });
+  }
+
   return (
-    <Card>
+    <Card style={[styles.outlineCard, styles.mealsCard]}>
       <View style={styles.rowBetween}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Today's Meals</Text>
-        <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary }]} onPress={() => setModal(true)}>
-          <Feather name="plus" size={13} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, marginLeft: 4 }}>Add Food</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Today's Meals</Text>
+        <TouchableOpacity style={styles.savedMealsBtn} onPress={() => Alert.alert("Saved Meals", "Saved meal templates are managed from the food logging flow.")}>
+          <Feather name="book-open" size={20} color={colors.foreground} />
+          <Text style={styles.savedMealsText}>Saved Meals</Text>
         </TouchableOpacity>
       </View>
 
       {grouped.length === 0 ? (
         <Text style={[styles.empty, { color: colors.mutedForeground }]}>No food logged for this date.</Text>
       ) : (
-        grouped.map(g => (
-          <View key={g.type} style={{ marginTop: 10 }}>
-            <View style={styles.row}>
-              <Feather name={mealIcon[g.type] ?? "utensils"} size={12} color={colors.mutedForeground} />
-              <Text style={[styles.xs, { color: colors.mutedForeground, fontWeight: "700", marginLeft: 4, textTransform: "capitalize" }]}>{g.type}</Text>
-            </View>
-            {g.items.map(e => (
-              <View key={e.id} style={[styles.foodRow, { borderColor: colors.border }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.sm, { color: colors.foreground, fontWeight: "600" }]} numberOfLines={1}>
-                    {e.name}{e.grams ? ` (${e.grams}g)` : ""}
-                  </Text>
-                  <Text style={[styles.xs, { color: colors.mutedForeground }]}>
-                    {Math.round(e.calories)} kcal · P:{Math.round(e.protein)}g · C:{Math.round(e.carbs)}g · F:{Math.round(e.fat)}g
-                    {e.fibre ? ` · Fi:${Math.round(e.fibre)}g` : ""}
-                  </Text>
+        grouped.map(g => {
+          const mealTotal = g.items.reduce((sum, item) => sum + (item.calories || 0), 0);
+          const mealProtein = g.items.reduce((sum, item) => sum + (item.protein || 0), 0);
+          const mealCarbs = g.items.reduce((sum, item) => sum + (item.carbs || 0), 0);
+          const mealFat = g.items.reduce((sum, item) => sum + (item.fat || 0), 0);
+          const mealFibre = g.items.reduce((sum, item) => sum + (item.fibre || 0), 0);
+          return (
+            <View key={g.type} style={styles.mealGroup}>
+              <View style={styles.mealHeader}>
+                <View style={styles.mealTitleStack}>
+                  <View style={styles.row}>
+                    <Feather name={mealIcon[g.type] ?? "utensils"} size={18} color={colors.mutedForeground} />
+                    <Text style={styles.mealName}>{g.type}</Text>
+                    <View style={styles.mealCountBadge}>
+                      <Text style={styles.mealCountText}>{g.items.length}</Text>
+                    </View>
+                  </View>
+                    <Text style={styles.mealKcal} numberOfLines={1}>{Math.round(mealTotal)} kcal</Text>
                 </View>
-                <View style={{ flexDirection: "row", gap: 2 }}>
-                  <TouchableOpacity onPress={() => setEditingEntry(e)} style={{ padding: 6 }}>
-                    <Feather name="edit-2" size={13} color={colors.mutedForeground} />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => deleteMut.mutate(e.id)} style={{ padding: 6 }}>
-                    <Feather name="trash-2" size={14} color={colors.mutedForeground} />
-                  </TouchableOpacity>
+                <View style={styles.mealHeaderIcons}>
+                  <Feather name="bookmark" size={20} color={colors.mutedForeground} />
+                  <Feather name="copy" size={20} color={colors.mutedForeground} />
                 </View>
               </View>
-            ))}
-          </View>
-        ))
+              <Text style={styles.mealMacroLine} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+                P:{Math.round(mealProtein)}g · C:{Math.round(mealCarbs)}g · F:{Math.round(mealFat)}g · Fi:{Math.round(mealFibre)}g
+              </Text>
+              {g.items.map(e => (
+                <View key={e.id} style={[styles.foodRow, styles.mealFoodRow, { borderColor: "#e5e7eb" }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.foodItemName} numberOfLines={1} ellipsizeMode="tail">
+                      {e.name}{e.grams ? ` (${e.grams}g)` : ""}
+                    </Text>
+                    <Text style={styles.foodItemMacros} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
+                      {Math.round(e.calories)} kcal · P:{Math.round(e.protein)}g · C:{Math.round(e.carbs)}g · F:{Math.round(e.fat)}g
+                      {e.fibre ? ` · Fi:${Math.round(e.fibre)}g` : ""}
+                    </Text>
+                  </View>
+                  <View style={styles.foodActions}>
+                    <TouchableOpacity onPress={() => duplicateFoodEntry(e)} style={styles.foodActionBtn}>
+                      <Feather name="copy" size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setEditingEntry(e)} style={styles.foodActionBtn}>
+                      <Feather name="edit-2" size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteMut.mutate(e.id)} style={styles.foodActionBtn}>
+                      <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          );
+        })
       )}
 
       <Modal visible={modal} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeModal}>
@@ -3220,7 +3706,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               isPending={addMut.isPending}
             />
           ) : (
-            <View style={{ flex: 1 }}>
+            <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
               {activeTab === "search" && (
                 <MealSearchTab query={searchQ} onQueryChange={doSearch} results={results}
                   searching={searching}
@@ -3696,7 +4182,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                   onAdd={addCustom} isPending={addMut.isPending}
                 />
               )}
-            </View>
+            </KeyboardAvoidingView>
           )}
         </SafeAreaView>
       </Modal>
@@ -3713,25 +4199,32 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 // ─────────────────────────────────────────
 function CurrentWeightCard({ date }: { date: string }) {
   const colors = useColors();
+  const { user } = useAuth();
   const { data: morning } = useQuery<MorningStatus>({
     queryKey: ["morning-status", date],
     queryFn: () => apiFetch(`/me/morning-status/${date}`),
   });
+  const displayedWeight = morning?.weightLog?.weight ?? user?.currentWeight;
 
   return (
     <Card>
       <Text style={[styles.cardTitle, { color: colors.foreground }]}>Current Weight</Text>
-      {morning?.weightLog ? (
+      {displayedWeight ? (
         <Text style={[styles.heroNum, { color: colors.foreground }]}>
-          {morning.weightLog.weight}
+          {displayedWeight}
           <Text style={[styles.heroSub, { color: colors.mutedForeground }]}> kg</Text>
         </Text>
       ) : (
-        <Text style={[styles.empty, { color: colors.mutedForeground }]}>No weight recorded today.</Text>
+        <Text style={[styles.heroNum, { color: colors.foreground }]}>—<Text style={[styles.heroSub, { color: colors.mutedForeground }]}> kg</Text></Text>
       )}
-      <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 6 }]}>
-        Weight naturally fluctuates day to day. Track trends over time for accurate insights.
+      <Text style={[styles.empty, { color: colors.mutedForeground }]}>
+        {morning?.weightLog ? "Weight recorded today" : "No weight recorded today"}
       </Text>
+      <View style={[styles.callout, { backgroundColor: "rgba(255, 122, 0, 0.10)", borderColor: "rgba(255, 122, 0, 0.28)", marginTop: 26 }]}>
+        <Text style={[styles.sm, { color: colors.mutedForeground, lineHeight: 24 }]}>
+          Weight naturally fluctuates day to day (water, salt, sleep, carbs). Focus on trends over time, not individual readings.
+        </Text>
+      </View>
     </Card>
   );
 }
@@ -3743,14 +4236,17 @@ export default function DashboardScreen() {
   const colors = useColors();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { showToast } = useToast();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [updateWeightModal, setUpdateWeightModal] = useState(false);
   const [weightVal, setWeightVal] = useState("");
   const [quickLogVisible, setQuickLogVisible] = useState(false);
   const [addFoodOpen, setAddFoodOpen] = useState(false);
 
-  const isToday = selectedDate === format(new Date(), "yyyy-MM-dd");
-  const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
+  const todayDate = format(new Date(), "yyyy-MM-dd");
+  const isToday = selectedDate === todayDate;
+  const displayDate = format(new Date(selectedDate + "T12:00:00"), "d MMM yyyy");
+  const sportLabel = user?.mainSport ?? user?.sport ?? "Pro-Am Muay Thai";
 
   const { data: foodEntries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", selectedDate],
@@ -3799,11 +4295,14 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (!isFightCamp || !targets?.isBelowPerformanceCarb || !targets?.performanceCarbWarning || !fcOverride.shouldShowPerfToast) return;
     const timer = setTimeout(() => {
-      Alert.alert("Performance note", targets.performanceCarbWarning ?? "");
+      showToast({
+        title: "Performance note",
+        description: targets.performanceCarbWarning ?? "",
+      });
       fcOverride.markPerfToastShown();
     }, 1500);
     return () => clearTimeout(timer);
-  }, [isFightCamp, selectedDate, targets?.isBelowPerformanceCarb, targets?.performanceCarbWarning, fcOverride.shouldShowPerfToast]);
+  }, [isFightCamp, selectedDate, targets?.isBelowPerformanceCarb, targets?.performanceCarbWarning, fcOverride.shouldShowPerfToast, showToast]);
 
   // Compute adjusted targets (spec §9.14.3 fight-camp, §9.15.5 standard)
   const adjustedCalories = (() => {
@@ -3850,7 +4349,13 @@ export default function DashboardScreen() {
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
       qc.invalidateQueries({ queryKey: ["weights-range"] });
       setUpdateWeightModal(false); setWeightVal("");
+      showToast({ title: "Weight saved" });
     },
+    onError: (err) => showToast({
+      title: "Weight not logged",
+      description: getErrorMessage(err),
+      variant: "destructive",
+    }),
   });
 
   const totals = foodEntries.reduce(
@@ -3865,17 +4370,24 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Image source={require("@/assets/logo-main.png")} style={{ height: 28, width: 100 }} resizeMode="contain" />
-        <Text style={[styles.xs, { color: colors.mutedForeground }]}>{format(new Date(), "EEE, d MMM yyyy")}</Text>
+      <View style={[styles.header, { borderBottomColor: "#d7dbe4" }]}>
+        <Image source={require("@/assets/logo-main.png")} style={{ height: 36, width: 132 }} resizeMode="contain" />
       </View>
 
-      <ScrollView style={styles.flex} contentContainerStyle={styles.scrollPad} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.scrollPad}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        alwaysBounceVertical
+        nestedScrollEnabled
+      >
         {/* Morning Check-In Gate ("Start your day" modal) */}
         {isToday && <MorningCheckInGate date={selectedDate} />}
 
         {/* Fight Camp Hero */}
-        {isToday && <FightCampHero date={selectedDate} />}
+        <FightCampHero date={selectedDate} />
 
         {/* Morning Check-In */}
         {isToday && <MorningCheckIn date={selectedDate} />}
@@ -3897,45 +4409,74 @@ export default function DashboardScreen() {
         />
 
         {/* Date Navigation */}
-        <View style={[styles.dateNav, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <TouchableOpacity style={styles.dateNavBtn}
+        <View style={styles.webDateRow}>
+          <TouchableOpacity style={[styles.dateSquareBtn, { borderColor: "#e5e7eb" }]}
             onPress={() => setSelectedDate(format(subDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
-            <Feather name="chevron-left" size={20} color={colors.foreground} />
+            <Feather name="chevron-left" size={22} color={colors.foreground} />
           </TouchableOpacity>
-          <Text style={[styles.dateNavText, { color: colors.foreground }]}>{displayDate}</Text>
-          <TouchableOpacity style={styles.dateNavBtn}
+          <View style={[styles.dateCenter, { borderColor: colors.border }]}>
+            <Feather name="calendar" size={20} color={colors.mutedForeground} />
+            <Text style={[styles.dateNavText, { color: colors.foreground }]}>{displayDate}</Text>
+          </View>
+          <TouchableOpacity style={[styles.dateSquareBtn, { borderColor: "#e5e7eb" }]}
             onPress={() => setSelectedDate(format(addDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
-            <Feather name="chevron-right" size={20} color={colors.foreground} />
+            <Feather name="chevron-right" size={22} color={colors.foreground} />
           </TouchableOpacity>
+          {!isToday && (
+            <TouchableOpacity
+              style={styles.todayBtn}
+              onPress={() => setSelectedDate(todayDate)}
+              accessibilityRole="button"
+              accessibilityLabel="Jump to today"
+            >
+              <Text style={styles.todayBtnText}>Today</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Action Buttons */}
         <View style={styles.actionRow}>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: "transparent", borderColor: "#e5e7eb" }]}
             onPress={() => setUpdateWeightModal(true)}>
-            <Feather name="activity" size={14} color={colors.primary} />
-            <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Update Weight</Text>
+            <MaterialCommunityIcons name="scale-balance" size={16} color={colors.foreground} />
+            <Text style={[styles.actionBtnText, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>Update Weight</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary, borderColor: "#e5e7eb" }]}
             onPress={() => setAddFoodOpen(true)}>
-            <Feather name="plus-circle" size={14} color={colors.primary} />
-            <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600", marginLeft: 5 }]}>Add Food</Text>
+            <MaterialCommunityIcons name="silverware-fork-knife" size={16} color="#fff" />
+            <Text style={[styles.actionBtnText, { color: "#fff" }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>Add Food</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: "transparent", borderColor: "#e5e7eb" }]}
+            onPress={() => setQuickLogVisible(true)}>
+            <MaterialCommunityIcons name="auto-fix" size={16} color={colors.foreground} />
+            <Text style={[styles.actionBtnText, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>Quick Log</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: "transparent", borderColor: "#e5e7eb" }]}
+            onPress={() => setQuickLogVisible(true)}>
+            <Feather name="edit-2" size={16} color={colors.foreground} />
+            <Text style={[styles.actionBtnText, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>Update Summary</Text>
           </TouchableOpacity>
         </View>
 
         {/* Greeting */}
         <View>
-          <Text style={[styles.greeting, { color: colors.foreground }]}>Hello, {user?.username ?? "there"}</Text>
-          <Text style={[styles.xs, { color: colors.mutedForeground }]}>Here is your daily nutrition summary</Text>
+          <View style={[styles.row, { flexWrap: "wrap", gap: 12 }]}>
+            <Text style={[styles.greeting, { color: colors.foreground }]}>Hello, {user?.username ?? "there"}</Text>
+            <View style={[styles.sportPill, { borderColor: colors.mutedForeground, backgroundColor: colors.secondary }]}>
+              <Image source={sportIconSource(sportLabel)} style={styles.sportIcon} resizeMode="contain" />
+              <Text style={[styles.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>{sportLabel}</Text>
+            </View>
+          </View>
+          <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, marginTop: 6 }]}>Here is your daily nutrition summary.</Text>
         </View>
 
         {/* Macro Cards */}
         <View style={styles.macroGrid}>
-          <MacroCard label="Calories" value={totals.calories} unit=" kcal" target={effectiveTargetCalories} color={colors.primary} emoji="🔥" />
-          <MacroCard label="Protein" value={totals.protein} unit="g" target={t.targetProtein} color="#93c5fd" emoji="🥩" />
-          <MacroCard label="Carbs" value={totals.carbs} unit="g" target={effectiveTargetCarbs} color="#f59e0b" emoji="🌾" />
-          <MacroCard label="Fat" value={totals.fat} unit="g" target={t.targetFat} color="#facc15" emoji="🥑" />
-          <MacroCard label="Fibre" value={totals.fibre} unit="g" target={30} color="#4ade80" emoji="🥦" />
+          <MacroCard label="Calories" value={totals.calories} unit=" kcal" target={effectiveTargetCalories} color={colors.primary} icon="fire" />
+          <MacroCard label="Protein" value={totals.protein} unit="g" target={t.targetProtein} color="#3b82f6" icon="food-steak" />
+          <MacroCard label="Carbs" value={totals.carbs} unit="g" target={effectiveTargetCarbs} color="#f59e0b" icon="barley" />
+          <MacroCard label="Fat" value={totals.fat} unit="g" target={t.targetFat} color="#facc15" icon="water-percent" />
+          <MacroCard label="Fibre" value={totals.fibre} unit="g" target={30} color="#10b981" icon="leaf" />
         </View>
 
         {/* AMQS */}
@@ -3957,26 +4498,39 @@ export default function DashboardScreen() {
         <CurrentWeightCard date={selectedDate} />
 
         {/* Feedback Card */}
-        <Card style={{ borderColor: "rgba(255,122,0,0.2)", backgroundColor: "rgba(255,122,0,0.04)" }}>
+        <Card style={styles.outlineCard}>
           <View style={styles.row}>
-            <Feather name="message-square" size={15} color={colors.primary} />
-            <Text style={[styles.cardTitle, { color: colors.foreground, marginLeft: 8 }]}>Beta Feedback</Text>
+            <Feather name="message-square" size={28} color={colors.foreground} />
+            <Text style={[styles.sectionTitle, { color: colors.foreground, marginLeft: 14, flex: 1 }]}>Beta Feedback</Text>
           </View>
-          <Text style={[styles.xs, { color: colors.mutedForeground, marginTop: 6 }]}>
-            Found a bug or have a suggestion? We'd love to hear from you — tap Feedback in the tab bar.
+          <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, marginTop: 8 }]}>
+            Help us improve PRFMR by sharing your thoughts
           </Text>
+          <TouchableOpacity style={[styles.feedbackButton, { borderColor: "#e5e7eb" }]}>
+            <Feather name="message-square" size={22} color={colors.foreground} />
+            <Text style={[styles.actionBtnText, { color: colors.foreground }]}>Send Feedback</Text>
+          </TouchableOpacity>
         </Card>
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Floating Action Button — Add Food */}
-      <TouchableOpacity
-        onPress={() => setAddFoodOpen(true)}
+      <View
+        pointerEvents="box-none"
         style={{
           position: "absolute",
           bottom: 90,
           right: 20,
+          width: 56,
+          height: 56,
+          zIndex: 100,
+          elevation: 8,
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => setAddFoodOpen(true)}
+          style={{
           width: 56,
           height: 56,
           borderRadius: 28,
@@ -3989,91 +4543,104 @@ export default function DashboardScreen() {
           shadowRadius: 8,
           elevation: 8,
           zIndex: 100,
-        }}
-        activeOpacity={0.85}
-      >
-        <Feather name="plus" size={26} color="#fff" />
-      </TouchableOpacity>
+          }}
+          activeOpacity={0.85}
+        >
+          <Feather name="plus" size={26} color="#fff" />
+        </TouchableOpacity>
+      </View>
 
       {/* Quick Log Modal */}
-      <QuickLogModal
-        visible={quickLogVisible}
-        onClose={() => setQuickLogVisible(false)}
-        date={selectedDate}
-      />
+      {quickLogVisible && (
+        <QuickLogModal
+          visible
+          onClose={() => setQuickLogVisible(false)}
+          date={selectedDate}
+        />
+      )}
 
       {/* Update Weight Modal */}
-      <Modal visible={updateWeightModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setUpdateWeightModal(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117", padding: 20 }}>
+      {updateWeightModal && (
+      <Modal visible animationType="slide" presentationStyle="formSheet" onRequestClose={() => setUpdateWeightModal(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background, padding: 20 }}>
           <View style={[styles.rowBetween, { marginBottom: 16 }]}>
-            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 18 }}>Update Weight</Text>
+            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 18 }}>Update Weight</Text>
             <TouchableOpacity onPress={() => setUpdateWeightModal(false)}>
-              <Feather name="x" size={22} color="#6b7280" />
+              <Feather name="x" size={22} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
-          <TextInput style={[styles.input, { borderColor: "#1a1e28", color: "#eceef2", backgroundColor: "#181c26", marginBottom: 12 }]}
-            placeholder="Weight in kg (e.g. 72.5)" placeholderTextColor="#6b7280"
+          <TextInput style={[styles.input, { borderColor: colors.input, color: colors.foreground, backgroundColor: colors.input, marginBottom: 12 }]}
+            placeholder="Weight in kg (e.g. 72.5)" placeholderTextColor={colors.mutedForeground}
             keyboardType="decimal-pad" value={weightVal} onChangeText={setWeightVal} autoFocus />
-          <TouchableOpacity style={[styles.fullBtn, { backgroundColor: "#ff7a00", opacity: weightVal ? 1 : 0.4 }]}
+          <TouchableOpacity style={[styles.fullBtn, { backgroundColor: colors.primary, opacity: weightVal ? 1 : 0.4 }]}
             disabled={!weightVal || weightMut.isPending}
             onPress={() => { const w = parseFloat(weightVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}>
-            {weightMut.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Save</Text>}
+            {weightMut.isPending ? <ActivityIndicator color={colors.foreground} size="small" /> : <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Save</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       </Modal>
+      )}
 
       {/* EA Modal — owned by DashboardScreen so state updates show immediately */}
-      {isFightCamp && targets && (
-        <Modal visible={fcOverride.eaModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeEAModal}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeEAModal}>
-            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-              <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low energy availability</Text>
-                <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
+      {isFightCamp && targets && fcOverride.eaModalOpen && (
+        <Modal visible transparent animationType="fade" onRequestClose={fcOverride.closeEAModal}>
+          <View style={styles.lowEaOverlay}>
+            <View style={styles.lowEaSheet}>
+              <View style={styles.lowEaCard}>
+                <Pressable
+                  style={styles.lowEaClose}
+                  onPress={fcOverride.closeEAModal}
+                  hitSlop={16}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                >
+                  <Feather name="x" size={24} color="#d7dbe4" />
+                </Pressable>
+                <Text style={styles.lowEaTitle} allowFontScaling={false}>Low energy availability</Text>
+                <Text style={styles.lowEaBody} allowFontScaling={false}>
                   Your current intake appears to be below the level typically used to support recovery and performance
                   {" "}{"(<"}30 kcal/kg FFM).{"\n\n"}
                   Increasing your intake may help improve energy levels, training quality, and recovery.
                   This may slightly slow weight loss, but can better support performance.{"\n\n"}
                   This is general performance guidance, not medical advice.
                 </Text>
-                <View style={{ gap: 8, marginBottom: 8 }}>
+                <View style={styles.lowEaStats}>
                   <View style={styles.rowBetween}>
-                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Current EA</Text>
+                    <Text style={styles.lowEaMeta} allowFontScaling={false}>Current EA</Text>
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[styles.xs, { color: colors.foreground, fontWeight: "600" }]}>
+                      <Text style={styles.lowEaValue} allowFontScaling={false}>
                         {targets.eaValue} kcal/kg FFM
                       </Text>
-                      <Text style={[styles.xs, { color: colors.mutedForeground }]}>
+                      <Text style={styles.lowEaSubvalue} allowFontScaling={false}>
                         {targets.adjustedCalories || targets.targetCalories} kcal/day
                       </Text>
                     </View>
                   </View>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.xs, { color: colors.mutedForeground }]}>Calories needed for EA 30</Text>
-                    <Text style={[styles.xs, { color: colors.primary, fontWeight: "600" }]}>
+                  <View style={styles.lowEaStatRow}>
+                    <Text style={[styles.lowEaMeta, styles.lowEaMetaGrow]} allowFontScaling={false}>Calories needed for EA 30</Text>
+                    <Text style={styles.lowEaOrangeValue} allowFontScaling={false}>
                       {targets.eaRecommendedCalories} kcal
                     </Text>
                   </View>
                 </View>
-                <TouchableOpacity style={[styles.primaryBtn, { marginBottom: 8 }]} onPress={fcOverride.acceptEA}>
-                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+                <TouchableOpacity style={styles.lowEaPrimaryBtn} onPress={fcOverride.acceptEA}>
+                  <Text style={styles.lowEaPrimaryText} allowFontScaling={false}>
                     Adjust target to {targets.eaRecommendedCalories} kcal
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={fcOverride.declineEA}>
-                  <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
+                <TouchableOpacity style={styles.lowEaOutlineBtn} onPress={fcOverride.declineEA}>
+                  <Text style={styles.lowEaOutlineText} allowFontScaling={false}>Keep current plan</Text>
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+            </View>
+          </View>
         </Modal>
       )}
 
       {/* Carb Modal */}
-      {isFightCamp && targets && (
-        <Modal visible={fcOverride.carbModalOpen} transparent animationType="fade" onRequestClose={fcOverride.closeCarbModal}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={fcOverride.closeCarbModal}>
-            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+      {isFightCamp && targets && fcOverride.carbModalOpen && (
+        <Modal visible transparent animationType="fade" onRequestClose={fcOverride.closeCarbModal}>
+          <View style={styles.modalOverlay}>
               <View style={[styles.alertCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Text style={[styles.cardTitle, { color: colors.foreground, marginBottom: 6 }]}>Low carbohydrate intake</Text>
                 <Text style={[styles.xs, { color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }]}>
@@ -4103,8 +4670,7 @@ export default function DashboardScreen() {
                   <Text style={{ color: colors.foreground, fontWeight: "500", fontSize: 14 }}>Keep current plan</Text>
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+          </View>
         </Modal>
       )}
     </SafeAreaView>
@@ -4116,64 +4682,211 @@ export default function DashboardScreen() {
 // ─────────────────────────────────────────
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "flex-start", paddingHorizontal: 18, paddingTop: 20, paddingBottom: 18, borderBottomWidth: 1 },
   logo: { fontSize: 18, fontWeight: "900", letterSpacing: 3 },
-  scrollPad: { padding: 12, gap: 10 },
-  card: { borderRadius: 9, borderWidth: 1, padding: 14 },
+  dashboardListPad: { paddingBottom: 0 },
+  scrollPad: { padding: 16, gap: 16 },
+  card: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#181d28",
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  outlineCard: { borderColor: "#e5e7eb", borderWidth: 1.2, padding: 20 },
+  morningCard: { borderColor: "rgba(255, 122, 0, 0.35)", backgroundColor: "rgba(255, 122, 0, 0.045)", borderWidth: 1.3, padding: 20 },
   row: { flexDirection: "row", alignItems: "center" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  badge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontSize: 11, fontWeight: "700" },
-  xs: { fontSize: 12, fontWeight: "500", fontFamily: "Inter_400Regular" },
-  xxs: { fontSize: 10, fontWeight: "500", fontFamily: "Inter_400Regular" },
-  badgePill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99, alignSelf: "flex-start" },
-  sm: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  cardTitle: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
-  empty: { fontSize: 13, lineHeight: 18, marginTop: 6, fontFamily: "Inter_400Regular" },
-  heroNum: { fontSize: 34, fontWeight: "900", marginVertical: 6, fontFamily: "JetBrainsMono_400Regular" },
+  badge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
+  badgeText: { fontSize: 12, fontWeight: "700" },
+  xs: { fontSize: 12, fontWeight: "400", fontFamily: "Inter_400Regular" },
+  xxs: { fontSize: 11, fontWeight: "400", fontFamily: "Inter_400Regular" },
+  badgePill: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 99, alignSelf: "flex-start" },
+  sm: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  cardTitle: { fontSize: 18, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  sectionTitle: { fontSize: 22, lineHeight: 28, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  sectionSubtitle: { fontSize: 15, lineHeight: 22, fontFamily: "Inter_400Regular" },
+  disclaimer: { fontSize: 13, lineHeight: 20, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 18 },
+  empty: { fontSize: 14, lineHeight: 20, marginTop: 8, fontFamily: "Inter_400Regular" },
+  heroNum: { fontSize: 36, fontWeight: "700", marginVertical: 8, fontFamily: "JetBrainsMono_700Bold" },
   heroSub: { fontSize: 16, fontWeight: "500", fontFamily: "Inter_500Medium" },
-  weightRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginVertical: 8, justifyContent: "space-around" },
-  weightNum: { fontSize: 22, fontWeight: "800", fontFamily: "JetBrainsMono_400Regular" },
-  thisWeek: { borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 8 },
-  logWeightRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 10 },
-  checkRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6, gap: 10 },
-  checkIcon: { width: 34, height: 34, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  expandBox: { borderRadius: 8, borderWidth: 1, padding: 12, marginTop: 6 },
-  qBtn: { alignItems: "center", justifyContent: "center", borderRadius: 6, borderWidth: 1, paddingVertical: 8 },
-  input: { borderRadius: 8, borderWidth: 1, padding: 11, fontSize: 14 },
-  btnSm: { flexDirection: "row", alignItems: "center", borderRadius: 7, paddingHorizontal: 12, paddingVertical: 8 },
-  ciRow: { flexDirection: "row", gap: 6 },
-  ciBtn: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, paddingVertical: 10, gap: 3 },
-  ciSummaryCol: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 4 },
-  fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
+  fightCampCard: { padding: 20, borderColor: "rgba(229,231,235,0.50)" },
+  fightCampHeaderText: { color: "#eceef2", marginLeft: 7, fontSize: 14, lineHeight: 18, fontWeight: "600", fontFamily: "SpaceGrotesk_600SemiBold" },
+  fightCountdownRow: { flexDirection: "row", alignItems: "center", marginTop: 20, paddingVertical: 4, gap: 8 },
+  fightCountdownText: { color: "#eceef2", fontSize: 30, lineHeight: 36, fontWeight: "800", fontFamily: "Inter_700Bold" },
+  fightCountdownSub: { color: "#8791a3", fontSize: 14, lineHeight: 18, fontWeight: "500", fontFamily: "Inter_500Medium" },
+  fightWeightCta: { flexDirection: "row", alignItems: "center", marginTop: 16, borderRadius: 9, padding: 12, borderWidth: 1, borderColor: "rgba(255,122,0,0.30)", backgroundColor: "rgba(255,122,0,0.05)" },
+  fightWeightCtaTitle: { color: "#eceef2", fontSize: 14, lineHeight: 18, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  fightWeightCtaSub: { color: "#8791a3", fontSize: 12, lineHeight: 16, fontFamily: "Inter_400Regular", marginTop: 1 },
+  fightWeightCtaTap: { color: "#ff7a00", fontSize: 12, lineHeight: 16, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  fightStatsRow: { flexDirection: "row", alignItems: "center", marginTop: 18, gap: 12 },
+  fightStatCell: { flex: 1, alignItems: "center", justifyContent: "center", minWidth: 0 },
+  fightStatNumber: { color: "#eceef2", fontSize: 24, lineHeight: 30, fontWeight: "800", fontFamily: "JetBrainsMono_700Bold" },
+  fightStatLabel: { color: "#8791a3", fontSize: 10, lineHeight: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold", marginTop: 3 },
+  fightMiddleNumber: { color: "#eceef2", fontSize: 14, lineHeight: 18, fontWeight: "700", fontFamily: "Inter_700Bold", textAlign: "center" },
+  fightMiddleLabel: { color: "#8791a3", fontSize: 10, lineHeight: 13, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 1 },
+  fightSectionRow: { marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(135,145,163,0.16)", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  fightPaceNote: { color: "rgba(251,146,60,0.78)", fontSize: 10, lineHeight: 14, fontFamily: "Inter_400Regular", marginLeft: 9, flex: 1 },
+  fightSectionBlock: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(135,145,163,0.16)" },
+  fightInlineTarget: { color: "#eceef2", fontSize: 14, lineHeight: 19, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  fightTargetLabel: { color: "rgba(236,238,242,0.78)", fontSize: 10, lineHeight: 14, letterSpacing: 0.4, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  fightTargetMuted: { color: "#8791a3", fontWeight: "400", fontFamily: "Inter_400Regular" },
+  fightTrendBlock: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(135,145,163,0.16)", flexDirection: "row", alignItems: "center" },
+  fightTrendText: { fontSize: 14, lineHeight: 19, fontWeight: "700", fontFamily: "Inter_700Bold", flex: 1 },
+  fightConsistencyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 9, gap: 8 },
+  fightConsistencyText: { color: "#8791a3", fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular", flex: 1 },
+  fightConsistencyStrong: { color: "#eceef2", fontWeight: "700", fontFamily: "Inter_700Bold" },
+  fightShareRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 18, opacity: 0.38 },
+  fightPlannerNote: { color: "rgba(135,145,163,0.60)", fontSize: 11, lineHeight: 17, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 16 },
+  weightRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginVertical: 8, justifyContent: "space-around" },
+  weightNum: { fontSize: 24, fontWeight: "700", fontFamily: "JetBrainsMono_700Bold" },
+  thisWeek: { borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 8 },
+  logWeightRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 12 },
+  checkRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 8, gap: 12 },
+  checkIcon: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, borderColor: "#181d28", alignItems: "center", justifyContent: "center" },
+  expandBox: { borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 8 },
+  qBtn: { alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: "#181d28", paddingVertical: 10 },
+  input: { borderRadius: 8, borderWidth: 1, borderColor: "#181d28", padding: 12, fontSize: 14 },
+  btnSm: { flexDirection: "row", alignItems: "center", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  ciRow: { flexDirection: "row", gap: 8 },
+  ciBtn: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.1)", paddingVertical: 12, gap: 4 },
+  ciSummaryCol: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.1)", paddingVertical: 16, paddingHorizontal: 8 },
+  fullBtn: { borderRadius: 12, padding: 14, alignItems: "center" },
   macroRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
-  eaRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginTop: 8, gap: 4 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 20 },
-  alertCard: { width: "100%", maxWidth: 380, borderRadius: 14, borderWidth: 1, padding: 20 },
-  primaryBtn: { borderRadius: 10, paddingVertical: 14, alignItems: "center", backgroundColor: "#ff7a00" },
-  outlineBtn: { borderRadius: 10, paddingVertical: 13, alignItems: "center", borderWidth: 1 },
-  macroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  macroCard: { width: "47.5%", padding: 12 },
-  macroEmoji: { fontSize: 15, marginRight: 4 },
-  macroLabel: { fontSize: 11, fontWeight: "600" },
-  macroValue: { fontSize: 22, fontWeight: "800", marginVertical: 6, fontFamily: "JetBrainsMono_400Regular" },
-  macroUnit: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  macroMeta: { fontSize: 11, marginTop: 4, fontFamily: "Inter_400Regular" },
-  progressBg: { height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.06)", overflow: "hidden" },
-  progressFill: { height: 4, borderRadius: 2 },
-  suppRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6, gap: 10 },
-  suppCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  sessionItem: { borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6 },
+  readinessSummaryCard: { width: "94%", alignSelf: "center", paddingVertical: 18 },
+  dailyIntakeCard: { padding: 18, paddingBottom: 30 },
+  dailyTitle: { fontSize: 26, lineHeight: 28, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  dailySubtitle: { fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular", marginTop: 3 },
+  intakeBadge: { alignSelf: "flex-start", borderWidth: 1, borderColor: "rgba(255, 122, 0, 0.58)", backgroundColor: "rgba(255, 122, 0, 0.11)", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, marginTop: 7 },
+  intakeBadgeText: { color: "#ff7a00", fontSize: 11, lineHeight: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  intakeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 10 },
+  intakeCell: { width: "48.5%", minHeight: 64, borderRadius: 8, alignItems: "center", justifyContent: "center", padding: 7 },
+  intakeValue: { fontSize: 24, lineHeight: 29, fontWeight: "900", fontFamily: "Inter_700Bold" },
+  intakeLabel: { fontSize: 10, marginTop: 1, letterSpacing: 0, fontFamily: "Inter_600SemiBold" },
+  callout: { borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 16 },
+  intakeCallout: { borderWidth: 1, borderRadius: 9, padding: 10, marginTop: 11 },
+  intakeCalloutRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  intakeCalloutIcon: { width: 20, height: 20, marginTop: 1 },
+  intakeCalloutEmoji: { fontSize: 18, lineHeight: 22, marginTop: 0 },
+  intakeCalloutText: { flex: 1, color: "#f6b56b", fontSize: 12, lineHeight: 18, fontFamily: "Inter_400Regular" },
+  dailyDisclaimer: { fontSize: 11, lineHeight: 16, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 10 },
+  estimateToggle: { flexDirection: "row", alignItems: "center", marginTop: 12 },
+  estimateToggleText: { color: "#8791a3", fontSize: 13, lineHeight: 18, marginLeft: 8, fontFamily: "Inter_600SemiBold" },
+  estimateDetailsText: { color: "#8791a3", fontSize: 12, lineHeight: 18, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(135,145,163,0.13)" },
+  intakeInfoPopover: { position: "absolute", top: 48, left: 24, right: 72, zIndex: 30, elevation: 30, borderWidth: 1.2, borderColor: "#e5e7eb", borderRadius: 7, backgroundColor: "#151922", padding: 14 },
+  intakeInfoTitle: { color: "#f6f8fb", fontSize: 13, lineHeight: 18, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 8 },
+  intakeInfoOrange: { color: "#ff7a00", fontSize: 13, lineHeight: 18, fontFamily: "Inter_500Medium", marginBottom: 8 },
+  intakeInfoBody: { color: "#f6f8fb", fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular", marginBottom: 8 },
+  intakeInfoMuted: { color: "#8791a3", fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular", marginTop: 4 },
+  iconTile: { width: 54, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  eaRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8, gap: 8 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "center", alignItems: "center", padding: 20 },
+  alertCard: { width: "100%", maxWidth: 380, borderRadius: 16, borderWidth: 1, borderColor: "#181d28", padding: 20 },
+  lowEaOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", paddingHorizontal: 0 },
+  lowEaSheet: { width: "100%" },
+  lowEaCard: {
+    width: "100%",
+    borderRadius: 0,
+    borderWidth: 1.3,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#0b0f16",
+    paddingHorizontal: 28,
+    paddingTop: 24,
+    paddingBottom: 20,
+  },
+  lowEaClose: { position: "absolute", top: 14, right: 16, width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  lowEaTitle: { color: "#f6f8fb", fontSize: 20, lineHeight: 25, fontWeight: "700", textAlign: "center", fontFamily: "Inter_700Bold", marginBottom: 16 },
+  lowEaBody: { color: "#8791a3", fontSize: 14, lineHeight: 20, textAlign: "center", fontFamily: "Inter_400Regular", marginBottom: 20 },
+  lowEaStats: { gap: 12, marginBottom: 20 },
+  lowEaStatRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  lowEaMeta: { color: "#8791a3", fontSize: 14, lineHeight: 20, fontFamily: "Inter_400Regular" },
+  lowEaMetaGrow: { flex: 1 },
+  lowEaValue: { color: "#f6f8fb", fontSize: 14, lineHeight: 20, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  lowEaSubvalue: { color: "#8791a3", fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular" },
+  lowEaOrangeValue: { color: "#ff7a00", fontSize: 15, lineHeight: 20, fontWeight: "700", fontFamily: "Inter_700Bold", flexShrink: 0 },
+  lowEaPrimaryBtn: { borderRadius: 7, borderWidth: 1.2, borderColor: "#f6f8fb", paddingVertical: 11, paddingHorizontal: 16, alignItems: "center", backgroundColor: "#ff6b00", marginBottom: 10 },
+  lowEaPrimaryText: { color: "#fff", fontWeight: "700", fontSize: 15, lineHeight: 20, textAlign: "center", fontFamily: "Inter_700Bold" },
+  lowEaOutlineBtn: { borderRadius: 7, borderWidth: 1.2, borderColor: "#e5e7eb", paddingVertical: 11, paddingHorizontal: 16, alignItems: "center" },
+  lowEaOutlineText: { color: "#f6f8fb", fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", fontFamily: "Inter_600SemiBold" },
+  primaryBtn: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, alignItems: "center", backgroundColor: "#ff7a00" },
+  outlineBtn: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, alignItems: "center", borderWidth: 1, borderColor: "#181d28" },
+  macroGrid: { gap: 10 },
+  macroCard: { width: "100%", minHeight: 128, paddingHorizontal: 22, paddingVertical: 20, borderRadius: 12, borderWidth: 1, borderLeftWidth: 5, borderColor: "#181d28" },
+  macroEmoji: { fontSize: 14, marginRight: 5 },
+  macroLabel: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  macroValue: { fontSize: 28, lineHeight: 34, fontWeight: "700", marginTop: 14, marginBottom: 9, fontFamily: "JetBrainsMono_700Bold" },
+  macroUnit: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  macroMeta: { fontSize: 12, marginBottom: 7, fontFamily: "Inter_500Medium" },
+  progressBg: { height: 7, borderRadius: 4, backgroundColor: "#1c2230", overflow: "hidden" },
+  progressFill: { height: 7, borderRadius: 4 },
+  suppCard: { padding: 20 },
+  suppHeaderLeft: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", marginRight: 10 },
+  suppTitle: { flex: 1, marginLeft: 10, fontSize: 22, lineHeight: 27, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  suppManageBtn: { flexShrink: 0, paddingLeft: 8, paddingVertical: 4 },
+  suppManageText: { color: "#f6f8fb", fontSize: 13, lineHeight: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  suppSubtitle: { fontSize: 14, lineHeight: 19, fontFamily: "Inter_400Regular", marginTop: 8, marginBottom: 6 },
+  suppRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, borderColor: "#181d28", paddingHorizontal: 14, paddingVertical: 10, marginTop: 10, gap: 12 },
+  suppItemTitle: { fontSize: 13, lineHeight: 17, fontWeight: "500", fontFamily: "Inter_500Medium" },
+  suppItemMeta: { fontSize: 12, lineHeight: 16, fontFamily: "Inter_400Regular", marginTop: 1 },
+  suppCheck: { width: 32, height: 32, borderRadius: 8, borderWidth: 1, borderColor: "#181d28", alignItems: "center", justifyContent: "center" },
+  suppFooter: { color: "#8791a3", fontSize: 12, lineHeight: 17, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 16 },
+  trainingCard: { padding: 18 },
+  trainingHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  trainingTitle: { fontSize: 22, lineHeight: 26, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold", marginLeft: 10, flexShrink: 1 },
+  trainingHeaderActions: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 6, flexShrink: 0 },
+  trainingGhostBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4, paddingHorizontal: 2 },
+  trainingGhostText: { color: "#f6f8fb", fontSize: 13, lineHeight: 17, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  trainingEmpty: { minHeight: 150, alignItems: "center", justifyContent: "center", gap: 10 },
+  trainingPlanBtn: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 9 },
+  trainingPlanText: { color: "#ff7a00", fontSize: 13, lineHeight: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  chartCard: { borderColor: "#e5e7eb", borderWidth: 1.2, padding: 20 },
+  chartSelectorRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
+  chartSelectorChip: { borderRadius: 999, borderWidth: 1, borderColor: "#242a36", paddingHorizontal: 8, paddingVertical: 4 },
+  chartSelectorChipActive: { borderColor: "#ff7a00", backgroundColor: "rgba(255,122,0,0.10)" },
+  chartSelectorText: { color: "#8791a3", fontSize: 10, lineHeight: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  chartSelectorTextActive: { color: "#ff7a00" },
+  mealsCard: { padding: 18 },
+  savedMealsBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1.2, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  savedMealsText: { color: "#f6f8fb", fontSize: 13, lineHeight: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  mealGroup: { marginTop: 18 },
+  mealHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+  mealTitleStack: { flex: 1, minWidth: 0 },
+  mealName: { color: "#8791a3", fontSize: 16, lineHeight: 20, fontWeight: "600", fontFamily: "Inter_600SemiBold", marginLeft: 8, textTransform: "capitalize" },
+  mealCountBadge: { marginLeft: 8, minWidth: 22, height: 26, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(31,37,50,0.85)" },
+  mealCountText: { color: "#f6f8fb", fontSize: 11, lineHeight: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  mealKcal: { color: "#8791a3", fontSize: 12, lineHeight: 16, fontFamily: "JetBrainsMono_700Bold", marginTop: 7, marginLeft: 26 },
+  mealHeaderIcons: { flexDirection: "row", alignItems: "center", gap: 14, paddingTop: 4 },
+  mealMacroLine: { color: "#596274", fontSize: 12, lineHeight: 16, fontFamily: "JetBrainsMono_700Bold", marginTop: 1, marginBottom: 9, marginLeft: 26 },
+  mealFoodRow: { paddingHorizontal: 12, paddingVertical: 9, marginTop: 8 },
+  foodItemName: { color: "#f6f8fb", fontSize: 15, lineHeight: 19, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  foodItemMacros: { color: "#8791a3", fontSize: 11, lineHeight: 15, fontFamily: "Inter_400Regular", marginTop: 2 },
+  foodActions: { flexDirection: "row", alignItems: "center", gap: 8, marginLeft: 8 },
+  foodActionBtn: { padding: 3 },
+  sessionItem: { borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 8 },
   wEntry: { flexDirection: "row", alignItems: "center" },
   wBar: { height: 6, borderRadius: 3 },
-  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 9, borderWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },
+  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", paddingVertical: 10, paddingHorizontal: 8 },
+  webDateRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  dateSquareBtn: { width: 42, height: 42, borderRadius: 8, borderWidth: 1.2, alignItems: "center", justifyContent: "center" },
+  dateCenter: { flex: 1, minHeight: 44, borderRadius: 8, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
   dateNavBtn: { padding: 8 },
-  dateNavText: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_600SemiBold" },
-  actionRow: { flexDirection: "row", gap: 8 },
-  actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 9, borderWidth: 1, padding: 11 },
-  greeting: { fontSize: 20, fontWeight: "800", marginTop: 2, fontFamily: "SpaceGrotesk_700Bold" },
-  foodRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 4, gap: 8 },
-  mealTypeChip: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
-  searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, padding: 10, marginBottom: 8 },
-  searchResult: { borderRadius: 8, borderWidth: 1, padding: 10, marginBottom: 6 },
+  dateNavText: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  todayBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
+  todayBtnText: { color: "#eceef2", fontSize: 14, lineHeight: 18, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  actionRow: { flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 10, justifyContent: "center" },
+  actionBtn: { width: "44%", height: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1.2, borderColor: "#181d28", paddingHorizontal: 12, paddingVertical: 0, overflow: "hidden" },
+  actionBtnWide: { flex: 1, minWidth: "48.5%" },
+  actionBtnText: { fontSize: 12, lineHeight: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginLeft: 7, textAlign: "center", flexShrink: 1 },
+  feedbackButton: { marginTop: 16, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12 },
+  sportPill: { flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7 },
+  sportIcon: { width: 24, height: 24, tintColor: "#fff" },
+  greeting: { fontSize: 30, lineHeight: 36, fontWeight: "700", marginTop: 4, fontFamily: "SpaceGrotesk_700Bold" },
+  foodRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 6, gap: 10 },
+  mealTypeChip: { borderRadius: 10, borderWidth: 1, borderColor: "#181d28", paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
+  searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginBottom: 10 },
+  searchResult: { borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginBottom: 8 },
 });

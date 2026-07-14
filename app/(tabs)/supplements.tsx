@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/AppToast";
 
 // ─────────────────────────────────────────
 // Types — matched to actual API shape
@@ -62,6 +63,7 @@ function SupplementFormModal({
   visible, supplement, onClose,
 }: { visible: boolean; supplement: Supplement | null; onClose: () => void }) {
   const qc = useQueryClient();
+  const { showToast } = useToast();
   const isEdit = !!supplement;
 
   // Form state
@@ -82,6 +84,7 @@ function SupplementFormModal({
     queryFn: () => apiFetch("/supplement-catalog"),
     staleTime: 5 * 60 * 1000,
     retry: 2,
+    enabled: visible,
   });
 
   // Reset when modal opens
@@ -143,6 +146,7 @@ function SupplementFormModal({
       // exact: false catches ["stacks-scheduled", date] variants on the dashboard
       qc.invalidateQueries({ queryKey: ["stacks-scheduled"], exact: false });
       AMQS_KEYS.forEach(k => qc.invalidateQueries(k));
+      showToast({ title: isEdit ? "Supplement updated" : "Supplement added" });
       onClose();
     },
   });
@@ -404,6 +408,7 @@ function SupplementFormModal({
 function SupplementRow({ supplement }: { supplement: Supplement }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { showToast } = useToast();
   const [editOpen, setEditOpen] = useState(false);
 
   // §14.7: no confirmation dialog — immediate delete
@@ -414,6 +419,7 @@ function SupplementRow({ supplement }: { supplement: Supplement }) {
       qc.invalidateQueries({ queryKey: ["stacks-scheduled"] });
       // Invalidate AMQS score (§6.6 — "4. Cache invalidation on supplement mutations")
       AMQS_KEYS.forEach(k => qc.invalidateQueries(k));
+      showToast({ title: "Supplement deleted" });
     },
   });
 
@@ -528,45 +534,72 @@ export default function SupplementsScreen() {
     queryFn: () => apiFetch("/me/supplements"),
   });
 
+  const { error: catalogPageError } = useQuery<CatalogItem[]>({
+    queryKey: ["supplement-catalog"],
+    queryFn: () => apiFetch("/supplement-catalog"),
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  });
+
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
-      <View style={[s.header, { borderBottomColor: colors.border }]}>
-        <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
+      <View style={[s.header, { borderBottomColor: "#e5e7eb" }]}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
+          <Text style={[s.pageSubtitle, { color: colors.mutedForeground }]}>Track your personal supplement inventory</Text>
+        </View>
         <TouchableOpacity
           style={[s.addBtn, { backgroundColor: colors.primary }]}
           testID="button-add-supplement"
           onPress={() => setAddOpen(true)}>
           <Feather name="plus" size={16} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13, marginLeft: 4, fontFamily: colors.fonts.sansBd }}>Add</Text>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, marginLeft: 6, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
 
+        {catalogPageError && (
+          <Card style={{ borderColor: "rgba(239,68,68,0.50)", backgroundColor: "rgba(239,68,68,0.05)" }}>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+              <Feather name="alert-triangle" size={20} color="#f87171" style={{ marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#f87171", fontWeight: "700", fontSize: 14 }}>Catalog Load Error</Text>
+                <Text style={{ color: "#fca5a5", fontSize: 12, lineHeight: 18, marginTop: 3 }}>
+                  Failed to load the supplement catalog. You can still add custom supplements.
+                </Text>
+              </View>
+            </View>
+          </Card>
+        )}
+
         {/* Info card */}
-        <Card style={{ borderColor: "rgba(147,197,253,0.2)", backgroundColor: "rgba(147,197,253,0.04)" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-            <Feather name="info" size={14} color="#93c5fd" />
-            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 14, marginLeft: 8, fontFamily: colors.fonts.sansSb }}>
-              How Supplements Work
-            </Text>
-          </View>
-          <Text style={[s.xs, { color: colors.mutedForeground, lineHeight: 18, fontFamily: colors.fonts.sans }]}>
-            Add supplements to your shelf. Those linked to the catalog automatically contribute
-            micronutrients to your <Text style={{ color: "#ff7a00", fontWeight: "700" }}>AMQS score</Text>.
-            Group them into stacks and set daily reminders to track them on your dashboard.
+        <View style={[s.explainer, { borderColor: "rgba(229,231,235,0.40)", backgroundColor: "rgba(24,30,39,0.40)" }]} testID="supplements-explainer">
+          <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 13, marginBottom: 8, fontFamily: colors.fonts.sansSb }}>
+            How Supplements work
           </Text>
-        </Card>
+          <View style={{ gap: 5 }}>
+            {[
+              "Add a supplement once (name, dose).",
+              "Set an optional daily reminder time for each supplement.",
+              "Scheduled supplements appear on the Dashboard — tick off as you take them.",
+            ].map((line, index) => (
+              <Text key={line} style={[s.xs, { color: colors.mutedForeground, lineHeight: 18, fontFamily: colors.fonts.sans }]}>
+                {index + 1}. {line}
+              </Text>
+            ))}
+          </View>
+        </View>
 
         {/* Supplement list */}
         <Card>
-          <View style={[s.rowBetween, { marginBottom: 8 }]}>
+          <View style={{ marginBottom: 14 }}>
             <Text style={[s.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>Your Supplements</Text>
-            {supplements.length > 0 && (
-              <View style={[s.badge, { backgroundColor: "rgba(255,122,0,0.1)", borderColor: "rgba(255,122,0,0.3)" }]}>
-                <Text style={[s.xs, { color: colors.primary, fontWeight: "700" }]}>{supplements.length}</Text>
-              </View>
-            )}
+            <Text style={[s.listDescription, { color: colors.mutedForeground }]}>
+              {supplements.length === 0
+                ? "No supplements added yet. Add your first supplement to get started."
+                : `${supplements.length} supplement${supplements.length === 1 ? "" : "s"} in your inventory`}
+            </Text>
           </View>
 
           {isLoading ? (
@@ -584,24 +617,9 @@ export default function SupplementsScreen() {
           )}
         </Card>
 
-        {/* Stacks hint */}
-        {supplements.length > 0 && (
-          <Card style={{ borderColor: "rgba(255,122,0,0.15)" }}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Feather name="layers" size={14} color={colors.primary} />
-              <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>
-                Stacks & Reminders
-              </Text>
-            </View>
-            <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 6, lineHeight: 18 }]}>
-              Group supplements into stacks (e.g. Morning Stack, Pre-Workout) and set reminders
-              to track them on your daily dashboard.
-            </Text>
-            <Text style={[s.xs, { color: colors.mutedForeground, marginTop: 6 }]}>
-              Manage stacks at app.prfmr.link for full control.
-            </Text>
-          </Card>
-        )}
+        <Text style={[s.footerDisclaimer, { color: colors.mutedForeground }]}>
+          For tracking purposes only — not medical advice. Consult a healthcare professional before starting any supplement regimen.
+        </Text>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -617,11 +635,13 @@ export default function SupplementsScreen() {
 const s = StyleSheet.create({
   flex:       { flex: 1 },
   header:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  pageTitle:  { fontSize: 20, fontWeight: "800" },
-  scrollPad:  { padding: 12, gap: 10 },
-  card:       { borderRadius: 9, borderWidth: 1, padding: 14 },
-  cardTitle:  { fontSize: 15, fontWeight: "700" },
+                paddingHorizontal: 16, paddingVertical: 22, borderBottomWidth: 1 },
+  pageTitle:  { fontSize: 28, fontWeight: "800" },
+  pageSubtitle: { fontSize: 18, lineHeight: 26, marginTop: 4, fontFamily: "Inter_400Regular" },
+  scrollPad:  { padding: 16, gap: 18 },
+  card:       { borderRadius: 12, borderWidth: 1.5, padding: 24 },
+  cardTitle:  { fontSize: 26, fontWeight: "800" },
+  listDescription: { fontSize: 17, lineHeight: 25, marginTop: 8, fontFamily: "Inter_400Regular" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   badge:      { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
   microBadge: { borderRadius: 4, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2,
@@ -629,11 +649,13 @@ const s = StyleSheet.create({
   xs:         { fontSize: 12, fontWeight: "500" },
   sm:         { fontSize: 13 },
   addBtn:     { flexDirection: "row", alignItems: "center", borderRadius: 8,
-                paddingHorizontal: 14, paddingVertical: 8 },
-  suppRow:    { flexDirection: "row", alignItems: "flex-start", borderRadius: 9, borderWidth: 1,
-                padding: 12, marginTop: 6, gap: 10 },
+                paddingHorizontal: 16, paddingVertical: 13, borderWidth: 1.5, borderColor: "#e5e7eb" },
+  explainer:  { borderRadius: 10, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14 },
+  suppRow:    { flexDirection: "row", alignItems: "flex-start", borderRadius: 9, borderWidth: 1.5,
+                padding: 14, marginTop: 12, gap: 10 },
   suppIcon:   { width: 36, height: 36, borderRadius: 8, borderWidth: 1,
                 alignItems: "center", justifyContent: "center", marginTop: 1 },
   fullBtn:    { borderRadius: 9, padding: 14, alignItems: "center" },
   chip:       { borderRadius: 7, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
+  footerDisclaimer: { fontSize: 12, lineHeight: 18, fontStyle: "italic", textAlign: "center", paddingBottom: 12 },
 });

@@ -10,6 +10,7 @@ import { format, addDays, subDays } from "date-fns";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/AppToast";
 
 // ─────────────────────────────────────────
 // Types
@@ -82,6 +83,20 @@ interface TrainingLoad {
   history: LoadHistoryEntry[];
 }
 
+interface WeightCutPlan {
+  daysUntil: number;
+  fightDate: string;
+}
+
+interface TrainingBlock {
+  id: number;
+  name: string;
+  days?: Array<{
+    dayOfWeek: number;
+    activities?: Array<{ rpe?: number | null; durationMinutes?: number | null }>;
+  }>;
+}
+
 interface LoadHistoryEntry {
   date: string;
   totalLoad: number;
@@ -148,6 +163,31 @@ function clsLabel(cls: string | undefined) {
   }
 }
 
+function loadChipStyle(cls: string | undefined) {
+  switch (cls) {
+    case "very_hard": return { bg: "rgba(239,68,68,0.15)", text: "#f87171", border: "rgba(239,68,68,0.30)" };
+    case "hard": return { bg: "rgba(249,115,22,0.15)", text: "#fb923c", border: "rgba(249,115,22,0.30)" };
+    case "moderate": return { bg: "rgba(234,179,8,0.15)", text: "#facc15", border: "rgba(234,179,8,0.30)" };
+    case "rest": return { bg: "rgba(107,114,128,0.12)", text: "#737d8c", border: "rgba(107,114,128,0.22)" };
+    default: return { bg: "rgba(74,222,128,0.13)", text: "#4ade80", border: "rgba(74,222,128,0.28)" };
+  }
+}
+
+function plannedLoadForDate(block: TrainingBlock | null | undefined, date: string) {
+  if (!block?.days?.length) return null;
+  const jsDay = new Date(date + "T12:00:00").getDay();
+  const dayOfWeek = (jsDay + 6) % 7;
+  const planDay = block.days.find(d => d.dayOfWeek === dayOfWeek);
+  const activities = planDay?.activities ?? [];
+  if (!planDay || activities.length === 0) return { label: "Planned: rest", cls: "rest" };
+  const load = activities.reduce((sum, activity) => {
+    const duration = activity.durationMinutes ?? 0;
+    return sum + duration * (activity.rpe ?? 3);
+  }, 0);
+  const cls = load < 300 ? "light" : load < 600 ? "moderate" : load < 900 ? "hard" : "very_hard";
+  return { label: `Planned: ${cls.replace("_", " ")}`, cls };
+}
+
 // ─────────────────────────────────────────
 // Training Load Warning Modal (§10.2.11)
 // ─────────────────────────────────────────
@@ -167,6 +207,7 @@ function TrainingLoadWarningModal({
   onClose: () => void;
   onViewTrend: () => void;
 }) {
+  const colors = useColors();
   const qc = useQueryClient();
   const [override, setOverride] = useState("keep");
   const [overrideOpen, setOverrideOpen] = useState(false);
@@ -192,13 +233,13 @@ function TrainingLoadWarningModal({
   return (
     <Modal visible animationType="fade" transparent onRequestClose={() => {}}>
       <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 20 }}>
-        <View style={{ backgroundColor: "#111318", borderRadius: 16, borderWidth: 1,
-          borderColor: "#2a2e3a", padding: 20, gap: 16 }}>
+        <View style={{ backgroundColor: colors.card, borderRadius: 16, borderWidth: 1,
+          borderColor: colors.border, padding: 20, gap: 16 }}>
 
           {/* Title */}
           <View style={{ alignItems: "center", gap: 4 }}>
             <Feather name="alert-triangle" size={22} color="#fb923c" />
-            <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700", marginTop: 4 }}>
+            <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "700", marginTop: 4, fontFamily: colors.fonts.displaySb }}>
               Training Load Insight
             </Text>
           </View>
@@ -218,11 +259,11 @@ function TrainingLoadWarningModal({
                 sub: analysis.insufficientHistory ? "building" : "ratio",
               },
             ].map(m => (
-              <View key={m.label} style={{ flex: 1, backgroundColor: "#181c26", borderRadius: 10,
-                borderWidth: 1, borderColor: "#2a2e3a", padding: 10, alignItems: "center" }}>
-                <Text style={{ color: "#6b7280", fontSize: 10, fontWeight: "700", letterSpacing: 0.5 }}>{m.label.toUpperCase()}</Text>
-                <Text style={{ color: "#eceef2", fontSize: 20, fontWeight: "900", marginTop: 2 }}>{m.value}</Text>
-                <Text style={{ color: "#6b7280", fontSize: 10, marginTop: 1 }}>{m.sub}</Text>
+              <View key={m.label} style={{ flex: 1, backgroundColor: colors.secondary, borderRadius: 9,
+                borderWidth: 1, borderColor: colors.border, padding: 10, alignItems: "center" }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 }}>{m.label.toUpperCase()}</Text>
+                <Text style={{ color: colors.foreground, fontSize: 20, fontWeight: "700", marginTop: 2, fontFamily: colors.fonts.monoBd }}>{m.value}</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 10, marginTop: 1 }}>{m.sub}</Text>
               </View>
             ))}
           </View>
@@ -240,7 +281,7 @@ function TrainingLoadWarningModal({
 
           {/* Classification badge */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ color: "#6b7280", fontSize: 12 }}>System estimate:</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>System estimate:</Text>
             <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
               backgroundColor: cs.bg, borderWidth: 1, borderColor: cs.border }}>
               <Text style={{ color: cs.text, fontWeight: "700", fontSize: 12 }}>
@@ -278,28 +319,28 @@ function TrainingLoadWarningModal({
 
           {/* Override dropdown */}
           <View>
-            <Text style={{ color: "#9ca3af", fontSize: 12, marginBottom: 6 }}>How would you rate today?</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 6 }}>How would you rate today?</Text>
             <TouchableOpacity onPress={() => setOverrideOpen(o => !o)}
               style={{ flexDirection: "row", alignItems: "center", height: 44,
                 borderRadius: 10, borderWidth: 1,
-                borderColor: overrideOpen ? "#ff7a00" : "#2a2e3a",
-                backgroundColor: "#181c26", paddingHorizontal: 12 }}>
-              <Text style={{ flex: 1, color: "#eceef2", fontSize: 14 }}>
+                borderColor: overrideOpen ? colors.primary : colors.border,
+                backgroundColor: colors.secondary, paddingHorizontal: 12 }}>
+              <Text style={{ flex: 1, color: colors.foreground, fontSize: 14 }}>
                 {OVERRIDE_OPTIONS.find(o => o.value === override)?.label}
               </Text>
-              <Feather name={overrideOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
+              <Feather name={overrideOpen ? "chevron-up" : "chevron-down"} size={15} color={colors.mutedForeground} />
             </TouchableOpacity>
             {overrideOpen && (
               <View style={{ marginTop: 3, borderRadius: 10, borderWidth: 1,
-                borderColor: "#1a1e28", backgroundColor: "#181c26", overflow: "hidden" }}>
+                borderColor: colors.border, backgroundColor: colors.secondary, overflow: "hidden" }}>
                 {OVERRIDE_OPTIONS.map((opt, i) => (
                   <TouchableOpacity key={opt.value}
                     onPress={() => { setOverride(opt.value); setOverrideOpen(false); }}
                     style={{ paddingHorizontal: 14, paddingVertical: 11,
                       borderBottomWidth: i < OVERRIDE_OPTIONS.length - 1 ? 1 : 0,
-                      borderBottomColor: "#1a1e28",
-                      backgroundColor: override === opt.value ? "rgba(255,122,0,0.08)" : "transparent" }}>
-                    <Text style={{ color: override === opt.value ? "#ff7a00" : "#eceef2",
+                      borderBottomColor: colors.border,
+                      backgroundColor: override === opt.value ? colors.semantic.fightCampBg : "transparent" }}>
+                    <Text style={{ color: override === opt.value ? colors.primary : colors.foreground,
                       fontWeight: override === opt.value ? "700" : "400", fontSize: 13 }}>
                       {opt.label}
                     </Text>
@@ -308,7 +349,7 @@ function TrainingLoadWarningModal({
               </View>
             )}
             {override !== "keep" && (
-              <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 6 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 6 }}>
                 Your rating will be saved for this day and used to reduce unnecessary warnings.
               </Text>
             )}
@@ -319,14 +360,14 @@ function TrainingLoadWarningModal({
             onPress={handleContinue}
             disabled={saving}
             style={{ height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center",
-              backgroundColor: "#ff7a00" }}>
+              backgroundColor: colors.primary }}>
             {saving
               ? <ActivityIndicator color="#fff" size="small" />
               : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>}
           </TouchableOpacity>
 
           <TouchableOpacity onPress={onViewTrend} style={{ alignItems: "center" }}>
-            <Text style={{ color: "#ff7a00", fontSize: 13, fontWeight: "600" }}>
+            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>
               View 28-day load trend →
             </Text>
           </TouchableOpacity>
@@ -757,6 +798,7 @@ function EditActivityModal({
 function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSession; date: string; onActivityMutated?: (date: string) => void }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { showToast } = useToast();
   const [addActivity, setAddActivity] = useState(false);
   const [editingActivity, setEditingActivity] = useState<SessionActivity | null>(null);
 
@@ -766,6 +808,7 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
       qc.invalidateQueries({ queryKey: ["sessions", date] });
       qc.invalidateQueries({ queryKey: ["targets", date] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
+      showToast({ title: "Session deleted" });
     },
   });
 
@@ -776,6 +819,7 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
       qc.invalidateQueries({ queryKey: ["targets", date] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
+      showToast({ title: "Activity deleted" });
     },
   });
 
@@ -855,6 +899,7 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
 }) {
   const colors = useColors();
   const qc = useQueryClient();
+  const { showToast } = useToast();
   const [open, setOpen] = useState(true);
 
   const createSessionMut = useMutation({
@@ -863,6 +908,7 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
       qc.invalidateQueries({ queryKey: ["targets", date] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
+      showToast({ title: "Session created" });
     },
   });
 
@@ -910,10 +956,11 @@ export default function TrainingScreen() {
   const colors = useColors();
   const qc = useQueryClient();
   const router = useRouter();
+  const { showToast } = useToast();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [loadWarning, setLoadWarning] = useState<{ analysis: TrainingLoad; date: string } | null>(null);
 
-  const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
+  const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd MMM yyyy");
 
   const { data: sessions = [], isLoading } = useQuery<WorkoutSession[]>({
     queryKey: ["sessions", selectedDate],
@@ -925,6 +972,19 @@ export default function TrainingScreen() {
     queryFn: () => apiFetch(`/me/morning-status/${selectedDate}`),
   });
 
+  const { data: weightCutPlan } = useQuery<WeightCutPlan | null>({
+    queryKey: ["weight-cut"],
+    queryFn: () => apiFetch<WeightCutPlan | null>("/me/weight-cut").catch(() => null),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  const { data: activeBlock } = useQuery<TrainingBlock | null>({
+    queryKey: ["training-block-active"],
+    queryFn: () => apiFetch<TrainingBlock | null>("/training-blocks/active").catch(() => null),
+    retry: false,
+  });
+
   const restMut = useMutation({
     mutationFn: (mark: boolean) =>
       apiFetch(`/me/rest-day/${selectedDate}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
@@ -932,6 +992,7 @@ export default function TrainingScreen() {
       qc.invalidateQueries({ queryKey: ["morning-status", selectedDate] });
       qc.invalidateQueries({ queryKey: ["targets", selectedDate] });
       qc.invalidateQueries({ queryKey: ["training-summary", selectedDate] });
+      showToast({ title: morning?.isRestDay ? "Rest day removed" : "Rest day marked" });
     },
   });
 
@@ -954,17 +1015,32 @@ export default function TrainingScreen() {
 
   const sessionsByTime = (tod: TimeOfDay) => sessions.filter(s => s.timeOfDay === tod);
   const totalCal = sessions.flatMap(s => s.activities).reduce((acc, a) => acc + (a.estimatedKcal || 0), 0);
+  const plannedLoad = plannedLoadForDate(activeBlock, selectedDate);
+  const plannedStyle = plannedLoad ? loadChipStyle(plannedLoad.cls) : null;
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <View style={[s.header, { borderBottomColor: colors.border }]}>
-        <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>Training</Text>
-        <Text style={[s.xs, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>{format(new Date(), "EEE, d MMM")}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>Training Log</Text>
+          <Text style={[s.headerSub, { color: colors.mutedForeground }]}>Track your workouts and activities</Text>
+          <View style={s.headerChips}>
+            {weightCutPlan && weightCutPlan.daysUntil >= 0 && (
+              <View style={[s.headerChip, { backgroundColor: "rgba(255,122,0,0.15)", borderColor: "rgba(255,122,0,0.30)" }]}>
+                <Text style={s.headerChipText}>🥊 {weightCutPlan.daysUntil} days to fight night</Text>
+              </View>
+            )}
+            <TouchableOpacity style={[s.planBlockBtn, { borderColor: colors.primary }]}>
+              <Feather name="calendar" size={14} color={colors.primary} />
+              <Text style={[s.planBlockText, { color: colors.primary }]}>{activeBlock ? activeBlock.name : "Plan Block"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
         {/* Date Navigation */}
-        <View style={[s.dateNav, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[s.dateNav, { backgroundColor: colors.card, borderColor: "#e5e7eb" }]}>
           <TouchableOpacity style={s.dateNavBtn}
             onPress={() => setSelectedDate(format(subDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
             <Feather name="chevron-left" size={20} color={colors.foreground} />
@@ -974,51 +1050,42 @@ export default function TrainingScreen() {
             onPress={() => setSelectedDate(format(addDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
             <Feather name="chevron-right" size={20} color={colors.foreground} />
           </TouchableOpacity>
+          <Text style={[s.dateNavSub, { color: colors.mutedForeground }]}>
+            {format(new Date(selectedDate + "T12:00:00"), "EEEE, MMMM d, yyyy")}
+          </Text>
+          {plannedLoad && plannedStyle && (
+            <View style={[s.plannedChip, { backgroundColor: plannedStyle.bg, borderColor: plannedStyle.border }]}>
+              <Feather name="calendar" size={12} color={plannedStyle.text} />
+              <Text style={[s.plannedChipText, { color: plannedStyle.text }]}>{plannedLoad.label}</Text>
+            </View>
+          )}
         </View>
 
-        {/* Rest Day + Cal Burned */}
-        <Card>
-          <View style={s.rowBetween}>
-            <View style={s.row}>
-              <Feather name="zap" size={15} color={morning?.isRestDay ? "#4ade80" : colors.mutedForeground} />
-              <Text style={[s.sm, { color: colors.foreground, fontWeight: "600", marginLeft: 8 }]}>
-                {morning?.isRestDay ? "Rest Day" : "Training Day"}
-              </Text>
-            </View>
+        {sessions.length === 0 && (
+          <View style={{ alignItems: "flex-end" }}>
             <TouchableOpacity
-              style={[s.btnSm, {
+              style={[s.restPill, {
                 backgroundColor: morning?.isRestDay ? "rgba(74,222,128,0.1)" : colors.secondary,
-                borderWidth: 1,
                 borderColor: morning?.isRestDay ? "rgba(74,222,128,0.3)" : colors.border,
               }]}
               onPress={() => restMut.mutate(!morning?.isRestDay)}
               disabled={restMut.isPending}>
               <Text style={[s.xs, { color: morning?.isRestDay ? "#4ade80" : colors.mutedForeground, fontWeight: "700" }]}>
-                {morning?.isRestDay ? "Unmark rest day" : "Mark as rest day"}
+                {morning?.isRestDay ? "Rest day ✓ (tap to undo)" : "Mark as rest day"}
               </Text>
             </TouchableOpacity>
           </View>
-
-          {totalCal > 0 && (
-            <View style={[s.calRow, { borderColor: colors.border }]}>
-              <Feather name="flame" size={14} color={colors.primary} />
-              <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 6 }]}>
-                ~{Math.round(totalCal)} kcal
-              </Text>
-              <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 4 }]}>estimated burned</Text>
-            </View>
-          )}
-        </Card>
+        )}
 
         {/* Training Load Insight */}
         {loadData && (() => {
           const cs = clsStyle(loadData.effectiveClassification);
           return (
-            <Card style={{ borderColor: "rgba(255,122,0,0.15)", backgroundColor: "rgba(255,122,0,0.04)" }}>
-              <View style={s.rowBetween}>
+            <Card style={{ borderColor: colors.semantic.fightCampBorder, backgroundColor: colors.semantic.fightCampBg }}>
+              <View style={s.estimatedHeader}>
                 <View style={s.row}>
-                  <Feather name="trending-up" size={14} color={colors.primary} />
-                  <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>Training Load</Text>
+                  <Feather name="zap" size={18} color={colors.primary} />
+                  <Text style={[s.estimatedTitle, { color: colors.foreground }]}>Estimated Calories Burned</Text>
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <View style={{ backgroundColor: cs.bg, borderRadius: 6, borderWidth: 1,
@@ -1033,24 +1100,29 @@ export default function TrainingScreen() {
                 </View>
               </View>
 
-              <View style={[s.row, { marginTop: 10, gap: 16 }]}>
+              <View style={s.kcalBurnedRow}>
+                <Text style={[s.kcalBurnedValue, { color: colors.primary }]}>~{Math.round(totalCal || loadData.totalKcal || 0)}</Text>
+                <Text style={[s.kcalBurnedUnit, { color: colors.primary }]}>kcal</Text>
+              </View>
+
+              <View style={[s.row, { marginTop: 10, gap: 16, display: "none" }]}>
                 {loadData.acwr != null && (
                   <View style={{ alignItems: "center" }}>
-                    <Text style={{ color: colors.primary, fontSize: 24, fontWeight: "900" }}>
+                    <Text style={{ color: colors.primary, fontSize: 24, fontWeight: "700", fontFamily: colors.fonts.monoBd }}>
                       {loadData.acwr.toFixed(2)}
                     </Text>
                     <Text style={[s.xs, { color: colors.mutedForeground }]}>ACWR</Text>
                   </View>
                 )}
                 <View style={{ alignItems: "center" }}>
-                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
+                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700", fontFamily: colors.fonts.monoBd }}>
                     {Math.round(loadData.acuteLoad)}
                   </Text>
                   <Text style={[s.xs, { color: colors.mutedForeground }]}>7-day load</Text>
                 </View>
                 {loadData.baselineLoad != null && (
                   <View style={{ alignItems: "center" }}>
-                    <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>
+                    <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700", fontFamily: colors.fonts.monoBd }}>
                       {Math.round(loadData.baselineLoad)}
                     </Text>
                     <Text style={[s.xs, { color: colors.mutedForeground }]}>{loadData.baselineDaysUsed}-day avg</Text>
@@ -1129,27 +1201,42 @@ export default function TrainingScreen() {
 
 const s = StyleSheet.create({
   flex: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  pageTitle: { fontSize: 20, fontWeight: "800" },
-  scrollPad: { padding: 12, gap: 10 },
-  card: { borderRadius: 9, borderWidth: 1, padding: 14 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 18, borderBottomWidth: 1 },
+  pageTitle: { fontSize: 28, fontWeight: "700" },
+  headerSub: { fontSize: 17, lineHeight: 24, marginTop: 4, fontFamily: "Inter_400Regular" },
+  headerChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
+  headerChip: { flexDirection: "row", alignItems: "center", borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  headerChipText: { color: "#fb923c", fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  planBlockBtn: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 7, gap: 8 },
+  planBlockText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  scrollPad: { padding: 16, gap: 12 },
+  card: { borderRadius: 12, borderWidth: 1, padding: 16 },
   row: { flexDirection: "row", alignItems: "center" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  badge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
-  xs: { fontSize: 12, fontWeight: "500" },
-  sm: { fontSize: 13 },
-  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 9, borderWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },
-  dateNavBtn: { padding: 8 },
-  dateNavText: { fontSize: 15, fontWeight: "700" },
-  timeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 9, borderWidth: 1, padding: 12 },
-  addSessionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 9, borderWidth: 1, borderStyle: "dashed", padding: 12, marginTop: 8 },
-  addActivityBtn: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, borderStyle: "dashed", padding: 10, marginTop: 8 },
-  activityRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, padding: 10, marginTop: 6, gap: 8 },
+  badge: { borderRadius: 99, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  xs: { fontSize: 12, fontWeight: "500", fontFamily: "Inter_400Regular" },
+  sm: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  dateNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", borderRadius: 12, borderWidth: 1.5, paddingVertical: 14, paddingHorizontal: 14 },
+  dateNavBtn: { width: 46, height: 46, borderRadius: 9, borderWidth: 1.5, borderColor: "#e5e7eb", alignItems: "center", justifyContent: "center" },
+  dateNavText: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  dateNavSub: { width: "100%", textAlign: "center", fontSize: 14, marginTop: 10, fontFamily: "Inter_400Regular" },
+  plannedChip: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, marginTop: 8 },
+  plannedChipText: { fontSize: 12, fontWeight: "700", textTransform: "capitalize", fontFamily: "Inter_700Bold" },
+  restPill: { flexDirection: "row", alignItems: "center", borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  estimatedHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  estimatedTitle: { fontSize: 20, lineHeight: 26, fontWeight: "700", marginLeft: 8, flex: 1, fontFamily: "SpaceGrotesk_700Bold" },
+  kcalBurnedRow: { flexDirection: "row", justifyContent: "flex-end", alignItems: "baseline", marginTop: 4 },
+  kcalBurnedValue: { fontSize: 34, lineHeight: 40, fontWeight: "800", fontFamily: "SpaceGrotesk_700Bold" },
+  kcalBurnedUnit: { fontSize: 23, fontWeight: "800", marginLeft: 4, fontFamily: "SpaceGrotesk_700Bold" },
+  timeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, padding: 12 },
+  addSessionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderStyle: "dashed", padding: 12, marginTop: 8 },
+  addActivityBtn: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, borderStyle: "dashed", padding: 10, marginTop: 8 },
+  activityRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, padding: 12, marginTop: 8, gap: 8 },
   calRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, marginTop: 10, paddingTop: 10 },
-  btnSm: { flexDirection: "row", alignItems: "center", borderRadius: 7, paddingHorizontal: 12, paddingVertical: 7 },
-  input: { borderRadius: 8, borderWidth: 1, padding: 11, fontSize: 14 },
-  fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
-  searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, padding: 10, marginBottom: 8 },
-  catalogItem: { borderRadius: 8, borderWidth: 1, padding: 10, marginBottom: 6 },
+  btnSm: { flexDirection: "row", alignItems: "center", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  input: { borderRadius: 8, borderWidth: 1, padding: 12, fontSize: 14 },
+  fullBtn: { borderRadius: 12, padding: 14, alignItems: "center" },
+  searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 10 },
+  catalogItem: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 8 },
   rpeBtn: { width: 42, height: 42, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 });

@@ -12,6 +12,7 @@ import {
 import {
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
+  JetBrainsMono_700Bold,
 } from "@expo-google-fonts/jetbrains-mono";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
@@ -22,6 +23,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ToastProvider } from "@/components/AppToast";
 import { AuthProvider, isOnboardingComplete, useAuth } from "@/context/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 
@@ -65,6 +67,7 @@ function AppWithAuth() {
     SpaceGrotesk_700Bold,
     JetBrainsMono_400Regular,
     JetBrainsMono_500Medium,
+    JetBrainsMono_700Bold,
   });
 
   useEffect(() => {
@@ -86,7 +89,9 @@ export default function RootLayout() {
           <AuthProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
-                <AppWithAuth />
+                <ToastProvider>
+                  <AppWithAuth />
+                </ToastProvider>
               </KeyboardProvider>
             </GestureHandlerRootView>
           </AuthProvider>

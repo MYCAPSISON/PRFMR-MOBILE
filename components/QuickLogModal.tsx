@@ -30,6 +30,7 @@ import {
 } from "../lib/quickLogParser";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system";
+import { useColors } from "../hooks/useColors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,7 @@ interface Props {
 }
 
 export function QuickLogModal({ visible, onClose, date }: Props) {
+  const colors = useColors();
   const { user } = useAuth();
   const qc = useQueryClient();
 
@@ -495,9 +497,11 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
         <TouchableOpacity style={{ flex: 1 }} onPress={handleClose} activeOpacity={1} />
 
         <View style={{
-          backgroundColor: "#181c26",
-          borderTopLeftRadius: 20,
-          borderTopRightRadius: 20,
+          backgroundColor: colors.card,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          borderWidth: 1,
+          borderColor: colors.border,
           padding: 20,
           paddingBottom: Platform.OS === "ios" ? 40 : 24,
         }}>
@@ -506,7 +510,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
           {dialogState === "done" && (
             <View style={{ alignItems: "center", paddingVertical: 28 }}>
               <Feather name="check-circle" size={52} color="#4ade80" />
-              <Text style={{ fontSize: 20, fontWeight: "700", color: "#eceef2", marginTop: 14 }}>
+              <Text style={{ fontSize: 20, fontWeight: "700", color: colors.foreground, marginTop: 14, fontFamily: colors.fonts.displaySb }}>
                 Logged successfully
               </Text>
               <TouchableOpacity
@@ -514,13 +518,13 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                 style={{
                   marginTop: 20,
                   borderWidth: 1,
-                  borderColor: "#1a1e28",
-                  borderRadius: 10,
+                  borderColor: colors.border,
+                  borderRadius: 8,
                   paddingHorizontal: 28,
                   paddingVertical: 12,
                 }}
               >
-                <Text style={{ color: "#eceef2", fontWeight: "600", fontSize: 14 }}>Log another</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 14 }}>Log another</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -529,23 +533,23 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
           {dialogState === "input" && (
             <>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <Text style={{ fontSize: 18, color: "#ff7a00" }}>✦</Text>
-                <Text style={{ fontSize: 20, fontWeight: "700", color: "#eceef2" }}>Quick Log</Text>
+                <Text style={{ fontSize: 18, color: colors.primary }}>✦</Text>
+                <Text style={{ fontSize: 20, fontWeight: "700", color: colors.foreground, fontFamily: colors.fonts.displaySb }}>Quick Log</Text>
               </View>
-              <Text style={{ fontSize: 12, color: "#6b7280", lineHeight: 18, marginBottom: 14 }}>
+              <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 18, marginBottom: 14 }}>
                 Describe what you want to log in plain language. You'll review everything before it's saved.
               </Text>
 
               <View style={{ position: "relative" }}>
                 <TextInput
                   style={{
-                    backgroundColor: isListening ? "#0f1117" : "#0f1117",
-                    borderColor: isListening ? "rgba(248,113,113,0.4)" : "#1a1e28",
+                    backgroundColor: colors.input,
+                    borderColor: isListening ? "rgba(248,113,113,0.4)" : colors.border,
                     borderWidth: 1,
-                    borderRadius: 10,
+                    borderRadius: 12,
                     padding: 12,
                     paddingRight: 38,
-                    color: "#eceef2",
+                    color: colors.foreground,
                     minHeight: 88,
                     textAlignVertical: "top",
                     fontSize: 14,
@@ -554,7 +558,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                   value={inputText}
                   onChangeText={setInputText}
                   placeholder={"e.g. '2 eggs and toast for breakfast' · 'Morning weight 71.8' · 'Pads 60 min at 7pm'"}
-                  placeholderTextColor="#4b5563"
+                  placeholderTextColor={colors.mutedForeground}
                   multiline
                   autoFocus={!isListening}
                 />
@@ -572,7 +576,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                   <Feather
                     name={isListening ? "mic-off" : "mic"}
                     size={18}
-                    color={isListening ? "#f87171" : "#6b7280"}
+                    color={isListening ? "#f87171" : colors.mutedForeground}
                   />
                 </TouchableOpacity>
               </View>
@@ -581,7 +585,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
               {(isListening || !!interimText) && (
                 <View style={{ marginTop: 6, gap: 2 }}>
                   <Text style={{
-                    color: isListening ? "#f87171" : "#6b7280",
+                    color: isListening ? "#f87171" : colors.mutedForeground,
                     fontSize: 12,
                     fontWeight: isListening ? "600" : "400",
                   }}>
@@ -592,7 +596,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                       : `● ${interimText}`}
                   </Text>
                   {isListening && Platform.OS === "web" && interimText ? (
-                    <Text style={{ color: "#6b7280", fontSize: 12, fontStyle: "italic" }}>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 12, fontStyle: "italic" }}>
                       {interimText}
                     </Text>
                   ) : null}
@@ -604,8 +608,8 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "#ff7a00",
-                  borderRadius: 10,
+                  backgroundColor: colors.primary,
+                  borderRadius: 12,
                   padding: 14,
                   marginTop: 12,
                   opacity: inputText.trim() ? 1 : 0.4,
@@ -621,10 +625,10 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
                 style={{ alignItems: "center", padding: 12 }}
                 onPress={handleClose}
               >
-                <Text style={{ color: "#6b7280", fontSize: 14 }}>Cancel</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>Cancel</Text>
               </TouchableOpacity>
 
-              <Text style={{ textAlign: "center", fontSize: 10, color: "#6b7280", opacity: 0.6 }}>
+              <Text style={{ textAlign: "center", fontSize: 10, color: colors.mutedForeground, opacity: 0.6 }}>
                 Tap Review to continue · Nothing is saved until you confirm
               </Text>
             </>

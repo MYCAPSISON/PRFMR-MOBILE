@@ -184,6 +184,20 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+export class ApiError extends Error {
+  status: number;
+  method: string;
+  path: string;
+
+  constructor(message: string, status: number, method: string, path: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.method = method;
+    this.path = path;
+  }
+}
+
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
 
@@ -219,8 +233,10 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
   } catch (networkErr) {
-    console.error("[api] Network error:", path, networkErr);
-    throw new Error("Cannot reach the server. Check your internet connection.");
+    // Network drops are expected on mobile; console.error turns them into a
+    // red Expo overlay in dev, which makes the app feel like it crashed.
+    console.warn("[api] Network error:", path, networkErr);
+    throw new ApiError("Cannot reach the server. Check your internet connection.", 0, method, path);
   }
 
   // Capture any new non-HttpOnly cookies sent in the response (e.g. GAESA refresh)
@@ -246,21 +262,21 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     try {
       const rawText = await response.text();
       if (__DEV__) {
-        console.error("[api] Raw error body:", method, path, response.status, rawText);
+        console.warn("[api] Raw error body:", method, path, response.status, rawText);
       }
       const errorData = rawText ? JSON.parse(rawText) : {};
       errorMessage = errorData.message ?? errorData.error ?? errorMessage;
       if (__DEV__ && errorData.issues) {
-        console.error("[api] Validation issues:", JSON.stringify(errorData.issues));
+        console.warn("[api] Validation issues:", JSON.stringify(errorData.issues));
       }
     } catch { /* ignore */ }
-    console.error("[api] Error:", method, path, response.status, errorMessage);
+    console.warn("[api] Error:", method, path, response.status, errorMessage);
     // On 401, notify AuthContext to clear the stale session — but skip auth
     // routes themselves to prevent infinite loops during login/logout checks.
     if (response.status === 401 && !path.startsWith("/auth/") && path !== "/user/me") {
       _authErrorCallback?.();
     }
-    throw new Error(errorMessage);
+    throw new ApiError(errorMessage, response.status, method, path);
   }
 
   const text = await response.text();
@@ -268,7 +284,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   try {
     return JSON.parse(text) as T;
   } catch {
-    console.error("[api] Non-JSON from", path, text.slice(0, 200));
-    throw new Error(`Unexpected response from ${path}`);
+    console.warn("[api] Non-JSON from", path, text.slice(0, 200));
+    throw new ApiError(`Unexpected response from ${path}`, response.status, method, path);
   }
 }
