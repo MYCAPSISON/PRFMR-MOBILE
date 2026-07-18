@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 import { INGREDIENTS_DATA } from "@/lib/ingredients-data";
@@ -259,9 +260,11 @@ export default function NutritionScreen() {
   const circ = 2 * Math.PI * 42;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+      <AppLogoHeader />
+
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: insets.bottom + 100 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         <View style={styles.row}>
@@ -422,7 +425,7 @@ export default function NutritionScreen() {
           )}
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 

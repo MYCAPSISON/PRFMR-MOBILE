@@ -11,6 +11,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/components/AppToast";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 
 // ─────────────────────────────────────────
 // Types
@@ -128,7 +129,7 @@ const INTENSITY_OPTS: { label: string; value: number }[] = [
 function Card({ children, style }: { children: React.ReactNode; style?: any }) {
   const colors = useColors();
   return (
-    <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }, style]}>
+    <View style={[s.card, { backgroundColor: colors.card, borderColor: "#e5e7eb" }, style]}>
       {children}
     </View>
   );
@@ -857,7 +858,7 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
         ].filter(Boolean).join(" · ");
 
         return (
-          <View key={a.id} style={[s.activityRow, { borderColor: colors.border }]}>
+          <View key={a.id} style={[s.activityRow, { borderColor: "#e5e7eb" }]}>
             <View style={{ flex: 1 }}>
               <Text style={[s.sm, { color: colors.foreground, fontWeight: "600" }]}>{a.name}</Text>
               {detail ? <Text style={[s.xs, { color: colors.mutedForeground }]}>{detail}</Text> : null}
@@ -875,7 +876,7 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
         );
       })}
 
-      <TouchableOpacity style={[s.addActivityBtn, { borderColor: colors.border }]} onPress={() => setAddActivity(true)}>
+      <TouchableOpacity style={[s.addActivityBtn, { borderColor: "#e5e7eb" }]} onPress={() => setAddActivity(true)}>
         <Feather name="plus" size={14} color={colors.mutedForeground} />
         <Text style={[s.xs, { color: colors.mutedForeground, marginLeft: 6 }]}>Add activity</Text>
       </TouchableOpacity>
@@ -914,7 +915,7 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
 
   return (
     <View style={{ marginBottom: 4 }}>
-      <TouchableOpacity style={[s.timeHeader, { borderColor: colors.border, backgroundColor: colors.card }]} onPress={() => setOpen(o => !o)}>
+      <TouchableOpacity style={[s.timeHeader, { borderColor: "#e5e7eb", backgroundColor: colors.card }]} onPress={() => setOpen(o => !o)}>
         <View style={s.row}>
           <Feather name={section.icon as any} size={15} color={colors.mutedForeground} />
           <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>{section.label}</Text>
@@ -931,7 +932,7 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
       {open && (
         <View style={{ paddingHorizontal: 0 }}>
           {sessions.map(s => <SessionCard key={s.id} session={s} date={date} onActivityMutated={onActivityMutated} />)}
-          <TouchableOpacity style={[s.addSessionBtn, { borderColor: colors.border }]}
+          <TouchableOpacity style={[s.addSessionBtn, { borderColor: "#e5e7eb" }]}
             onPress={() => createSessionMut.mutate()}
             disabled={createSessionMut.isPending}>
             {createSessionMut.isPending ? <ActivityIndicator size="small" color="#6b7280" /> : (
@@ -1020,6 +1021,7 @@ export default function TrainingScreen() {
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+      <AppLogoHeader />
       <View style={[s.header, { borderBottomColor: colors.border }]}>
         <View style={{ flex: 1 }}>
           <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>Training Log</Text>
@@ -1080,29 +1082,34 @@ export default function TrainingScreen() {
         {/* Training Load Insight */}
         {loadData && (() => {
           const cs = clsStyle(loadData.effectiveClassification);
+          const kcalDisplay = Math.round(totalCal || loadData.totalKcal || 0);
           return (
             <Card style={{ borderColor: colors.semantic.fightCampBorder, backgroundColor: colors.semantic.fightCampBg }}>
               <View style={s.estimatedHeader}>
-                <View style={s.row}>
-                  <Feather name="zap" size={18} color={colors.primary} />
-                  <Text style={[s.estimatedTitle, { color: colors.foreground }]}>Estimated Calories Burned</Text>
+                <View style={s.estimatedTitleRow}>
+                  <Feather name="zap" size={17} color={colors.primary} style={{ marginTop: 2 }} />
+                  <Text style={[s.estimatedTitle, { color: colors.foreground }]} numberOfLines={2}>
+                    Estimated Calories Burned
+                  </Text>
                 </View>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <View style={{ backgroundColor: cs.bg, borderRadius: 6, borderWidth: 1,
-                    borderColor: cs.border, paddingHorizontal: 8, paddingVertical: 2 }}>
-                    <Text style={{ color: cs.text, fontSize: 11, fontWeight: "700" }}>
-                      {clsLabel(loadData.effectiveClassification)}
+                <View style={s.estimatedMeta}>
+                  <View style={[s.classificationBadge, { backgroundColor: cs.bg, borderColor: cs.border }]}>
+                    <Text style={[s.classificationText, { color: cs.text }]} numberOfLines={1}>
+                      {clsLabel(loadData.effectiveClassification)}{loadData.overrideClassification ? " *" : ""}
                     </Text>
                   </View>
-                  {loadData.overrideClassification && (
-                    <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>(overridden)</Text>
-                  )}
+                  <View style={s.kcalBurnedRow}>
+                    <Text
+                      style={[s.kcalBurnedValue, { color: colors.primary }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      ~{kcalDisplay}
+                    </Text>
+                    <Text style={[s.kcalBurnedUnit, { color: colors.primary }]}>kcal</Text>
+                  </View>
                 </View>
-              </View>
-
-              <View style={s.kcalBurnedRow}>
-                <Text style={[s.kcalBurnedValue, { color: colors.primary }]}>~{Math.round(totalCal || loadData.totalKcal || 0)}</Text>
-                <Text style={[s.kcalBurnedUnit, { color: colors.primary }]}>kcal</Text>
               </View>
 
               <View style={[s.row, { marginTop: 10, gap: 16, display: "none" }]}>
@@ -1223,11 +1230,15 @@ const s = StyleSheet.create({
   plannedChip: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, marginTop: 8 },
   plannedChipText: { fontSize: 12, fontWeight: "700", textTransform: "capitalize", fontFamily: "Inter_700Bold" },
   restPill: { flexDirection: "row", alignItems: "center", borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
-  estimatedHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  estimatedTitle: { fontSize: 20, lineHeight: 26, fontWeight: "700", marginLeft: 8, flex: 1, fontFamily: "SpaceGrotesk_700Bold" },
-  kcalBurnedRow: { flexDirection: "row", justifyContent: "flex-end", alignItems: "baseline", marginTop: 4 },
-  kcalBurnedValue: { fontSize: 34, lineHeight: 40, fontWeight: "800", fontFamily: "SpaceGrotesk_700Bold" },
-  kcalBurnedUnit: { fontSize: 23, fontWeight: "800", marginLeft: 4, fontFamily: "SpaceGrotesk_700Bold" },
+  estimatedHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  estimatedTitleRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", paddingRight: 4 },
+  estimatedTitle: { fontSize: 18, lineHeight: 23, fontWeight: "700", marginLeft: 8, flex: 1, flexShrink: 1, fontFamily: "Inter_700Bold" },
+  estimatedMeta: { alignItems: "flex-end", flexShrink: 0, maxWidth: 116, gap: 6 },
+  classificationBadge: { alignSelf: "flex-end", borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
+  classificationText: { fontSize: 10, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  kcalBurnedRow: { flexDirection: "row", justifyContent: "flex-end", alignItems: "baseline" },
+  kcalBurnedValue: { fontSize: 24, lineHeight: 29, fontWeight: "800", fontFamily: "Inter_700Bold" },
+  kcalBurnedUnit: { fontSize: 16, fontWeight: "800", marginLeft: 3, fontFamily: "Inter_700Bold" },
   timeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, padding: 12 },
   addSessionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderStyle: "dashed", padding: 12, marginTop: 8 },
   addActivityBtn: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, borderStyle: "dashed", padding: 10, marginTop: 8 },

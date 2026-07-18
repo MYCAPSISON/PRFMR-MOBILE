@@ -2,11 +2,11 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet,
   TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
-  KeyboardAvoidingView,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, subDays, subWeeks } from "date-fns";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -20,6 +20,7 @@ import { useFightCampOverride, type FCOverrideState } from "../../hooks/useFight
 import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/coreFoodUnits";
 import { QuickLogModal } from "../../components/QuickLogModal";
 import { useToast } from "../../components/AppToast";
+import { AppLogoHeader } from "../../components/AppLogoHeader";
 
 // ─────────────────────────────────────────
 // Types
@@ -227,6 +228,14 @@ const AMQS_TIER_COLOR: Record<string, string> = {
 };
 
 const AMQS_CONFIDENCE_VALUE: Record<string, number> = { High: 100, Medium: 60, Low: 30 };
+
+function amqsGapPercent(gap: AmqsGap) {
+  return Math.max(0, Math.min(100, Math.round(gap.pctOfTarget)));
+}
+
+function amqsGapPointEstimate(gap: AmqsGap) {
+  return Math.min(8, Math.max(2, Math.round(((100 - gap.pctOfTarget) / 100) * 7)));
+}
 
 function formatAmqsTrendLine(layer?: AmqsTrendLayer) {
   if (!layer) return "";
@@ -438,7 +447,7 @@ const SPORT_ICON_SOURCES = {
   "muay-thai": require("@/assets/sport-icons/muay-thai.png"),
 } as const;
 
-function sportIconSource(label: string | undefined) {
+function sportIconSource(label: string | null | undefined) {
   const normalised = (label ?? "").toLowerCase().replace(/[_\s]+/g, "-");
   if (normalised.includes("muay")) return SPORT_ICON_SOURCES["muay-thai"];
   if (normalised.includes("kick")) return SPORT_ICON_SOURCES.kickboxing;
@@ -446,7 +455,24 @@ function sportIconSource(label: string | undefined) {
   if (normalised.includes("wrest")) return SPORT_ICON_SOURCES.wrestling;
   if (normalised.includes("bjj") || normalised.includes("jiu")) return SPORT_ICON_SOURCES.bjj;
   if (normalised.includes("mma")) return SPORT_ICON_SOURCES.mma;
-  return SPORT_ICON_SOURCES.traditional;
+  if (normalised.includes("martial") || normalised.includes("traditional")) return SPORT_ICON_SOURCES.traditional;
+  return undefined;
+}
+
+function SportIdentityPill({ label }: { label: string }) {
+  const colors = useColors();
+  const icon = sportIconSource(label);
+  return (
+    <View
+      style={[styles.sportPill, { borderColor: colors.mutedForeground, backgroundColor: colors.secondary }]}
+      testID="badge-main-sport"
+    >
+      {icon ? <Image source={icon} style={styles.sportIcon} resizeMode="contain" /> : null}
+      <Text style={[styles.sm, { color: colors.foreground, fontWeight: "700", marginLeft: icon ? 8 : 0 }]}>
+        {label}
+      </Text>
+    </View>
+  );
 }
 
 // ─────────────────────────────────────────
@@ -2173,16 +2199,12 @@ function AmqsCard({ date }: { date: string }) {
   const hasSupplementsToday = (amqs?.coverageStats?.totalTakenSupplements ?? 0) > 0;
   const isEmptyState = !amqs || (!hasFoodToday && !hasSupplementsToday);
 
-  const tierColor = amqs ? AMQS_TIER_COLOR[amqs.tier] ?? "#94a3b8" : "#94a3b8";
-  const layer2TierColor = amqs?.layer2Tier ? AMQS_TIER_COLOR[amqs.layer2Tier] ?? "#94a3b8" : "#94a3b8";
-  const confColor = amqs ? { High: "#10b981", Medium: "#eab308", Low: "#ef4444" }[amqs.confidence] : "#6b7280";
-  const confValue = amqs ? AMQS_CONFIDENCE_VALUE[amqs.confidence] ?? 0 : 0;
-
-  const dailyScores = trend?.layer1?.dailyScores ?? [];
-  const bestGap = (amqs?.topGaps ?? []).find(g => g.suggestion);
-  const pointEst = bestGap ? Math.min(8, Math.max(2, Math.round(((100 - bestGap.pctOfTarget) / 100) * 7))) : 0;
-
   if (!amqs) return null;
+
+  const tierColor = AMQS_TIER_COLOR[amqs.tier] ?? "#94a3b8";
+  const layer2TierColor = amqs.layer2Tier ? AMQS_TIER_COLOR[amqs.layer2Tier] ?? "#94a3b8" : "#94a3b8";
+  const dashboardGaps = amqs.topGaps.slice(0, 3);
+  const microGoals = dashboardGaps.filter(g => g.suggestion).slice(0, 3);
 
   return (
     <Card style={{ borderColor: tierColor + "30" }}>
@@ -2227,64 +2249,73 @@ function AmqsCard({ date }: { date: string }) {
           </>
         ) : (
           <>
-            {/* Two-column score row */}
-            <View style={[styles.rowBetween, { marginTop: 10, alignItems: "flex-start" }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 28, fontWeight: "800", color: tierColor, fontFamily: colors.fonts.mono }}>{amqs.score}</Text>
-                <View style={[styles.badgePill, { backgroundColor: tierColor + "22", marginTop: 2 }]}>
-                  <Text style={{ fontSize: 11, color: tierColor, fontWeight: "700" }}>{amqs.tier}</Text>
+            <View style={styles.amqsScoreGrid}>
+              <View style={styles.amqsScoreCell}>
+                <Text style={[styles.amqsScoreCaption, { color: colors.mutedForeground }]}>General Score</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={[styles.amqsScoreValue, { color: tierColor, fontFamily: colors.fonts.mono }]}>{amqs.score}</Text>
+                  <View style={[styles.badgePill, { backgroundColor: tierColor + "22", borderColor: tierColor + "44", borderWidth: 1 }]}>
+                    <Text style={{ fontSize: 11, color: tierColor, fontWeight: "700" }}>{amqs.tier}</Text>
+                  </View>
                 </View>
-                <Text style={[styles.xxs, { color: amqsTrendLineColor(trend?.layer1), marginTop: 4 }]}>
-                  {formatAmqsTrendLine(trend?.layer1)}
-                </Text>
               </View>
               {amqs.layer2Score != null && (
-                <View style={{ flex: 1, alignItems: "flex-end" }}>
-                  <Text style={{ fontSize: 28, fontWeight: "800", color: layer2TierColor, fontFamily: colors.fonts.mono }}>{amqs.layer2Score}</Text>
-                  <View style={[styles.badgePill, { backgroundColor: layer2TierColor + "22", marginTop: 2 }]}>
-                    <Text style={{ fontSize: 11, color: layer2TierColor, fontWeight: "700" }}>{amqs.layer2Tier}</Text>
+                <View style={styles.amqsScoreCell}>
+                  <Text style={[styles.amqsScoreCaption, { color: colors.mutedForeground }]}>Performance Score</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={[styles.amqsScoreValueSmall, { color: layer2TierColor, fontFamily: colors.fonts.mono }]}>{amqs.layer2Score}</Text>
+                    <View style={[styles.badgePill, { backgroundColor: layer2TierColor + "22", borderColor: layer2TierColor + "44", borderWidth: 1 }]}>
+                      <Text style={{ fontSize: 11, color: layer2TierColor, fontWeight: "700" }}>{amqs.layer2Tier}</Text>
+                    </View>
                   </View>
-                  <Text style={[styles.xxs, { color: amqsTrendLineColor(trend?.layer2), marginTop: 4 }]}>
-                    {formatAmqsTrendLine(trend?.layer2)}
-                  </Text>
                 </View>
               )}
             </View>
 
-            {/* Confidence row */}
-            <View style={[styles.rowBetween, { marginTop: 12 }]}>
-              <Text style={[styles.xxs, { color: colors.mutedForeground }]}>Data Confidence</Text>
-              <Text style={[styles.xxs, { color: confColor, fontWeight: "700" }]}>{amqs.confidence}</Text>
-            </View>
-            <ProgressBar value={confValue} max={100} color={confColor} />
-
-            {/* Mini sparkline */}
-            {dailyScores.length > 1 && <AmqsSparkline scores={dailyScores} color={colors.mutedForeground} />}
-
-            {/* Gaps or all-met */}
             {amqs.allMet ? (
               <View style={[styles.rowBetween, { marginTop: 10, backgroundColor: "#10b98118", padding: 8, borderRadius: 8 }]}>
                 <Feather name="shield" size={13} color="#10b981" />
                 <Text style={{ fontSize: 12, color: "#10b981", flex: 1, marginLeft: 6 }}>Baseline adequacy covered</Text>
               </View>
             ) : (
-              amqs.topGaps.slice(0, 3).map(g => (
-                <View key={g.microKey} style={[styles.rowBetween, { marginTop: 6 }]}>
-                  <Text style={[styles.xs, { color: colors.foreground }]}>{g.label}</Text>
-                  <Text style={[styles.xs, { color: "#fb923c" }]}>{g.pctOfTarget >= 100 ? "Target met" : `${Math.round(g.pctOfTarget)}%`}</Text>
-                </View>
-              ))
+              <View style={styles.amqsGapList}>
+                {dashboardGaps.map((g, index) => {
+                  const percent = amqsGapPercent(g);
+                  const fillColor = index === 0 ? colors.primary : "rgba(148,163,184,0.45)";
+                  return (
+                    <View key={g.microKey} style={styles.amqsGapBlock}>
+                      <View style={styles.rowBetween}>
+                        <Text style={[styles.xs, { color: colors.foreground, fontWeight: "700" }]}>{g.label}</Text>
+                        <Text style={[styles.xs, { color: colors.mutedForeground }]}>
+                          {percent}% of target
+                        </Text>
+                      </View>
+                      <View style={styles.amqsGapTrack}>
+                        <View style={[styles.amqsGapFill, { width: `${percent}%` as any, backgroundColor: fillColor }]} />
+                      </View>
+                      {!!g.suggestion && (
+                        <Text style={[styles.xxs, { color: colors.mutedForeground }]}>Try: {g.suggestion}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
             )}
 
-            {/* Micro-goal */}
-            {bestGap?.suggestion && (
-              <Text style={[styles.xxs, { color: colors.mutedForeground, marginTop: 10 }]}>
-                +{pointEst} if you add {bestGap.suggestion} ({bestGap.label})
-              </Text>
+            {microGoals.length > 0 && (
+              <View style={styles.amqsMicroGoalList}>
+                <Text style={[styles.xxs, { color: colors.mutedForeground, fontWeight: "800", marginBottom: 4 }]}>Micro-goals</Text>
+                {microGoals.map(g => (
+                  <Text key={g.microKey} style={[styles.xxs, { color: colors.mutedForeground, marginTop: 3 }]}>
+                    <Text style={{ color: colors.primary, fontWeight: "800" }}>+{amqsGapPointEstimate(g)}</Text>
+                    {" "}if you add <Text style={{ color: colors.foreground, fontWeight: "700" }}>{g.suggestion}</Text> ({g.label})
+                  </Text>
+                ))}
+              </View>
             )}
 
-            <Text style={[styles.xxs, { color: colors.mutedForeground, marginTop: 10, fontStyle: "italic" }]}>
-              General nutrition targets — not medical advice.
+            <Text style={[styles.xxs, { color: colors.mutedForeground, marginTop: 12, fontStyle: "italic", lineHeight: 16 }]}>
+              General nutrition targets — not medical advice. Blood tests, diagnosed deficiencies, or a registered dietitian override these figures.
             </Text>
           </>
         )}
@@ -3168,6 +3199,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const submittedSnackIndicesRef = React.useRef<number[]>([]);
   const [snackSlot, setSnackSlot] = useState<"new" | number>("new");
   const [snackSlotOpen, setSnackSlotOpen] = useState(false);
+  const previousMealTypeRef = React.useRef(mealType);
   const [activeTab, setActiveTab] = useState<TabId>("search");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
@@ -3211,6 +3243,21 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   useEffect(() => {
     if (openAddFood) { setModal(true); onAddFoodOpened?.(); }
   }, [openAddFood]);
+
+  useEffect(() => {
+    const previousMealType = previousMealTypeRef.current;
+    const switchedToSnack = previousMealType !== "snack" && mealType === "snack";
+
+    if (switchedToSnack) {
+      setSnackSlot("new");
+      setSnackSlotOpen(true);
+      setMealDropdownOpen(false);
+    } else if (previousMealType === "snack" && mealType !== "snack") {
+      setSnackSlotOpen(false);
+    }
+
+    previousMealTypeRef.current = mealType;
+  }, [mealType]);
 
   const { data: entries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", date],
@@ -3589,10 +3636,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       )}
 
       <Modal visible={modal} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeModal}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117", borderWidth: 1.2, borderColor: "#e5e7eb" }}>
           {/* Header */}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-            paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            paddingHorizontal: 24, paddingVertical: 22, borderBottomWidth: 1.2, borderBottomColor: "#e5e7eb" }}>
             <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Add Food</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
               <TouchableOpacity onPress={closeModal}>
@@ -3609,11 +3656,11 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             const nextSnackNum = allSnackIdxs.length > 0 ? Math.max(...allSnackIdxs) + 1 : 0;
             const snackSlotLabel = snackSlot === "new" ? `New Snack #${nextSnackNum}` : `Snack #${snackSlot}`;
             return (
-              <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
+              <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 18, borderBottomWidth: 1.2, borderBottomColor: "#e5e7eb" }}>
                 <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: "600", letterSpacing: 0.4 }}>Add to meal</Text>
-                <View style={{ flexDirection: "row", gap: 8, zIndex: mealDropdownOpen || snackSlotOpen ? 100 : 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, zIndex: mealDropdownOpen || snackSlotOpen ? 100 : 1 }}>
                   {/* Meal type picker */}
-                  <View style={{ flex: mealType === "snack" ? 1 : undefined, flexGrow: mealType === "snack" ? 1 : undefined,
+                  <View style={{ flex: mealType === "snack" ? 1 : undefined, flexGrow: mealType === "snack" ? 1 : undefined, minWidth: 0,
                     width: mealType === "snack" ? undefined : "100%",
                     zIndex: mealDropdownOpen ? 110 : 1 }}>
                     <TouchableOpacity onPress={() => { setMealDropdownOpen(v => !v); setSnackSlotOpen(false); }}
@@ -3629,7 +3676,12 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", overflow: "hidden", zIndex: 200,
                         shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, elevation: 10 }}>
                         {MEAL_TYPES.map((mt, i) => (
-                          <TouchableOpacity key={mt} onPress={() => { setMealType(mt); setMealDropdownOpen(false); if (mt !== "snack") { setSnackSlot("new"); setSnackSlotOpen(false); } }}
+                          <TouchableOpacity key={mt} onPress={() => {
+                            setMealType(mt);
+                            setMealDropdownOpen(false);
+                            setSnackSlot("new");
+                            setSnackSlotOpen(mt === "snack");
+                          }}
                             style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12,
                               backgroundColor: mt === mealType ? "#ff7a0014" : "transparent",
                               borderBottomWidth: i < MEAL_TYPES.length - 1 ? 1 : 0, borderBottomColor: "#1a1e28" }}>
@@ -3644,7 +3696,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
                   {/* Snack slot picker — only when snack selected */}
                   {mealType === "snack" && (
-                    <View style={{ flex: 1, zIndex: snackSlotOpen ? 110 : 1 }}>
+                    <View style={{ flex: 1, minWidth: 0, zIndex: snackSlotOpen ? 110 : 1 }}>
                       <TouchableOpacity onPress={() => { setSnackSlotOpen(v => !v); setMealDropdownOpen(false); }}
                         style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 11,
                           borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
@@ -3683,7 +3735,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           })()}
 
           {/* Tab bar — segmented control */}
-          <View style={{ flexDirection: "row", marginHorizontal: 12, marginTop: 8, marginBottom: 4,
+          <View style={{ flexDirection: "row", marginHorizontal: 24, marginTop: 16, marginBottom: 8,
             backgroundColor: "#181c26", borderRadius: 10, padding: 3 }}>
             {MODAL_TABS.map(tab => (
               <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); setWfSelectedFood(null); setMealDropdownOpen(false); }}
@@ -3715,10 +3767,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               {activeTab === "wholefood" && (
                 <View style={{ flex: 1 }}>
                   {/* Search field — always visible */}
-                  <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
+                  <View style={{ paddingHorizontal: 24, paddingTop: 14, paddingBottom: 4 }}>
                     <Text style={{ fontSize: 13, color: "#eceef2", fontWeight: "700", marginBottom: 8 }}>Search Ingredient</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 9,
-                      borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+                      borderRadius: 10, borderWidth: 1.2, backgroundColor: "#0f1117", borderColor: "#e5e7eb" }}>
                       <Feather name="search" size={15} color="#6b7280" />
                       <TextInput style={{ flex: 1, color: "#eceef2", fontSize: 14, marginLeft: 8 }}
                         placeholder="Start typing (e.g. Chicken)..." placeholderTextColor="#6b7280"
@@ -4234,6 +4286,7 @@ function CurrentWeightCard({ date }: { date: string }) {
 // ─────────────────────────────────────────
 export default function DashboardScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const qc = useQueryClient();
   const { showToast } = useToast();
@@ -4246,7 +4299,7 @@ export default function DashboardScreen() {
   const todayDate = format(new Date(), "yyyy-MM-dd");
   const isToday = selectedDate === todayDate;
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "d MMM yyyy");
-  const sportLabel = user?.mainSport ?? user?.sport ?? "Pro-Am Muay Thai";
+  const sportLabel = user?.mainSport ?? user?.sport ?? null;
 
   const { data: foodEntries = [] } = useQuery<FoodEntry[]>({
     queryKey: ["food", selectedDate],
@@ -4369,19 +4422,19 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={["top"]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: "#d7dbe4" }]}>
-        <Image source={require("@/assets/logo-main.png")} style={{ height: 36, width: 132 }} resizeMode="contain" />
-      </View>
+      <AppLogoHeader />
 
       <ScrollView
         style={styles.flex}
         contentContainerStyle={styles.scrollPad}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="on-drag"
         scrollEventThrottle={16}
         alwaysBounceVertical
         nestedScrollEnabled
+        canCancelContentTouches
+        directionalLockEnabled
       >
         {/* Morning Check-In Gate ("Start your day" modal) */}
         {isToday && <MorningCheckInGate date={selectedDate} />}
@@ -4462,10 +4515,7 @@ export default function DashboardScreen() {
         <View>
           <View style={[styles.row, { flexWrap: "wrap", gap: 12 }]}>
             <Text style={[styles.greeting, { color: colors.foreground }]}>Hello, {user?.username ?? "there"}</Text>
-            <View style={[styles.sportPill, { borderColor: colors.mutedForeground, backgroundColor: colors.secondary }]}>
-              <Image source={sportIconSource(sportLabel)} style={styles.sportIcon} resizeMode="contain" />
-              <Text style={[styles.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 8 }]}>{sportLabel}</Text>
-            </View>
+            {sportLabel ? <SportIdentityPill label={sportLabel} /> : null}
           </View>
           <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, marginTop: 6 }]}>Here is your daily nutrition summary.</Text>
         </View>
@@ -4520,7 +4570,7 @@ export default function DashboardScreen() {
         pointerEvents="box-none"
         style={{
           position: "absolute",
-          bottom: 90,
+          bottom: Platform.OS === "ios" ? Math.max(112, insets.bottom + 86) : 90,
           right: 20,
           width: 56,
           height: 56,
@@ -4587,15 +4637,16 @@ export default function DashboardScreen() {
           <View style={styles.lowEaOverlay}>
             <View style={styles.lowEaSheet}>
               <View style={styles.lowEaCard}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.lowEaClose}
                   onPress={fcOverride.closeEAModal}
+                  activeOpacity={0.7}
                   hitSlop={16}
                   accessibilityRole="button"
                   accessibilityLabel="Close"
                 >
                   <Feather name="x" size={24} color="#d7dbe4" />
-                </Pressable>
+                </TouchableOpacity>
                 <Text style={styles.lowEaTitle} allowFontScaling={false}>Low energy availability</Text>
                 <Text style={styles.lowEaBody} allowFontScaling={false}>
                   Your current intake appears to be below the level typically used to support recovery and performance
@@ -4708,14 +4759,14 @@ const styles = StyleSheet.create({
   badgePill: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 99, alignSelf: "flex-start" },
   sm: { fontSize: 14, fontFamily: "Inter_400Regular" },
   cardTitle: { fontSize: 18, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  sectionTitle: { fontSize: 22, lineHeight: 28, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  sectionTitle: { fontSize: 22, lineHeight: 28, fontWeight: "700", fontFamily: "Inter_700Bold" },
   sectionSubtitle: { fontSize: 15, lineHeight: 22, fontFamily: "Inter_400Regular" },
   disclaimer: { fontSize: 13, lineHeight: 20, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 18 },
   empty: { fontSize: 14, lineHeight: 20, marginTop: 8, fontFamily: "Inter_400Regular" },
   heroNum: { fontSize: 36, fontWeight: "700", marginVertical: 8, fontFamily: "JetBrainsMono_700Bold" },
   heroSub: { fontSize: 16, fontWeight: "500", fontFamily: "Inter_500Medium" },
   fightCampCard: { padding: 20, borderColor: "rgba(229,231,235,0.50)" },
-  fightCampHeaderText: { color: "#eceef2", marginLeft: 7, fontSize: 14, lineHeight: 18, fontWeight: "600", fontFamily: "SpaceGrotesk_600SemiBold" },
+  fightCampHeaderText: { color: "#eceef2", marginLeft: 7, fontSize: 14, lineHeight: 18, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
   fightCountdownRow: { flexDirection: "row", alignItems: "center", marginTop: 20, paddingVertical: 4, gap: 8 },
   fightCountdownText: { color: "#eceef2", fontSize: 30, lineHeight: 36, fontWeight: "800", fontFamily: "Inter_700Bold" },
   fightCountdownSub: { color: "#8791a3", fontSize: 14, lineHeight: 18, fontWeight: "500", fontFamily: "Inter_500Medium" },
@@ -4759,7 +4810,7 @@ const styles = StyleSheet.create({
   macroRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   readinessSummaryCard: { width: "94%", alignSelf: "center", paddingVertical: 18 },
   dailyIntakeCard: { padding: 18, paddingBottom: 30 },
-  dailyTitle: { fontSize: 26, lineHeight: 28, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  dailyTitle: { fontSize: 26, lineHeight: 28, fontWeight: "700", fontFamily: "Inter_700Bold" },
   dailySubtitle: { fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular", marginTop: 3 },
   intakeBadge: { alignSelf: "flex-start", borderWidth: 1, borderColor: "rgba(255, 122, 0, 0.58)", backgroundColor: "rgba(255, 122, 0, 0.11)", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, marginTop: 7 },
   intakeBadgeText: { color: "#ff7a00", fontSize: 11, lineHeight: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
@@ -4798,7 +4849,17 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 20,
   },
-  lowEaClose: { position: "absolute", top: 14, right: 16, width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  lowEaClose: {
+    position: "absolute",
+    top: 14,
+    right: 16,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+    elevation: 20,
+  },
   lowEaTitle: { color: "#f6f8fb", fontSize: 20, lineHeight: 25, fontWeight: "700", textAlign: "center", fontFamily: "Inter_700Bold", marginBottom: 16 },
   lowEaBody: { color: "#8791a3", fontSize: 14, lineHeight: 20, textAlign: "center", fontFamily: "Inter_400Regular", marginBottom: 20 },
   lowEaStats: { gap: 12, marginBottom: 20 },
@@ -4825,7 +4886,7 @@ const styles = StyleSheet.create({
   progressFill: { height: 7, borderRadius: 4 },
   suppCard: { padding: 20 },
   suppHeaderLeft: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", marginRight: 10 },
-  suppTitle: { flex: 1, marginLeft: 10, fontSize: 22, lineHeight: 27, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  suppTitle: { flex: 1, marginLeft: 10, fontSize: 22, lineHeight: 27, fontWeight: "700", fontFamily: "Inter_700Bold" },
   suppManageBtn: { flexShrink: 0, paddingLeft: 8, paddingVertical: 4 },
   suppManageText: { color: "#f6f8fb", fontSize: 13, lineHeight: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
   suppSubtitle: { fontSize: 14, lineHeight: 19, fontFamily: "Inter_400Regular", marginTop: 8, marginBottom: 6 },
@@ -4836,7 +4897,7 @@ const styles = StyleSheet.create({
   suppFooter: { color: "#8791a3", fontSize: 12, lineHeight: 17, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 16 },
   trainingCard: { padding: 18 },
   trainingHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
-  trainingTitle: { fontSize: 22, lineHeight: 26, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold", marginLeft: 10, flexShrink: 1 },
+  trainingTitle: { fontSize: 22, lineHeight: 26, fontWeight: "700", fontFamily: "Inter_700Bold", marginLeft: 10, flexShrink: 1 },
   trainingHeaderActions: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 6, flexShrink: 0 },
   trainingGhostBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4, paddingHorizontal: 2 },
   trainingGhostText: { color: "#f6f8fb", fontSize: 13, lineHeight: 17, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
@@ -4882,9 +4943,19 @@ const styles = StyleSheet.create({
   actionBtnWide: { flex: 1, minWidth: "48.5%" },
   actionBtnText: { fontSize: 12, lineHeight: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginLeft: 7, textAlign: "center", flexShrink: 1 },
   feedbackButton: { marginTop: 16, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12 },
+  amqsScoreGrid: { flexDirection: "row", gap: 14, marginTop: 16 },
+  amqsScoreCell: { flex: 1, minWidth: 0 },
+  amqsScoreCaption: { fontSize: 12, lineHeight: 16, fontFamily: "Inter_500Medium", marginBottom: 4 },
+  amqsScoreValue: { fontSize: 38, lineHeight: 44, fontWeight: "800" },
+  amqsScoreValueSmall: { fontSize: 30, lineHeight: 36, fontWeight: "800" },
+  amqsGapList: { gap: 10, marginTop: 16 },
+  amqsGapBlock: { gap: 5 },
+  amqsGapTrack: { height: 6, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.06)", overflow: "hidden" },
+  amqsGapFill: { height: "100%", borderRadius: 6 },
+  amqsMicroGoalList: { marginTop: 14 },
   sportPill: { flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7 },
   sportIcon: { width: 24, height: 24, tintColor: "#fff" },
-  greeting: { fontSize: 30, lineHeight: 36, fontWeight: "700", marginTop: 4, fontFamily: "SpaceGrotesk_700Bold" },
+  greeting: { fontSize: 30, lineHeight: 36, fontWeight: "700", marginTop: 4, fontFamily: "Inter_700Bold" },
   foodRow: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginTop: 6, gap: 10 },
   mealTypeChip: { borderRadius: 10, borderWidth: 1, borderColor: "#181d28", paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
   searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 12, marginBottom: 10 },

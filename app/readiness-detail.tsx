@@ -5,8 +5,11 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { Feather } from "@expo/vector-icons";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
+
+const WEB_OUTLINE = "#e5e7eb";
 
 // ─────────────────────────────────────────
 // Types
@@ -184,6 +187,8 @@ export default function ReadinessDetailScreen() {
   if (rLoading && fLoading) {
     return (
       <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+        <AppLogoHeader />
+
         <View style={[s.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
             <Feather name="arrow-left" size={20} color={colors.foreground} />
@@ -198,6 +203,8 @@ export default function ReadinessDetailScreen() {
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+      <AppLogoHeader />
+
       {/* ── Header ── */}
       <View style={[s.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
@@ -215,7 +222,7 @@ export default function ReadinessDetailScreen() {
 
         {/* ── Session Readiness Card ── */}
         {readiness && (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: WEB_OUTLINE }]}>
             {/* Header row */}
             <View style={s.rowBetween}>
               <View style={s.row}>
@@ -343,7 +350,7 @@ export default function ReadinessDetailScreen() {
 
         {/* ── Fuel Status Card ── */}
         {fuel && (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: WEB_OUTLINE }]}>
             {/* Header row */}
             <View style={s.rowBetween}>
               <View style={s.row}>
@@ -416,7 +423,7 @@ export default function ReadinessDetailScreen() {
 
         {/* ── Footer disclaimer ── */}
         <Text style={[s.xs, { color: colors.mutedForeground, textAlign: "center", fontStyle: "italic", paddingHorizontal: 16 }]}>
-          Scores are estimates based on logged food, sleep, and training
+          Scores are estimates based on logged food, sleep, and training data — not medical advice.
         </Text>
 
         <View style={{ height: 60 }} />
@@ -434,14 +441,14 @@ const s = StyleSheet.create({
   backBtn:    { paddingTop: 3 },
   headerTitle:{ fontSize: 20, fontWeight: "800" },
   headerSub:  { fontSize: 13, marginTop: 3, lineHeight: 18 },
-  scroll:     { padding: 12, gap: 10 },
-  card:       { borderRadius: 12, borderWidth: 1, padding: 14 },
+  scroll:     { padding: 16, gap: 16 },
+  card:       { borderRadius: 12, borderWidth: 1.2, padding: 18 },
   row:        { flexDirection: "row", alignItems: "center" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  cardTitle:  { fontSize: 15, fontWeight: "700" },
+  cardTitle:  { fontSize: 16, fontWeight: "700" },
   badge:      { borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
   badgeText:  { fontSize: 12, fontWeight: "700" },
-  xs:         { fontSize: 12, fontWeight: "500" },
+  xs:         { fontSize: 13, fontWeight: "500" },
   progBg:     { height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.06)", overflow: "hidden" },
   progFill:   { height: 6, borderRadius: 3 },
   infoBox:    { flexDirection: "row", alignItems: "flex-start", borderRadius: 8, borderWidth: 1,

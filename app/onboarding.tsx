@@ -178,23 +178,34 @@ const SPORTS: Array<{ value: string; label: string; uri?: string; local?: boolea
 ];
 
 const SPORT_ICONS: Record<string, any> = {
-  boxing:     require("@/assets/boxing.png"),
-  mma:        require("@/assets/mma.png"),
-  "muay-thai":require("@/assets/muay-thai.png"),
-  kickboxing: require("@/assets/kickboxing.png"),
-  bjj:        require("@/assets/bjj.png"),
-  wrestling:  require("@/assets/wrestling.png"),
-  traditional:require("@/assets/traditional.png"),
+  boxing: require("@/assets/sport-icons/boxing.png"),
+  mma: require("@/assets/sport-icons/mma.png"),
+  "muay-thai": require("@/assets/sport-icons/muay-thai.png"),
+  kickboxing: require("@/assets/sport-icons/kickboxing.png"),
+  bjj: require("@/assets/sport-icons/bjj.png"),
+  wrestling: require("@/assets/sport-icons/wrestling.png"),
+  traditional: require("@/assets/sport-icons/traditional.png"),
 };
 function sportIcon(sport: string) {
   const s = sport.toLowerCase();
-  if (s.includes("boxing") || s.includes("boxer")) return SPORT_ICONS["boxing"];
+  if (s.includes("boxer") || s.includes("boxing")) return SPORT_ICONS["boxing"];
   if (s.includes("mma"))                            return SPORT_ICONS["mma"];
   if (s.includes("muay"))                           return SPORT_ICONS["muay-thai"];
   if (s.includes("kick"))                           return SPORT_ICONS["kickboxing"];
   if (s.includes("bjj") || s.includes("jiu"))       return SPORT_ICONS["bjj"];
   if (s.includes("wrest"))                          return SPORT_ICONS["wrestling"];
-  return SPORT_ICONS["traditional"];
+  if (s.includes("martial") || s.includes("traditional")) return SPORT_ICONS["traditional"];
+  return undefined;
+}
+
+function SportBadgePreview({ level, sport }: { level: string; sport: string }) {
+  const icon = sportIcon(sport);
+  return (
+    <View style={s5.badgeRow}>
+      {icon ? <Image source={icon} style={s5.badgeIcon} /> : null}
+      <Text style={s5.badgeTxt}>{level} {sport}</Text>
+    </View>
+  );
 }
 
 const PROBLEMS_MAP: Record<string, string> = {
@@ -259,7 +270,7 @@ function Sub({ text }: { text: string }) {
   return <Text style={typ.s}>{text}</Text>;
 }
 const typ = StyleSheet.create({
-  h: { fontSize: 26, fontWeight: "700", color: "#fff", lineHeight: 32, marginBottom: 8, fontFamily: "SpaceGrotesk_700Bold" },
+  h: { fontSize: 26, fontWeight: "700", color: "#fff", lineHeight: 32, marginBottom: 8, fontFamily: "Inter_700Bold" },
   s: { fontSize: 14, color: "#71717a", lineHeight: 21, marginBottom: 20, fontFamily: "Inter_400Regular" },
 });
 
@@ -657,10 +668,7 @@ export default function OnboardingScreen() {
           {d.competitionLevel && mainSport && (
             <View style={s5.badge}>
               <Text style={s5.badgeLbl}>Your sport identity badge</Text>
-              <View style={s5.badgeRow}>
-                <Image source={sportIcon(mainSport)} style={s5.badgeIcon} />
-                <Text style={s5.badgeTxt}>{d.competitionLevel} {mainSport}</Text>
-              </View>
+              <SportBadgePreview level={d.competitionLevel} sport={mainSport} />
               <Text style={s5.badgeSub}>Shown on your dashboard and profile</Text>
             </View>
           )}
@@ -780,7 +788,7 @@ export default function OnboardingScreen() {
           <Heading text="How's your energy during a cut?" />
           <Sub text="Rate 1 (exhausted) to 10 (bulletproof)." />
           <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "center", marginBottom: 24 }}>
-            <Text style={{ fontSize: 72, fontWeight: "700", color: PRIMARY, fontFamily: "SpaceGrotesk_700Bold" }}>{d.surveyEnergyScore}</Text>
+            <Text style={{ fontSize: 72, fontWeight: "700", color: PRIMARY, fontFamily: "Inter_700Bold" }}>{d.surveyEnergyScore}</Text>
             <Text style={{ fontSize: 24, color: "#71717a", fontFamily: "Inter_400Regular" }}> / 10</Text>
           </View>
           {[[1,2,3,4,5],[6,7,8,9,10]].map((row, ri) => (
@@ -932,7 +940,7 @@ export default function OnboardingScreen() {
                       { v: `−${plan.suggestedDeficitKcal} kcal`,           l: "daily deficit" },
                     ].map(cell => (
                       <View key={cell.l} style={{ width: "31%", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", backgroundColor: "rgba(39,39,42,0.4)", padding: 10, alignItems: "center" }}>
-                        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" }}>{cell.v}</Text>
+                        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" }}>{cell.v}</Text>
                         <Text style={{ color: "#71717a", fontSize: 10, marginTop: 2, textAlign: "center", fontFamily: "Inter_400Regular" }}>{cell.l}</Text>
                       </View>
                     ))}
@@ -1080,7 +1088,7 @@ export default function OnboardingScreen() {
             <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" }} />
             <View style={{ flex: 1, justifyContent: "flex-end", padding: 20 }}>
               <Text style={{ color: PRIMARY, fontSize: 11, fontWeight: "700", letterSpacing: 1.5, fontFamily: "Inter_700Bold", marginBottom: 4 }}>DAY 1</Text>
-              <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" }}>Let's go.</Text>
+              <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700", fontFamily: "Inter_700Bold" }}>Let's go.</Text>
             </View>
           </View>
           <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "rgba(249,115,22,0.2)", backgroundColor: "rgba(249,115,22,0.05)", padding: 16 }}>
@@ -1188,7 +1196,7 @@ export default function OnboardingScreen() {
           {/* Streak card — clean, minimal */}
           <View style={s33.streak}>
             <Text style={{ fontSize: 36, marginBottom: 8 }}>🔥</Text>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold", marginBottom: 4 }}>Day 1 · Streak: 1</Text>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4 }}>Day 1 · Streak: 1</Text>
             <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular" }}>Your first streak starts now.</Text>
           </View>
           <Text style={{ color: "#52525b", fontSize: 11, textAlign: "center", lineHeight: 17, fontFamily: "Inter_400Regular", marginTop: 12 }}>
@@ -1244,7 +1252,7 @@ const spc = StyleSheet.create({
   overlay:       { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.65)" },
   overlaySelected:{ backgroundColor: "rgba(0,0,0,0.4)" },
   checkBadge:    { position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: 10, backgroundColor: PRIMARY, alignItems: "center", justifyContent: "center" },
-  label:         { color: "#fff", fontSize: 13, fontWeight: "700", textAlign: "center", paddingHorizontal: 6, fontFamily: "SpaceGrotesk_700Bold" },
+  label:         { color: "#fff", fontSize: 13, fontWeight: "700", textAlign: "center", paddingHorizontal: 6, fontFamily: "Inter_700Bold" },
 });
 const g7 = StyleSheet.create({
   btn: { width: "48%", paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: "#27272a", backgroundColor: "rgba(39,39,42,0.6)" },
@@ -1264,7 +1272,7 @@ const s5 = StyleSheet.create({
 });
 const s16 = StyleSheet.create({
   card:  { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 10, borderWidth: 1, borderColor: "#27272a", backgroundColor: "rgba(39,39,42,0.4)", padding: 14, marginBottom: 10 },
-  stat:  { fontSize: 22, fontWeight: "700", color: PRIMARY, fontFamily: "SpaceGrotesk_700Bold", minWidth: 52 },
+  stat:  { fontSize: 22, fontWeight: "700", color: PRIMARY, fontFamily: "Inter_700Bold", minWidth: 52 },
   desc:  { flex: 1, color: "#a1a1aa", fontSize: 13, fontFamily: "Inter_400Regular" },
   footer:{ color: "#52525b", fontSize: 13, marginTop: 8, fontStyle: "italic", fontFamily: "Inter_400Regular" },
 });
@@ -1289,7 +1297,7 @@ const s22 = StyleSheet.create({
 });
 const s23 = StyleSheet.create({
   stat:   { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: "#27272a", backgroundColor: "rgba(39,39,42,0.4)", padding: 12 },
-  statVal:{ color: "#fff", fontSize: 18, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  statVal:{ color: "#fff", fontSize: 18, fontWeight: "700", fontFamily: "Inter_700Bold" },
   statLbl:{ color: "#71717a", fontSize: 11, marginTop: 2, fontFamily: "Inter_400Regular" },
 });
 const s24 = StyleSheet.create({
@@ -1301,8 +1309,8 @@ const s24 = StyleSheet.create({
   emojiSel:  { borderWidth: 1, borderColor: "rgba(249,115,22,0.5)", backgroundColor: "rgba(249,115,22,0.15)", opacity: 1 },
   scoreCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#27272a", backgroundColor: "rgba(39,39,42,0.2)", padding: 16, marginTop: 4 },
   scoreLbl:  { color: "#71717a", fontSize: 11, fontFamily: "Inter_400Regular" },
-  scoreStatus:{ fontSize: 17, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
-  scoreNum:  { fontSize: 40, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  scoreStatus:{ fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  scoreNum:  { fontSize: 40, fontWeight: "700", fontFamily: "Inter_700Bold" },
 });
 const s25 = StyleSheet.create({
   row:  { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 12, borderWidth: 1, borderColor: "#27272a", backgroundColor: "rgba(39,39,42,0.4)", padding: 14, marginBottom: 10 },
@@ -1320,7 +1328,7 @@ const s30 = StyleSheet.create({
 const s32 = StyleSheet.create({
   card:    { flexDirection: "row", alignItems: "flex-start", gap: 12, backgroundColor: "rgba(39,39,42,0.5)", borderRadius: 10, padding: 14, marginBottom: 10 },
   dot:     { width: 8, height: 8, borderRadius: 4, backgroundColor: PRIMARY, marginTop: 6 },
-  statNum: { color: "#fff", fontSize: 15, fontWeight: "700", fontFamily: "SpaceGrotesk_700Bold" },
+  statNum: { color: "#fff", fontSize: 15, fontWeight: "700", fontFamily: "Inter_700Bold" },
   statDesc:{ color: "#a1a1aa", fontSize: 13, fontFamily: "Inter_400Regular" },
 });
 const s33 = StyleSheet.create({

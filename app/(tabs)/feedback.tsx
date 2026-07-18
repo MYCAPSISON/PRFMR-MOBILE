@@ -8,6 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 
 const CATEGORIES = [
   { value: "bug", label: "Bug Report", emoji: "🐛", desc: "Something isn't working right" },
@@ -44,6 +45,7 @@ export default function FeedbackScreen() {
   if (submitted) {
     return (
       <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+        <AppLogoHeader />
         <View style={[s.header, { borderBottomColor: colors.border }]}>
           <Text style={[s.pageTitle, { color: colors.foreground }]}>Feedback</Text>
         </View>
@@ -68,6 +70,7 @@ export default function FeedbackScreen() {
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+      <AppLogoHeader />
       <View style={[s.header, { borderBottomColor: colors.border }]}>
         <Text style={[s.pageTitle, { color: colors.foreground }]}>Feedback</Text>
       </View>

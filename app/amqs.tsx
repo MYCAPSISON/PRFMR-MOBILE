@@ -14,6 +14,7 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { format, subDays, addDays } from "date-fns";
 import Svg, { Polyline } from "react-native-svg";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 
@@ -138,6 +139,14 @@ function trendLineColor(layer?: AmqsTrendLayer) {
   return "#6b7280";
 }
 
+function gapPercent(gap: AmqsGap) {
+  return Math.max(0, Math.min(100, Math.round(gap.pctOfTarget)));
+}
+
+function gapPointEstimate(gap: AmqsGap) {
+  return Math.min(8, Math.max(2, Math.round(((100 - gap.pctOfTarget) / 100) * 7)));
+}
+
 // ─────────────────────────────────────────
 // Dual-line 7-day trend chart (spec §9.17.8)
 // ─────────────────────────────────────────
@@ -208,13 +217,14 @@ function TrendChart({ layer1, layer2 }: { layer1: AmqsTrendLayer; layer2: AmqsTr
 // ─────────────────────────────────────────
 // NutrientCard — driven by API-provided targets/coverage, not hardcoded values
 // ─────────────────────────────────────────
-function NutrientCard({ meta, totals, coverage, layer2Targets, layer2Coverage, targets }: {
+function NutrientCard({ meta, totals, coverage, layer2Targets, layer2Coverage, targets, athleteLayerOpen }: {
   meta: typeof NUTRIENT_META[0];
   totals: Record<string, number>;
   targets: Record<string, number>;
   coverage: Record<string, CoverageEntry>;
   layer2Targets?: Record<string, number>;
   layer2Coverage?: Record<string, CoverageEntry>;
+  athleteLayerOpen: boolean;
 }) {
   const colors = useColors();
   const intake = totals[meta.key] ?? 0;
@@ -256,10 +266,10 @@ function NutrientCard({ meta, totals, coverage, layer2Targets, layer2Coverage, t
         </Text>
       </View>
 
-      <View style={[s.barTrack, { marginTop: 4 }]}>
-        <View style={[s.barFill, { width: `${pctL2}%` as any, backgroundColor: "#3b82f6" }]} />
+      <View style={[s.barTrack, { marginTop: 4, opacity: athleteLayerOpen ? 1 : 0.35 }]}>
+        <View style={[s.barFill, { width: `${pctL2}%` as any, backgroundColor: athleteLayerOpen ? "#3b82f6" : "#64748b" }]} />
       </View>
-      <View style={s.barLabels}>
+      <View style={[s.barLabels, { opacity: athleteLayerOpen ? 1 : 0.35 }]}>
         <Text style={[s.barLabelText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
           {Math.round(pctL2)}% athlete
         </Text>
@@ -365,6 +375,7 @@ export default function AMQSScreen() {
   const colors = useColors();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [showHowScored, setShowHowScored] = useState(false);
+  const [athleteLayerOpen, setAthleteLayerOpen] = useState(false);
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd/MM/yyyy");
 
   const { data: daily, isLoading } = useQuery<AMQSScore>({
@@ -406,11 +417,12 @@ export default function AMQSScreen() {
     }
   }
 
-  const bestGap = (daily?.topGaps ?? []).find(g => g.suggestion);
-  const pointEst = bestGap ? Math.min(8, Math.max(2, Math.round(((100 - bestGap.pctOfTarget) / 100) * 7))) : 0;
+  const microGoals = (daily?.topGaps ?? []).filter(g => g.suggestion).slice(0, 3);
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+      <AppLogoHeader />
+
       {/* Header */}
       <View style={[s.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
@@ -475,7 +487,11 @@ export default function AMQSScreen() {
                   </Text>
                 </View>
                 {daily.layer2Score != null && (
-                  <View style={{ flex: 1, alignItems: "flex-end" }}>
+                  <TouchableOpacity
+                    onPress={() => setAthleteLayerOpen(true)}
+                    activeOpacity={0.85}
+                    style={{ flex: 1, alignItems: "flex-end", opacity: athleteLayerOpen ? 1 : 0.35 }}
+                  >
                     <Text style={[s.eyebrow, { color: colors.mutedForeground }]}>PERFORMANCE SCORE</Text>
                     <Text style={[s.scoreNum, { color: layer2TierColor, fontFamily: colors.fonts.mono }]}>
                       {Math.round(daily.layer2Score)}
@@ -486,7 +502,7 @@ export default function AMQSScreen() {
                     <Text style={{ fontSize: 11, color: trendLineColor(trend?.layer2), marginTop: 6 }}>
                       {formatTrendLine(trend?.layer2)}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 )}
               </View>
 
@@ -506,61 +522,97 @@ export default function AMQSScreen() {
                 {whatMovedIt}
               </Text>
 
-              {/* All met callout */}
-              {daily.allMet ? (
-                <View style={[s.allMetRow, { backgroundColor: "#10b98118", borderColor: "#10b98130" }]}>
-                  <Feather name="shield" size={16} color="#10b981" />
-                  <Text style={[s.allMetText, { color: "#10b981", fontFamily: colors.fonts.sansMd }]}>
-                    Baseline adequacy covered. Tap a nutrient to see athlete optimisation targets.
+              {daily.topGaps.length > 0 && (
+                <View style={s.amqsGapList}>
+                  <Text style={[s.sectionLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                    LAYER 1 GAPS (BASELINE)
                   </Text>
-                </View>
-              ) : (
-                daily.topGaps.length > 0 && (
-                  <View style={{ marginTop: 16 }}>
-                    <Text style={[s.sectionLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
-                      TOP GAPS
-                    </Text>
-                    {daily.topGaps.slice(0, 3).map(gap => (
-                      <View key={gap.microKey} style={[s.gapRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                        <View style={s.gapLeft}>
-                          <Feather name="alert-triangle" size={12} color={colors.amber} />
-                          <View>
-                            <Text style={[s.gapLabel, { color: colors.foreground, fontFamily: colors.fonts.sansMd }]}>
-                              {gap.label}
-                            </Text>
-                            {gap.suggestion && (
-                              <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 1 }}>
-                                Try: {gap.suggestion}
-                              </Text>
-                            )}
-                          </View>
-                        </View>
-                        <Text style={[s.gapPct, { color: colors.amber, fontFamily: colors.fonts.mono }]}>
-                          {gap.pctOfTarget >= 100 ? "Target met" : `${Math.round(gap.pctOfTarget)}%`}
+                  {daily.topGaps.slice(0, 3).map((gap, index) => (
+                    <View key={gap.microKey} style={s.amqsGapBlock}>
+                      <View style={s.rowBetween}>
+                        <Text style={[s.gapLabel, { color: colors.foreground, fontFamily: colors.fonts.sansMd }]}>
+                          {gap.label}
+                        </Text>
+                        <Text style={[s.gapPct, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
+                          {gapPercent(gap)}% of target
                         </Text>
                       </View>
-                    ))}
-                  </View>
-                )
-              )}
-
-              {/* Micro-goal */}
-              {bestGap?.suggestion && (
-                <View style={[s.microGoalRow, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}>
-                  <Feather name="target" size={13} color={colors.primary} />
-                  <Text style={{ fontSize: 12, color: colors.foreground, flex: 1, marginLeft: 8 }}>
-                    +{pointEst} if you add {bestGap.suggestion} ({bestGap.label})
-                  </Text>
+                      <View style={s.amqsGapTrack}>
+                        <View
+                          style={[
+                            s.amqsGapFill,
+                            {
+                              width: `${gapPercent(gap)}%` as any,
+                              backgroundColor: index === 0 ? colors.primary : "#4b5563",
+                            },
+                          ]}
+                        />
+                      </View>
+                      {gap.suggestion && (
+                        <Text style={[s.barLabelText, { color: colors.mutedForeground }]}>
+                          Try: <Text style={{ color: colors.foreground, fontWeight: "700" }}>{gap.suggestion}</Text>
+                        </Text>
+                      )}
+                    </View>
+                  ))}
                 </View>
               )}
 
-              {/* Score >= 85 detail callout */}
-              {daily.score >= 85 && (
-                <View style={[s.layer1Row, { backgroundColor: "#10b98112", borderColor: "#10b98128" }]}>
-                  <Feather name="shield" size={14} color="#10b981" />
-                  <Text style={[s.layer1Text, { color: "#10b981", fontFamily: colors.fonts.sans }]}>
-                    Baseline micronutrient needs covered. If you're training hard, consider optimising toward athlete targets.
+              {daily.layer2TopGaps && daily.layer2TopGaps.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setAthleteLayerOpen(true)}
+                  activeOpacity={0.85}
+                  style={[s.amqsGapList, { opacity: athleteLayerOpen ? 1 : 0.35 }]}
+                >
+                  <View style={s.rowBetween}>
+                    <Text style={[s.sectionLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                      LAYER 2 GAPS (ATHLETE OPTIMISATION)
+                    </Text>
+                    {!athleteLayerOpen && <Feather name="chevron-down" size={16} color={colors.mutedForeground} />}
+                  </View>
+                  {(athleteLayerOpen ? daily.layer2TopGaps : daily.layer2TopGaps.slice(0, 1)).slice(0, 3).map((gap, index) => (
+                    <View key={gap.microKey} style={[s.amqsGapBlock, { borderColor: "#1d4ed855", borderWidth: athleteLayerOpen ? 1 : 0 }]}>
+                      <View style={s.rowBetween}>
+                        <Text style={[s.gapLabel, { color: colors.foreground, fontFamily: colors.fonts.sansMd }]}>
+                          {gap.label}
+                        </Text>
+                        <Text style={[s.gapPct, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
+                          {gapPercent(gap)}% of athlete target
+                        </Text>
+                      </View>
+                      <View style={s.amqsGapTrack}>
+                        <View
+                          style={[
+                            s.amqsGapFill,
+                            {
+                              width: `${gapPercent(gap)}%` as any,
+                              backgroundColor: athleteLayerOpen && index === 0 ? "#3b82f6" : "#4b5563",
+                            },
+                          ]}
+                        />
+                      </View>
+                      {gap.suggestion && (
+                        <Text style={[s.barLabelText, { color: colors.mutedForeground }]}>
+                          Try: <Text style={{ color: colors.foreground, fontWeight: "700" }}>{gap.suggestion}</Text>
+                        </Text>
+                      )}
+                    </View>
+                  ))}
+                </TouchableOpacity>
+              )}
+
+              {microGoals.length > 0 && (
+                <View style={s.microGoalList}>
+                  <Text style={[s.sectionLabel, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                    MICRO-GOALS
                   </Text>
+                  {microGoals.map(gap => (
+                    <Text key={gap.microKey} style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 5 }}>
+                      <Text style={{ color: colors.primary, fontWeight: "800" }}>+{gapPointEstimate(gap)}</Text>{" "}
+                      if you add <Text style={{ color: colors.foreground, fontWeight: "700" }}>{gap.suggestion}</Text>{" "}
+                      ({gap.label})
+                    </Text>
+                  ))}
                 </View>
               )}
             </View>
@@ -569,24 +621,6 @@ export default function AMQSScreen() {
             {trend && trend.layer1?.dailyScores?.length > 1 && (
               <TrendChart layer1={trend.layer1} layer2={trend.layer2} />
             )}
-
-            {/* Nutrient grid */}
-            <Text style={[s.sectionTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>
-              All Nutrients
-            </Text>
-            <View style={s.nutrientGrid}>
-              {NUTRIENT_META.map(n => (
-                <NutrientCard
-                  key={n.key}
-                  meta={n}
-                  totals={daily.totals}
-                  targets={daily.targets}
-                  coverage={daily.coverage}
-                  layer2Targets={daily.layer2Targets}
-                  layer2Coverage={daily.layer2Coverage}
-                />
-              ))}
-            </View>
 
             {/* Footer disclaimer */}
             <Text style={[s.disclaimer, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
@@ -707,6 +741,20 @@ const s = StyleSheet.create({
   gapLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   gapLabel: { fontSize: 13 },
   gapPct: { fontSize: 13, fontWeight: "600" },
+  amqsGapList: { gap: 10, marginTop: 16 },
+  amqsGapBlock: {
+    gap: 5,
+    padding: 10,
+    borderRadius: 8,
+  },
+  amqsGapTrack: {
+    height: 6,
+    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    overflow: "hidden",
+  },
+  amqsGapFill: { height: "100%", borderRadius: 6 },
+  microGoalList: { marginTop: 16 },
   sectionTitle: { fontSize: 17, fontWeight: "700", marginTop: 8, marginBottom: 4 },
   nutrientGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   nutrientCard: {

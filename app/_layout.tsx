@@ -6,10 +6,6 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import {
-  SpaceGrotesk_600SemiBold,
-  SpaceGrotesk_700Bold,
-} from "@expo-google-fonts/space-grotesk";
-import {
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
   JetBrainsMono_700Bold,
@@ -63,8 +59,6 @@ function AppWithAuth() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    SpaceGrotesk_600SemiBold,
-    SpaceGrotesk_700Bold,
     JetBrainsMono_400Regular,
     JetBrainsMono_500Medium,
     JetBrainsMono_700Bold,

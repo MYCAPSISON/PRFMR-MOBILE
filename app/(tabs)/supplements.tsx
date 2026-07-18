@@ -10,6 +10,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/components/AppToast";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 
 // ─────────────────────────────────────────
 // Types — matched to actual API shape
@@ -543,6 +544,7 @@ export default function SupplementsScreen() {
 
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
+      <AppLogoHeader />
       <View style={[s.header, { borderBottomColor: "#e5e7eb" }]}>
         <View style={{ flex: 1, paddingRight: 12 }}>
           <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>

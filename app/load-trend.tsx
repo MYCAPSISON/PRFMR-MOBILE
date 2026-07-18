@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { Feather } from "@expo/vector-icons";
 import Svg, { Rect, Line, Text as SvgText, G, Defs, Path } from "react-native-svg";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 
@@ -432,6 +433,8 @@ export default function LoadTrendScreen() {
 
   return (
     <SafeAreaView style={[ss.safe, { backgroundColor: colors.background }]} edges={["top"]}>
+      <AppLogoHeader />
+
       {/* Header */}
       <View style={ss.header}>
         <TouchableOpacity onPress={() => router.back()} style={ss.backBtn}>

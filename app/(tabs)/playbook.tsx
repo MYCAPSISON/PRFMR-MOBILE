@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { AppLogoHeader } from "@/components/AppLogoHeader";
 
 type AccordionKey = "protein" | "fats" | "carbs" | null;
 
@@ -87,17 +88,19 @@ export default function PlaybookScreen() {
   const [openMacro, setOpenMacro] = useState<AccordionKey>(null);
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 100 }]}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.pageHeader}>
-        <Text style={[styles.title, { color: colors.foreground }]}>The Playbook</Text>
-        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          Core principles for sustainable fat loss and health. No fluff, just science.
-        </Text>
-      </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+      <AppLogoHeader />
+      <ScrollView
+        style={{ flex: 1, backgroundColor: colors.background }}
+        contentContainerStyle={[styles.content, { paddingTop: 22, paddingBottom: insets.bottom + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.pageHeader}>
+          <Text style={[styles.title, { color: colors.foreground }]}>The Playbook</Text>
+          <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+            Core principles for sustainable fat loss and health. No fluff, just science.
+          </Text>
+        </View>
 
       <GuideCard accent>
         <CardHeader
@@ -181,19 +184,20 @@ export default function PlaybookScreen() {
       <Text style={[styles.disclaimer, { color: colors.mutedForeground }]}>
         Disclaimer: This information is for educational purposes only and does not constitute medical advice. Consult a healthcare professional before starting any diet or exercise program.
       </Text>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, gap: 24 },
   pageHeader: { alignItems: "center", gap: 12, marginBottom: 8 },
-  title: { fontSize: 36, lineHeight: 42, fontWeight: "800", textAlign: "center", fontFamily: "SpaceGrotesk_700Bold" },
+  title: { fontSize: 36, lineHeight: 42, fontWeight: "800", textAlign: "center", fontFamily: "Inter_700Bold" },
   subtitle: { fontSize: 18, lineHeight: 26, textAlign: "center", fontFamily: "Inter_400Regular" },
   card: { borderRadius: 12, borderWidth: 1.5, padding: 20, gap: 14 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 14 },
   iconBox: { width: 42, height: 42, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  cardTitle: { flex: 1, fontSize: 22, lineHeight: 28, fontWeight: "800", fontFamily: "SpaceGrotesk_700Bold" },
+  cardTitle: { flex: 1, fontSize: 22, lineHeight: 28, fontWeight: "800", fontFamily: "Inter_700Bold" },
   bodyText: { fontSize: 15, lineHeight: 23, fontFamily: "Inter_400Regular" },
   accordionItem: { borderTopWidth: 1 },
   accordionTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

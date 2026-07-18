@@ -3896,47 +3896,498 @@ foodEntries = {
 
 #### 9.18.3 Whole Food tab — count vs. grams mode (the core "faithful replication" detail)
 
-This is the most nuanced UI/logic combination in the dialog. Two independent client-only mechanisms layer on top of the same `grams` field:
+This is the most nuanced UI/logic combination in the dialog. Two independent client-only mechanisms layer on top of the same `grams` state variable. Both are **100% client-side** — the server never sees unit, count, size, or raw/cooked state; it only ever receives the final integer `grams` and pre-computed macro totals.
 
-**Mechanism A — Raw/Cooked basis toggle** (any ingredient with `supportsCookedToggle: true` in `ingredients.json`, e.g. rice, chicken breast, pasta):
-- Shown only when `selectedIngredient.supportsCookedToggle` is true.
-- Two-button segmented toggle: `Raw` / `Cooked`, default = ingredient's `canonicalBasis`.
-- `getNormalizedGrams()` converts the entered grams into the canonical basis using `cookedYieldFactor` (e.g. rice cooked→raw divides by ~0.35; the exact factor is per-ingredient in `ingredients.json`, field `cookedYieldFactor`).
-- Nutrition math always runs on the **normalized** (canonical-basis) grams, never the raw user-entered number, when the toggle is present.
-- A helper caption appears when the entered basis ≠ canonical basis: `"Nutrition calculated from {normalizedGrams}g {canonicalBasis} equivalent (yield factor: {cookedYieldFactor})"`.
-- On submit, the entry stores `enteredBasis`, `normalizedGrams`, and `yieldFactorUsed` for later audit/display; `grams` itself stores the raw user-entered amount (what they'd recognize on their plate).
+---
 
-**Mechanism B — Count/Size unit mode** (foods present in `CORE_FOOD_UNITS` map in `coreFoodUnits.ts`, e.g. "Egg", "Banana", "Slice of Bread" — ~30 curated whole foods keyed by *exact* ingredient name):
-- On ingredient select, `getCoreFoodUnit(name)` is checked; if a match exists, the UI **defaults to count mode** and shows a `Count` / `Grams` segmented toggle (same visual pattern as the basis toggle: `bg-primary text-primary-foreground` for active, `text-muted-foreground` for inactive).
-- **Count mode UI:**
-  - Optional **Size** row (only if `unit.supportsSize`): 3 buttons (Small/Medium/Large), each showing its gram value below the label (from `unit.gramsBySize[size]`) when available; selected = `border-primary bg-primary/10`.
-  - **Count** stepper: − / + buttons (h-9 w-9, disabled at count ≤1 or ≥20) around a large `text-2xl font-extrabold font-mono` count display, plus a live `"≈ {grams}g total"` caption.
-  - Every stepper/size click calls `computeUnitGrams(unit, count, size)` and writes the result straight into `grams` — the user never sees or edits a raw grams number in this mode.
-- **Grams mode (fallback):** a plain numeric input + quick-amount chips (`quickAmounts`), identical in look to the non-unit case.
-- `computeUnitGrams(unit, count, size)` (in `coreFoodUnits.ts`): if `unit.supportsSize`, returns `unit.gramsBySize[size] * count`; else returns `unit.gramsPerUnit * count`.
-- **Server never knows about "count" or "size."** By the time the entry reaches `POST /api/food-entries`, only the final `grams` integer is sent — count/size/unit-label are 100% client-side UX sugar over the same per-100g ingredient math every other tab uses. Do not add a `unit`/`count` column server-side; the mobile client should replicate this as pure local state.
+##### Mechanism A — Raw/Cooked basis toggle
 
-**Nutrition preview card** (shown under either mechanism once an ingredient is selected): dark `bg-secondary/30 rounded-lg p-4` panel, header row `"Estimated Nutrition"` + `text-lg font-bold text-primary` calorie figure, then a 4-column `grid grid-cols-4` of Prot/Carb/Fat/Fib each as `{label: 10px bold caption}` over `{value: text-sm font-mono}`, with Fibre alone tinted `text-emerald-500`/`text-emerald-600`. This exact 4-column macro-chip layout recurs 3 times in the dialog (Whole Food preview, Barcode preview, and — with per-item styling — the OFF search result rows) and should be extracted as one shared subcomponent in a mobile rebuild.
+**Current status: code is complete and correct, but dormant.** The toggle infrastructure is fully implemented in `FoodEntryDialog`, but it only activates when `selectedIngredient.supportsCookedToggle` is truthy. That field **does not exist anywhere in `data/ingredients.json`** (confirmed: 0 of 307 ingredient records contain it). The `canonicalBasis` and `cookedYieldFactor` fields ARE present for 54 ingredients, and the toggle would work correctly for all of them the moment `"supportsCookedToggle": true` is added to those JSON records. As of the current codebase, no ingredient ever shows the Raw/Cooked toggle.
 
-**Empty state:** when no ingredient is selected and search is empty, show the **"Core Foods"** quick-add list — `CORE_FOODS` (curated common mixed meals, e.g. "Chicken & Rice Bowl") rendered as a vertical list of rows (`hover-elevate`, name + `"{serving}g serving"` caption on the left, calories on the right); tapping one calls `createEntry` directly with pre-baked macros (`sourceType: "manual"`, `macroSource: "manual"`, `microSource: "none"`) — no dialog step, no confirmation, immediate log + toast.
+**How the mechanism works (for when it is activated):**
 
-#### 9.18.4 Barcode tab — scan, lookup, and micronutrient mapping
+- The UI shows a two-button segmented toggle: `Raw` / `Cooked`. On ingredient select, `handleSelect` sets `enteredBasis` to `"cooked"` if `ingredient.supportsCookedToggle` is true (so cooked is the default UX state, making the most common entry scenario — weighing food after cooking — the default).
+- The label changes to `"Amount (grams) — Cooked"` or `"Amount (grams) — Raw"`.
+- `getNormalizedGrams()` converts the user-entered grams to the ingredient's `canonicalBasis` (always `"raw"` for the 54 current candidates):
+  - If `canonicalBasis === "raw"` and user entered cooked: `normalizedGrams = enteredGrams / cookedYieldFactor`
+  - If `canonicalBasis === "raw"` and user entered raw: `normalizedGrams = enteredGrams` (no conversion)
+  - If `canonicalBasis === "cooked"` and user entered raw: `normalizedGrams = enteredGrams * cookedYieldFactor`
+- All macro math (`calculateMacro`) runs on `normalizedGrams`, not on `enteredGrams`. This is the critical correctness invariant: a user logging "200g cooked chicken" gets the macros for ~267g raw (200 / 0.75) — the actual mass of raw protein they consumed — not the macros for 200g raw.
+- A helper caption is shown when `enteredBasis ≠ canonicalBasis`: `"Nutrition calculated from {Math.round(normalizedGrams)}g {canonicalBasis} equivalent (yield factor: {cookedYieldFactor})"`.
+- On submit, three extra fields are sent to the server: `enteredBasis`, `normalizedGrams` (rounded), and `yieldFactorUsed`. The `grams` field still stores the user-entered amount (what they'd recognize on their plate); `normalizedGrams` is the audit trail.
 
-**Manual entry path:** a barcode text input + "Lookup" button call `GET /api/food/barcode/:code`, which proxies Open Food Facts and returns `{ name, image_url, calories_kcal_100g, protein_g_100g, carbs_g_100g, fat_g_100g, fibre_g_100g, suggestions: { best, top } }`. `suggestions` come from the server-side fuzzy matcher (`server/lib/offMatch.ts`, `matchOffToIngredients`) which scores the OFF product name against every row in `data/ingredients.json` and returns a confidence tier:
-- `finalScore >= 0.45` → `"high"` confidence (auto-applied as the micronutrient mapping, no user action needed)
-- `finalScore >= 0.25` → `"medium"` (shown as a suggestion chip, user must confirm)
-- below that → `"low"` or no match (user must search manually or explicitly skip)
+**The 54 ingredients ready for toggle activation** (add `"supportsCookedToggle": true` to each in `data/ingredients.json` to enable):
 
-**Not-found path:** if the barcode isn't in OFF, the UI shows an inline "Save to PRFMR database" mini-form (name, brand, kcal/protein/carbs/fat/fibre per 100g, optional serving size) that posts to `POST /api/food/barcode/:code/create`, adding it to the app's own custom-food store so it's found instantly next time (`queryClient.invalidateQueries(["/api/foods/custom"])`, then re-runs the lookup).
+*Poultry (canonical: raw):*
 
-**Micronutrient mapping panel** (`section-micro-mapping`, shown once a barcode result is found): a bordered `bg-muted/30` card with three possible states —
-1. **Mapped:** green check row `"Mapped to: {ingredient.name}"`, with a "Change" link to reopen picking.
-2. **Skipped:** italic `"Skipped (macros only)"` + "Enable micros" link.
-3. **Unmapped (needs input):** shows up to 3 suggestion chips (colored border by confidence: emerald=high, amber=medium, none=low) each with a 2-line "why" caption (`s.reasons`) for medium/low confidence, a live-filtered ingredient search box (min 2 chars, top 10 matches), and a "Skip micros" text link. Choosing a suggestion or search result calls `saveIngredientMapping(ingredient, index)` → `POST /api/food/barcode/:code/map` which persists the OFF-barcode→ingredient mapping server-side so future scans of the same barcode auto-resolve at `"high"` confidence without re-prompting.
+| Ingredient name | cookedYieldFactor | Note |
+|---|---|---|
+| Chicken Breast (Boneless, Skinless, Raw) | 0.75 | |
+| Chicken Wings (Meat & Skin, Raw) | 0.74 | |
+| Chicken Thigh (Bone-in, Skin-on) | 0.75 | |
+| Chicken Thigh (Boneless, Skinless) | 0.72 | |
+| Chicken Drumstick (Bone-in, Skin-on) | 0.74 | |
+| Chicken Drumstick (Bone-in, Skinless) | 0.73 | |
+| Turkey Breast (Skinless, Raw) | 0.75 | |
+| Turkey Mince (Raw) | 0.70 | |
+| Duck Breast (Skinless, Raw) | 0.68 | |
 
-**Camera scanner:** `Html5Qrcode` library, decoding EAN_13/EAN_8/UPC_A/UPC_E/CODE_128. Implementation detail worth preserving faithfully: it uses five separate boolean refs (`isRunningRef`, `startingRef`, `stoppingRef`, `didDecodeRef`, `cancelledRef`) plus a `startCountRef` counter purely to prevent race conditions from rapid start/stop taps (a common Html5Qrcode crash source — calling `.start()` while a previous `.start()` promise is still pending throws). Camera constraint strategy: try `facingMode: "environment"` (rear camera) first, catch and retry with `"user"` (front camera) on failure — needed because some desktop/laptop webcams reject `"environment"` outright. A collapsible debug panel (`showScannerDebug`) surfaces secure-context flag, origin, `MediaDevices` availability, camera count, start-call count, last error, and user agent — keep this for support/debugging parity, it has caught real device-specific camera permission issues in testing.
+*Beef (canonical: raw):*
 
-Once a barcode result is loaded, the UI shows the same 4-column macro preview grid as Whole Food (§9.18.3), a grams input pre-filled from OFF's typical serving (or 100), quick-amount chips, then the micro-mapping panel, then a single "Add to Log" button (disabled while `isSavingMapping` is in flight, so the mapping write always completes before or alongside the food-entry write).
+| Ingredient name | cookedYieldFactor |
+|---|---|
+| Beef Mince, 5% Fat (Raw) | 0.72 |
+| Beef Mince, 15% Fat (Raw) | 0.68 |
+| Beef Steak, Sirloin (Lean, Raw) | 0.80 |
+| Beef Steak, Ribeye (Raw) | 0.80 |
+| Beef Steak, Fillet (Lean, Raw) | 0.80 |
+| Beef Short Ribs (Bone-in) | 0.62 |
+| T-Bone Steak (Bone-in) | 0.64 |
+
+*Lamb (canonical: raw):*
+
+| Ingredient name | cookedYieldFactor |
+|---|---|
+| Lamb Leg (Lean, Raw) | 0.70 |
+| Lamb Chops (Loin, Raw) | 0.68 |
+| Lamb Mince (Raw) | 0.68 |
+| Rack of Lamb (Bone-in) | 0.60 |
+| Lamb Shoulder (Bone-in) | 0.63 |
+
+*Pork (canonical: raw):*
+
+| Ingredient name | cookedYieldFactor |
+|---|---|
+| Pork Tenderloin (Lean, Raw) | 0.84 |
+| Pork Chops (Boneless, Raw) | 0.83 |
+| Pork Chops (Bone-in) | 0.83 |
+| Pork Mince (Raw) | 0.70 |
+| Pork Ribs (Back, Bone-in) | 0.82 |
+| Bacon, Back (Raw) | 0.32 |
+| Bacon, Streaky (Raw) | 0.31 |
+| Sausages, Pork (Raw) | 0.80 |
+
+*Fish & seafood (canonical: raw):*
+
+| Ingredient name | cookedYieldFactor |
+|---|---|
+| Salmon (Fresh) | 0.80 |
+| Tuna (Fresh) | 0.80 |
+| Cod (Fresh) | 0.82 |
+| Haddock (Raw) | 0.82 |
+| Mackerel (Raw) | 0.78 |
+| Seabass (Raw) | 0.80 |
+| Trout (Raw) | 0.80 |
+| Tilapia (Raw) | 0.82 |
+| Halibut (Raw) | 0.82 |
+
+*Grains & legumes (canonical: raw/dry — yield factor > 1 because they absorb water):*
+
+| Ingredient name | cookedYieldFactor | Meaning |
+|---|---|---|
+| White Rice (Uncooked) | 2.60 | 100g dry → 260g cooked |
+| Brown Rice (Uncooked) | 2.50 | |
+| Basmati Rice (Uncooked) | 2.50 | |
+| Pasta (Dry) | 2.00 | 100g dry → 200g cooked |
+| Whole Wheat Pasta (Dry) | 2.00 | |
+| Quinoa (Dry) | 2.70 | |
+| Couscous (Dry) | 2.40 | |
+| Lentils (Dry) | 2.50 | |
+| Chickpeas (Dry) | 2.40 | |
+
+*Vegetables (canonical: raw):*
+
+| Ingredient name | cookedYieldFactor |
+|---|---|
+| Sweet Potato (Raw) | 0.85 |
+| Potato (Raw) | 0.78 |
+| Butternut Squash (Raw) | 0.85 |
+| Broccoli (Raw) | 0.88 |
+| Spinach (Raw) | 0.30 |
+| Kale (Raw) | 0.65 |
+| Carrots (Raw) | 0.88 |
+
+> **Replication note for grains:** `cookedYieldFactor > 1` means the conversion direction is *inverted* from meats. When the user enters cooked grams for rice and `canonicalBasis = "raw"`: `normalizedGrams = cookedGrams / 2.6` (e.g. 200g cooked rice → ~77g raw). The same formula `enteredGrams / cookedYieldFactor` applies uniformly regardless of whether the factor is < 1 (meats shrink) or > 1 (grains expand). Do not special-case grains in the conversion logic.
+
+---
+
+##### Mechanism B — Count/Size unit mode
+
+**Current status: fully live and active.** This mechanism is driven by the `CORE_FOOD_UNITS` map in `client/src/lib/coreFoodUnits.ts` — a plain TypeScript `Record<string, CoreFoodUnit>` keyed by **exact ingredient name** (case-sensitive, must match `ingredients.json` name verbatim). On ingredient select, `getCoreFoodUnit(ingredient.name)` is called; if a `CoreFoodUnit` is returned, the dialog switches to count mode automatically.
+
+**How the mechanism works:**
+
+- The UI shows a `Count` / `Grams` segmented toggle (same visual pattern as everything else: `rounded-md border overflow-hidden`, active = `bg-primary text-primary-foreground`, inactive = `text-muted-foreground`).
+- **Count mode renders two sub-controls:**
+  1. **Size row** (only when `unit.supportsSize === true`): 3 pill buttons — Small / Medium / Large. Each button shows the size label and, below it in `text-[10px] font-normal text-muted-foreground`, the gram value from `unit.gramsBySize[size]`. Selected state: `border-primary bg-primary/10 text-foreground`. Unselected: `border-border/40 text-muted-foreground hover:bg-secondary/30`.
+  2. **Count stepper**: `−` button (disabled at `count ≤ 1`) · large count display `text-2xl font-extrabold font-mono w-8 text-center` · `+` button (disabled at `count ≥ 20`) · trailing `"≈ {grams}g total"` caption in `text-xs text-muted-foreground`. Stepper buttons are `h-9 w-9 rounded-md border border-border/60`, `text-lg font-bold`, `disabled:opacity-30`.
+  - Every interaction calls `computeUnitGrams(unit, count, size)` and writes result into `grams` state. The grams input becomes invisible (count mode owns the amount).
+- **Grams mode**: plain `<Input type="number">` + quick-amount chips, identical to the non-unit path.
+- **`computeUnitGrams(unit, count, size)`** (pure function, no server calls):
+  - If `unit.supportsSize && unit.gramsBySize`: return `Math.round(unit.gramsBySize[size] * count)`
+  - Else: return `Math.round((unit.gramsPerUnit ?? 100) * count)`
+- Server receives only the resulting `grams` integer. No unit, count, or size fields exist on the server schema.
+
+**Complete `CORE_FOOD_UNITS` map** (all 51 entries as of current codebase, sourced from USDA FDC standard portion sizes):
+
+*Eggs:*
+
+| Ingredient name (exact) | supportsSize | Small | Medium | Large | unitLabel | defaultCount |
+|---|---|---|---|---|---|---|
+| Eggs, Whole (Raw) | ✓ | 38g | 44g | 50g | egg | 2 |
+
+*Fruits — with size:*
+
+| Ingredient name (exact) | Small | Medium | Large | unitLabel | defaultCount |
+|---|---|---|---|---|---|
+| Banana (Peeled) | 101g | 118g | 136g | banana | 1 |
+| Apple | 149g | 182g | 223g | apple | 1 |
+| Orange (Flesh Only) | 96g | 131g | 184g | orange | 1 |
+| Pear (Flesh Only, No Core) | 120g | 166g | 209g | pear | 1 |
+| Peach | 130g | 147g | 175g | peach | 1 |
+| Nectarine | 115g | 142g | 170g | nectarine | 1 |
+| Mango (Flesh Only) | 120g | 165g | 220g | mango | 1 |
+| Avocado (Flesh Only) | 80g | 100g | 150g | avocado | 1 |
+| Grapefruit | 150g | 200g | 250g | grapefruit | 1 |
+| Lemon | 50g | 65g | 80g | lemon | 1 |
+| Pineapple (Flesh Only) | 50g | 84g | 112g | ring | 2 |
+| Watermelon (Flesh Only) | 152g | 280g | 400g | slice | 1 |
+
+*Fruits — no size (fixed grams per unit):*
+
+| Ingredient name (exact) | gramsPerUnit | unitLabel | defaultCount |
+|---|---|---|---|
+| Plum | 66g | plum | 1 |
+| Apricot | 35g | apricot | 2 |
+| Kiwi (Peeled) | 69g | kiwi | 1 |
+| Lime | 44g | lime | 1 |
+| Figs (Fresh) | 50g | fig | 2 |
+| Dates (Dried) | 8g | date | 3 |
+| Prunes | 9g | prune | 3 |
+| Dried Apricots | 8g | apricot half | 4 |
+| Cherries | 8g | cherry | 10 |
+| Pomegranate | 87g | ½ pomegranate | 1 |
+
+*Vegetables — with size:*
+
+| Ingredient name (exact) | Small | Medium | Large | unitLabel | defaultCount |
+|---|---|---|---|---|---|
+| Tomato | 91g | 123g | 182g | tomato | 1 |
+| Bell Pepper (Red) | 75g | 119g | 164g | pepper | 1 |
+| Bell Pepper (Green) | 75g | 119g | 164g | pepper | 1 |
+| Bell Pepper (Yellow) | 75g | 119g | 164g | pepper | 1 |
+| Onion | 90g | 148g | 210g | onion | 1 |
+| Red Onion | 90g | 148g | 210g | onion | 1 |
+| Carrots (Raw) | 50g | 61g | 82g | carrot | 1 |
+| Sweet Potato (Raw) | 100g | 150g | 200g | sweet potato | 1 |
+| Sweet Potato (Baked) | 90g | 130g | 180g | sweet potato | 1 |
+| Potato (Baked, with Skin) | 138g | 173g | 250g | potato | 1 |
+| Potato (Raw) | 100g | 150g | 213g | potato | 1 |
+
+*Vegetables — no size:*
+
+| Ingredient name (exact) | gramsPerUnit | unitLabel | defaultCount |
+|---|---|---|---|
+| Cherry Tomatoes | 17g | tomato | 8 |
+| Spring Onion (Scallion) | 15g | stalk | 3 |
+| Mushrooms (White) | 18g | mushroom | 4 |
+| Celery | 40g | stalk | 2 |
+
+*Bread & wraps (all no size, fixed slice/unit weight):*
+
+| Ingredient name (exact) | gramsPerUnit | unitLabel | defaultCount |
+|---|---|---|---|
+| Bread (White Sliced) | 30g | slice | 2 |
+| Bread (Wholemeal) | 35g | slice | 2 |
+| Bread (Sourdough) | 35g | slice | 1 |
+| Pitta Bread | 70g | pitta | 1 |
+| Bagel (Plain) | 105g | bagel | 1 |
+| Tortilla Wrap (Wheat) | 45g | wrap | 1 |
+| Rice Cakes | 9g | rice cake | 3 |
+
+> **Critical matching note:** `getCoreFoodUnit(name)` does a **string equality lookup** — `CORE_FOOD_UNITS[foodName] ?? null`. There is no fuzzy matching, no case normalization. If you add foods to the ingredient DB with names differing by even one character (e.g. `"Chicken Breast"` vs `"Chicken Breast (Boneless, Skinless, Raw)"`), the unit config will silently not activate. Keys in `CORE_FOOD_UNITS` must be byte-for-byte identical to `ingredients.json` `"name"` values. This is also why `Sweet Potato (Raw)` and `Sweet Potato (Baked)` have separate entries — they're different ingredient rows with different macro profiles, and a user logging a baked sweet potato naturally thinks in "1 medium potato" not grams.
+
+> **Note on overlap:** `Sweet Potato (Raw)`, `Potato (Raw)`, and `Carrots (Raw)` appear in *both* Mechanism A (toggle candidates with `cookedYieldFactor`) and Mechanism B (count/size unit config). In that case, **both mechanisms would activate simultaneously** — count steppers would control grams, while a raw/cooked basis toggle would also appear. Currently this combination never renders because `supportsCookedToggle` is absent from the JSON, but a replication that adds `supportsCookedToggle` to those records should expect and test for this combined state.
+
+---
+
+**Nutrition preview card** (shown once an ingredient is selected under either mechanism): `bg-secondary/30 rounded-lg p-4` panel, header row with `"Estimated Nutrition"` label + `text-lg font-bold text-primary` calorie figure, then a 4-column `grid grid-cols-4` of Prot/Carb/Fat/Fib each as a `text-[10px] text-muted-foreground font-bold` label over a `font-mono text-sm` value, with Fibre alone using `text-emerald-500` / `text-emerald-600`. This 4-column macro-chip layout recurs verbatim in Barcode tab as well, and should be a single shared subcomponent in any mobile rebuild.
+
+**Empty state on Whole Food tab:** when no ingredient is selected and the search field is empty, the `CORE_FOODS` quick-add list is shown — curated common mixed meals (e.g. "Chicken & Rice Bowl", "Greek Yoghurt & Berries") rendered as a vertical list of tappable rows (`hover-elevate`, food name + `"{serving}g serving"` caption left, calorie count right in `font-mono`). Tapping one calls `createEntry` directly with pre-baked macros — `sourceType: "manual"`, `macroSource: "manual"`, `microSource: "none"` — no confirmation step. This is intentionally distinct from the Whole Food ingredient lookup: these are composite meals with approximate macros, not single whole foods mapped to the ingredient DB.
+
+#### 9.18.4 Barcode tab — scan, lookup, and micronutrient source mapping
+
+This section covers two distinct concerns that must not be conflated: (1) looking up a barcode to get **macros**, and (2) linking that product to an internal ingredient record to get **micronutrients** for AMQS scoring. They are separate database writes, separate UI decisions, and have separate failure modes.
+
+---
+
+##### 9.18.4a Overall end-to-end flow
+
+```
+User scans/enters barcode
+        │
+        ▼
+GET /api/food/barcode/:code          ← server
+ ├─ Calls OFF API (proxy)            ← external
+ ├─ Checks off_product_mappings DB   ← server (persisted mapping lookup)
+ ├─ Runs matchOffToIngredients()     ← server (fuzzy match, pure compute)
+ └─ Returns: { off{macros}, mapping, suggestions{best,top} }
+        │
+        ▼
+Client receives response             ← client
+ ├─ Stores barcodeResult (macro display)
+ ├─ If mapping exists → auto-selects ingredient (pre-confirmed)
+ ├─ If no mapping + best.confidence="high" → auto-selects ingredient (pending confirm)
+ └─ Otherwise → shows suggestion chips / search UI
+        │
+        ▼ (user optionally picks/confirms/skips ingredient)
+        │
+POST /api/food/barcode/:code/map     ← server (only if user picks non-auto)
+ └─ Upserts off_product_mappings row
+        │
+        ▼
+POST /api/food-entries               ← server (final log write)
+ ├─ macroSource: "off"   (macros from OFF)
+ ├─ microSource: "ingredient" | "none"
+ └─ ingredientIndex: number | null
+```
+
+---
+
+##### 9.18.4b Server-side vs client-side boundary — exact breakdown
+
+| Concern | Where | Details |
+|---|---|---|
+| OFF API proxy | **Server** | `GET /api/food/barcode/:code` calls `world.openfoodfacts.org/api/v0/product/:code.json`. The server does all the field extraction (energy kJ→kcal fallback, `proteins_100g`, `carbohydrates_100g`, `fat_100g`, `fiber_100g`\|`fibre_100g`) so the client never touches OFF directly. |
+| Custom-food fallback | **Server** | If OFF returns nothing, `storage.getCustomFoodByBarcode(userId, code)` is checked — user's personal food DB takes over, returning `macroSource: "custom"`, `microSource: "none"`. |
+| Persisted mapping lookup | **Server** | `storage.getOffMappingByBarcode(code)` queries `off_product_mappings` table. If a row exists, it is returned as `mapping: { ingredientIndex, ingredientName, matchConfidence, verifiedByUser }`. |
+| Fuzzy match computation | **Server** | `matchOffToIngredients(name, brand, categories, ingredients, offMacros)` runs synchronously on every lookup against all 307 ingredients. Returns `{ bestCandidate, topCandidates[0..5] }`. This runs **even when a persisted mapping exists** — the suggestions always accompany the response regardless, so the client can let users override a saved mapping. |
+| Auto-selection logic | **Client** | After receiving the response, the client decides what to pre-select in the mapping UI (see §9.18.4d). No server round-trip for auto-selection. |
+| Confirming a suggestion | **Client + Server** | When a user taps a suggestion chip or a search result, `saveIngredientMapping(ingredient, ingredientIndex)` calls `POST /api/food/barcode/:code/map`, which upserts the `off_product_mappings` row. Only then does `selectedMappingIngredient` state get set. |
+| Skipping micros | **Client only** | `setSkipMicros(true)` — no server write, just sets a local flag that causes `microSource: "none"` at log-write time. |
+| Macro calculation from grams | **Client** | `calculateMacro(per100g) = Math.round(per100g * parseFloat(grams) / 100)`. Uses OFF per-100g values × user's entered grams. |
+| Final food entry write | **Server** | `POST /api/food-entries` with `sourceType: "off"`, `macroSource: "off"`, `microSource: "ingredient"\|"none"`, `ingredientIndex: number\|null`, `offBarcode: string`. Macros are already computed by client — server just validates and persists. |
+
+---
+
+##### 9.18.4c The `off_product_mappings` table — schema
+
+```ts
+// shared/schema.ts
+offProductMappings = {
+  id, barcode (unique),
+  offName, offBrand, offCategories,     // FROM snapshot of the OFF product at time of mapping
+  ingredientIndex,                       // Index into data/ingredients.json
+  ingredientName,                        // Cached for display (denormalized)
+  matchConfidence,                       // 'high' | 'medium' | 'low'
+  matchMethod,                           // 'exact' | 'synonym' | 'fuzzy' | 'user_selected'
+  verifiedByUser,                        // boolean — true when user explicitly chose
+  updatedAt,
+}
+```
+
+Key design decisions:
+- `barcode` is `UNIQUE` — one canonical mapping per barcode, shared across all users (global, not per-user). Any user confirming a mapping benefits all future users of that barcode.
+- `upsertOffMapping` replaces on conflict — later user selections overwrite algorithm guesses, and later `verifiedByUser: true` overwrites `false`.
+- `ingredientName` is stored redundantly alongside `ingredientIndex` so the display can fall back to the cached name without re-fetching the ingredient list.
+
+---
+
+##### 9.18.4d Client auto-selection logic (what the UI pre-picks without user input)
+
+After the server response arrives, the client runs this decision tree synchronously:
+
+```
+if (data.mapping?.ingredientIndex !== undefined)
+  → fetch /api/ingredients, pre-select ingredients[data.mapping.ingredientIndex]
+  → shows "Mapped to: X" state immediately (user confirmed or high-confidence auto)
+  
+else if (data.suggestions?.best?.confidence === "high")
+  → fetch /api/ingredients, pre-select ingredients[data.suggestions.best.ingredientIndex]
+  → shows "Mapped to: X" + "Mapped automatically" caption
+  → NOTE: this selection is NOT yet saved to off_product_mappings at this point
+  
+else
+  → shows the suggestion chip / search UI (user must explicitly act)
+```
+
+**Critical: the "high confidence auto-select" path does not fire `POST /api/food/barcode/:code/map`.** The mapping is saved only when the user submits "Add to Log" *if* `selectedMappingIngredient` is set. That write happens via `saveIngredientMapping`, not at lookup time. So if a user scans a product, sees "Mapped automatically", and hits "Add to Log" without touching the mapping — the `off_product_mappings` table still gets the row written for future lookups (because `saveIngredientMapping` fires when a chip is chosen or a search result tapped, but NOT for auto-selected high-confidence suggestions). The food entry itself carries the `ingredientIndex` directly, so AMQS still works — but the barcode-to-ingredient shortcut in the DB is only created when a user explicitly confirms or re-selects.
+
+The screenshot in this section (Cottage Cheese, Tesco — "Mapped automatically") shows the `confidence: "high"` auto-select path: the product name matched a synonym or exact string in the algorithm, the selection was applied without any chip interaction, and the caption reads "Mapped automatically".
+
+---
+
+##### 9.18.4e The matching algorithm — exact step-by-step
+
+`matchOffToIngredients(offName, offBrand, offCategories, ingredients[], offMacros)` in `server/lib/offMatch.ts`:
+
+**Phase 1 — Exact match (score: 1.0, confidence: "high", method: "exact")**
+
+Both the OFF product name and every ingredient name are passed through `normalize()`:
+- Lowercase
+- Replace all non-alphanumeric/space chars with spaces
+- Split on whitespace, remove tokens that are: length ≤ 1, or in `STOP_WORDS`
+- `STOP_WORDS` = retailer names (Tesco, Asda, Aldi…), generic descriptors (original, classic, organic, light, free, fresh, natural…), country adjectives (British, French…), and noise words (the, a, an, ltd, pack, x…)
+- Rejoin remaining tokens
+
+If `normalize(offName) === normalize(ingredientName)` for any ingredient, return immediately with score=1.0. No further phases run.
+
+**Phase 2 — Synonym match (score: 0.85, confidence: "high"\|"medium", method: "synonym")**
+
+The `SYNONYMS` map (27 curated entries, e.g. `"oats (raw)": ["oats", "porridge oats", "rolled oats", "oatmeal"]`, `"tuna (canned in water)": ["tuna", "canned tuna", "tuna chunks"]`) is checked: if all words of any synonym appear in the normalized OFF name's word set, it's treated as a match. A `keyTokenPenalty` check (see Phase 3b) is applied; if penalty ≥ 0.5, the synonym match is rejected. Confidence is downgraded from "high" → "medium" if the OFF product is flagged as processed (see below).
+
+**Phase 3 — Full fuzzy scoring (all 307 ingredients, top 5 returned)**
+
+`scoreCandidate(ingredient, index, ctx)` runs for every ingredient. Returns `null` if finalScore < 0.08 (filtered out). Remaining candidates are sorted descending by score; top 5 form `topCandidates`.
+
+The score is a weighted sum of 4 components:
+
+```
+finalScore = max(0,
+  nameSim        × 0.55   (name similarity — dominant signal)
+  + catSim       × 0.20   (category match)
+  + macroScore   × 0.15   (macro profile sanity)
+  + brandSim     × 0.10   (brand name in ingredient name)
+  + supplementPenalty      (additive, ±0.0 / -0.30)
+)
+```
+
+**3a — Name similarity (`nameSim`, weight 0.55)**
+
+Tokens from `offName + " " + offBrand` and from `ingredientName` are normalized (same `normalize()` as Phase 1), then:
+- **Jaccard**: `|intersection| / |union|`
+- **Dice**: `2 × |intersection| / (|A| + |B|)`
+- `nameSim = (jaccard + dice) / 2`
+
+Then a key-token penalty is applied (3b) before the weighted sum.
+
+**3b — Key-token penalty** (applied as subtraction from `nameSim`)
+
+`KEY_TOKENS` = anatomical/cut words: `liver, breast, thigh, wing, drumstick, heart, gizzard, kidney, fillet, mince, leg, steak, chop, loin, rib, shoulder, belly, neck, offal, tongue, brain`.
+
+`keyTokenPenalty(offName, candidateName)`:
+- If OFF name has a key token and candidate has a *different* key token → penalty = **+0.8** (very high — "chicken breast" vs "chicken liver" must not match)
+- If OFF has a key token but candidate has *none* → penalty = **+0.5**
+- If OFF has a key token that candidate also has → bonus = **-0.2** (reduces the penalty subtraction, i.e. boosts score)
+- If OFF has no key tokens → penalty = 0
+
+`nameSim = max(0, nameSim - penalty)`
+
+**3c — Category similarity (`catSim`, weight 0.20)**
+
+`detectCategories(text)` scans the combined `offName + offBrand + offCategories` string against 10 category keyword lists:
+`dairy`, `meat`, `fish`, `grain`, `fruit`, `vegetable`, `nut`, `supplement`, `egg`, `oil`.
+
+Each category that gets at least one keyword match is added to the detected set. The same detection runs on each ingredient name.
+
+`categorySimilarity(offCats, ingCats)`:
+- No categories on either side → 0
+- Intersection ≥ 1 → `|intersection| / |union|` (Jaccard on category sets)
+- Intersection = 0 but direct conflict exists → **-0.3**:
+  - OFF is meat, ingredient is dairy (or vice versa)
+  - OFF is fish vs meat or dairy
+  - OFF is supplement vs non-supplement (or vice versa)
+- Intersection = 0, no conflict → 0
+
+**3d — Macro sanity score (`macroScore`, weight 0.15)**
+
+Compares the macronutrient *ratio profiles* (not raw values — ratios neutralize serving-size differences):
+```
+offRatios.protein = off.protein / (off.protein + off.carbs + off.fat)
+// same for carbs, fat
+
+avgDiff = mean(|offRatio.P - ingRatio.P|, |offRatio.C - ingRatio.C|, |offRatio.F - ingRatio.F|)
+```
+- `avgDiff > 0.35` → score = **-0.30** (reason: "macro profile very different")
+- `avgDiff > 0.25` → score = **-0.15** (reason: "macro profile differs")
+- `avgDiff < 0.10` → score = **+0.10** (reason: "macro profile similar")
+- Otherwise → 0
+
+Only applied if `offMacros.kcal > 0` (not all OFF products have nutrition data).
+
+**3e — Brand similarity (`brandSim`, weight 0.10)**
+
+Dice similarity between normalized brand tokens and normalized ingredient name tokens. Usually 0 (brand names rarely appear in ingredient names) — acts as a small boost for branded products whose brand name overlaps a food category word (e.g. "Muscle" brand → "protein" in ingredient name).
+
+**3f — Supplement cross-penalty (additive, -0.30)**
+
+`isSupplementProduct(name, categories)` checks for supplement signals (whey, isolate, casein, protein powder, bcaa, creatine, pre/post workout) in the combined name+categories string. If the OFF product is a supplement but the ingredient is not (or vice versa), **-0.30** is added unconditionally (before the `max(0, ...)` clamp).
+
+**Confidence thresholds:**
+- `finalScore >= 0.45` → `"high"`
+- `finalScore >= 0.25` → `"medium"`
+- below → `"low"`
+
+**Post-processing: processed-product confidence downgrade**
+
+`isProcessedProduct(offCategories)` checks for processing signals in the OFF categories string: "ready meal", "prepared", "snack", "dessert", "beverage", "protein bar", "energy bar", "sauce", "confectionery", "chips", "crisps", "biscuit", "pizza", "burger", "nugget", "instant", "microwave", "heat and serve", etc. (21 signals total).
+
+If the product is flagged processed AND the best fuzzy candidate scores `"high"`, the confidence is downgraded to `"medium"` — **unless** the matched ingredient is itself one of the known processed-food ingredients: `kefir drink`, `protein bar`, `bread (white sliced)`, `chicken deli slices`, `ready meal (generic)`, `flavoured yogurt`. This prevents, for example, a ready meal matching "Chicken Breast" at high confidence when the actual macros would be very different.
+
+---
+
+##### 9.18.4f Micro-mapping UI — the 3 states in detail
+
+The mapping panel (`data-testid="section-micro-mapping"`) is a bordered `bg-muted/30 rounded-lg p-3` card labelled "Micros Source (for AMQS)". It renders one of three states:
+
+**State 1 — Mapped** (`selectedMappingIngredient && !skipMicros`):
+```
+✓  Mapped to: [ingredientName in text-emerald-600 bold]
+   "Mapped automatically"    ← only shown when confidence="high" AND no existing DB mapping
+                             [Change link — text-[10px] text-primary underline]
+```
+"Change" calls `setSelectedMappingIngredient(null); setMappingSearchTerm("")` → drops back to State 3.
+
+**State 2 — Skipped** (`skipMicros === true`):
+```
+Skipped (macros only)   [italic]    [Enable micros link]
+```
+
+**State 3 — Needs input** (default when no auto-select fired):
+- If `suggestions.best` exists:
+  - `confidence === "medium"` → amber caption `"Suggested match — tap to confirm or change"`
+  - `confidence === "low"` → muted caption `"No reliable match — please choose"`
+- If no `suggestions.best` → `"No match found — search or skip"`
+- Up to 3 suggestion chips from `suggestions.top.slice(0, 3)`: `Button variant="outline" size="sm" h-6 text-[10px] px-2`, border tinted by confidence (`border-emerald-500/50` = high, `border-amber-500/50` = medium, none = low). Medium/low chips each show a 2-line `text-[9px]` caption with the first 2 `reasons` strings.
+- Live search box (`h-7 text-xs` input), min 2 chars to show dropdown, filters all 307 ingredients by name, top 10 shown.
+- "Skip micros (track macros only)" text link at the bottom.
+
+Tapping any chip or search result calls `saveIngredientMapping(ingredient, index)` → `POST /api/food/barcode/:code/map` with `{ ingredientIndex }` → server upserts `off_product_mappings` → client sets `selectedMappingIngredient` → moves to State 1.
+
+**"Add to Log" button** is `disabled={isPending || isSavingMapping}` — the save-mapping POST must fully resolve before the food-entry POST can fire. This guarantees the `off_product_mappings` row exists before the `food_entries` row that references `ingredientIndex`.
+
+---
+
+##### 9.18.4g Not-found path (barcode not in OFF)
+
+When `GET /api/food/barcode/:code` returns `{ found: false }`:
+
+**Option A — "Save to PRFMR database"** (inline mini-form in the barcode tab): name, brand, kcal/protein/carbs/fat/fibre per 100g, optional serving size. Submits to `POST /api/food/barcode/:code/create` (Zod-validated: name required ≤200 chars, kcal 0–9999, macros 0–999 each). On 201: invalidates `/api/foods/custom` cache, then re-runs `handleBarcodeLookupWithCode(code)` — the second lookup now finds the food via `storage.getCustomFoodByBarcode`, returning `source: "custom"`, `macroSource: "custom"`, `microSource: "none"`. Custom foods get no micronutrient mapping — they're macro-only entries.
+
+**Option B — "Add to My Foods"** (opens the full "Create Custom Food" sub-dialog): same data but creates a reusable food record in the user's personal library (`POST /api/foods/custom`) and immediately logs it ("Save & Log").
+
+---
+
+##### 9.18.4h Camera scanner — race-condition-safe implementation
+
+`Html5Qrcode` library, decodes: `EAN_13`, `EAN_8`, `UPC_A`, `UPC_E`, `CODE_128`.
+
+The scanner manages 6 refs to prevent race conditions (the most common Html5Qrcode crash source is calling `.start()` while a previous promise is still pending):
+
+| Ref | Type | Purpose |
+|---|---|---|
+| `isRunningRef` | boolean | True after `.start()` resolves; false after `.stop()` resolves |
+| `startingRef` | boolean | Guard: blocks re-entry while start is in progress |
+| `stoppingRef` | boolean | Guard: blocks re-entry while stop is in progress |
+| `didDecodeRef` | boolean | Set on first successful decode; prevents double-submits |
+| `cancelledRef` | boolean | Set when user taps "Stop" — aborts the stop-then-restart cycle |
+| `startCountRef` | number | Debug counter, surfaced in the debug panel |
+
+Camera fallback sequence: try `{ facingMode: "environment" }` (rear camera) → on any error, retry with `{ facingMode: "user" }` (front/selfie camera). Required because desktop Chrome rejects `"environment"` entirely.
+
+Debug panel (toggled by `data-testid="button-scanner-debug"`, `text-[10px] font-mono`): shows `window.isSecureContext`, `window.location.origin`, `!!navigator.mediaDevices`, camera device count, `startCountRef`, last error string, and user agent. Keep this in a replication — it has proven diagnostic value for real device-specific permission and HTTPS enforcement issues.
+
+Once a decode fires, `stopScan()` is called, then `handleBarcodeLookupWithCode(decodedBarcode)` — the same function used by the manual "Lookup" button. The scanner viewport is a fixed `div#reader` (`min-h-[200px] rounded-lg border bg-black`) that Html5Qrcode injects its `<video>` into; it is `display: block` while scanning, `display: none` otherwise.
 
 #### 9.18.5 Custom tab & "Add to My Foods" sub-dialog
 
@@ -9338,4 +9789,1402 @@ isBetaFull(): Promise<boolean>
 ```
 
 ---
+
+
+---
+
+## §29 Authentication & Identity System — Complete Mobile Replication Guide
+
+This section documents every aspect of the PRFMR authentication system: server architecture, all API endpoints, each screen's exact UI, every edge-case error, and a step-by-step guide to replicating the full flow in a React Native / Expo mobile app.
+
+---
+
+### 29.1 Architecture Overview
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Session store | PostgreSQL via `connect-pg-simple` | Table: `session` (auto-created) |
+| Password hashing | Argon2 (`argon2` npm) | Server-side only, never returned to client |
+| Session middleware | `express-session` | Cookie-based, `httpOnly`, `sameSite: lax` |
+| Auth framework | Passport.js | Two strategies: `local` + `google-oauth20` |
+| Google OAuth | `passport-google-oauth20` | Requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| Email | Resend via `server/lib/email.ts` | From: `team@prfmr.link` |
+| Token storage | PostgreSQL `email_verification_tokens`, `password_reset_tokens` | SHA-256 hashed in DB |
+| Client state | TanStack Query + `localStorage` | `fitness_app_username` key persisted locally |
+| Rate limiting | `express-rate-limit` | Auth/login: 10 req/15 min; resend: 3 req/15 min; forgot-password: 5 req/15 min |
+
+**Two-table identity model:**
+- `users_auth` — credentials, email, provider, emailVerified
+- `users` — profile data, nutrition targets, onboarding state. Linked via `authUserId` FK.
+
+Both rows are created atomically in a DB transaction at registration. Google sign-in creates both rows on first login.
+
+---
+
+### 29.2 Session Lifetime
+
+```
+Browser (web):  30 days   (BROWSER_SESSION_MAX_AGE)
+PWA standalone: 90 days   (PWA_SESSION_MAX_AGE)
+```
+
+The server detects PWA mode via the `X-App-Mode: standalone` request header. Any authenticated request from a PWA client extends the session to 90 days on every request.
+
+**Mobile implication:** React Native does not use cookies. You will replace sessions with JWT or a token-based system. See §29.11 for the recommended mobile auth architecture.
+
+---
+
+### 29.3 Complete API Endpoint Reference
+
+All auth routes are mounted at `/api/auth/`. Google OAuth routes are mounted at the root (`/auth/google`).
+
+| Method | Path | Auth required | Rate limit | Purpose |
+|---|---|---|---|---|
+| `POST` | `/api/auth/register` | No | 10/15min | Create account with invite code |
+| `POST` | `/api/auth/login` | No | 10/15min | Local (email/username + password) login |
+| `POST` | `/api/auth/logout` | No | None | Destroy session |
+| `GET` | `/api/auth/me` | No | None | Get current user (401 if unauthenticated) |
+| `POST` | `/api/auth/resend-verification` | Yes | 3/15min | Resend email verification link |
+| `GET` | `/api/auth/verify-email?token=` | No | None | Consume verification token → redirect |
+| `POST` | `/api/auth/forgot-password` | No | 5/15min | Request password reset email |
+| `POST` | `/api/auth/reset-password` | No | 10/15min | Consume reset token + set new password |
+| `POST` | `/api/auth/change-email` | Yes | 10/15min | Change email (re-verification required) |
+| `GET` | `/api/auth/username-available?username=` | No | None | Live availability check |
+| `PATCH` | `/api/auth/username` | Yes | None | Change username (max 3/24h) |
+| `GET` | `/auth/google` | No | None | Initiate Google OAuth flow |
+| `GET` | `/auth/google/callback` | No | None | Google OAuth callback |
+| `GET` | `/api/auth/debug/email-config` | Yes | None | Email service config (dev/debug) |
+
+---
+
+### 29.4 Registration Flow (Invite-Only)
+
+PRFMR registration is **invite-only**. There is no open signup. The flow:
+
+```
+User receives invite email (code + pre-filled URL)
+  → /signup?email=X&invite=CODE
+  → Client validates invite: GET /api/invites/validate?token=CODE
+    → 200 { valid: true, email: "..." }  OR  { valid: false, error: "..." }
+  → User fills: email, username, password, confirmPassword
+  → POST /api/auth/register { email, username, password, inviteToken, source }
+    Server transaction:
+      1. Count active users → check beta cap (default 200)
+         → if full: 403 "Beta is currently full", add email to beta_waitlist
+      2. Redeem invite: UPDATE invites SET uses+1 WHERE tokenHash=? AND expires>now AND uses<maxUses
+         → if no row: 403 "Invalid, expired, or already used"
+      3. Determine source (from request body or invite request table)
+      4. INSERT users_auth (email, username, passwordHash, source)
+      5. INSERT users (username, authUserId, source)
+      6. UPDATE invites SET usedByUserId=newUserId
+    Post-transaction (async, fire-and-forget):
+      - sendVerificationEmail(email, username, token)
+      - sendWelcomeEmail(email, username)
+    req.login() → session created
+    → 201 { user: { id, email, username, emailVerified: false } }
+  → Client redirects to /onboarding
+```
+
+**Invite token lifecycle:**
+- Tokens are hex strings, stored as SHA-256 hash in `invites.tokenHash`
+- `invites.maxUses` default = 1 (one-time use); `invites.expiresAt` = 7 days from issue
+- Pre-filled invite URL format: `/signup?email=ENCODED_EMAIL&invite=RAW_TOKEN`
+- If user lands on `/signup` without `?invite=`, they see a manual code entry screen
+
+**Source tracking:**
+- `localStorage.getItem("prfmr_source")` is read at registration and sent as `source` field
+- Falls back to the invite request's source if not in request body
+- Stored on both `users_auth.source` and `users.source`
+
+---
+
+### 29.5 Login Flow — Local Strategy
+
+```
+POST /api/auth/login
+Body: { identifier: string, password: string }
+
+identifier can be email OR username (case-insensitive)
+Server:
+  1. Normalise: identifier.toLowerCase().trim()
+  2. If contains "@": look up by email; else by username
+  3. If user.passwordHash is null → 401 "This account uses Google login. Please sign in with Google."
+  4. argon2.verify(user.passwordHash, password)
+  5. req.login() → session
+  → 200 { user: { id, email, username, emailVerified } }
+
+Error responses:
+  400  Validation error (empty identifier or password)
+  401  "Invalid credentials." (wrong password or user not found — deliberately vague)
+  401  "This account uses Google login. Please sign in with Google."
+  500  Login failed (session error)
+```
+
+**Client behaviour on success:**
+- Sets TanStack Query cache key `["/api/auth/me"]` to the returned user
+- Invalidates `["/api/user/me"]`
+- Stores `fitness_app_username` in `localStorage`
+- Shows toast: "Welcome back / Signed in as {username}"
+
+**Client behaviour on error:**
+- Destructive toast with the server error message
+
+---
+
+### 29.6 Google OAuth Flow
+
+```
+1. User taps "Continue with Google"
+   → window.location.href = "/auth/google"   (full navigation, not fetch)
+
+2. Server: GET /auth/google
+   → Passport redirects to Google accounts.google.com
+   → Scopes: profile, email
+   → callbackURL: APP_BASE_URL/auth/google/callback
+
+3. User authenticates on Google
+
+4. Server: GET /auth/google/callback
+   Google strategy callback:
+     a. Extract email from profile.emails[0].value (lowercase)
+     b. Look up existing user by email in users_auth
+     
+     CASE A — Existing Google user (provider="google", providerUserId matches):
+       → log in immediately
+     
+     CASE B — Existing local user, unverified:
+       → return null → redirect to /login?error=google_auth_failed
+       → Error message: "An account with this email exists but is not verified."
+     
+     CASE C — Existing local user, verified:
+       → UPDATE users_auth: provider="google", providerUserId=googleId, emailVerified=true
+       → log in (account linked to Google)
+     
+     CASE D — New user:
+       → Generate username from displayName (lowercase, strip non-alphanumeric, max 16 chars)
+       → Ensure uniqueness with numeric suffix loop
+       → INSERT users_auth (provider="google", emailVerified=true, source="google")
+       → INSERT users (username, authUserId, source="google")
+       → log in
+   
+   → req.login() → session
+   → redirect to /dashboard
+
+5. On failure:
+   → redirect to /login?error=google_auth_failed
+```
+
+**Client-side Google error handling (`login.tsx`):**
+```
+const googleError = new URLSearchParams(window.location.search).get("error") === "google_auth_failed"
+```
+If true, renders a red error banner: "Google sign-in failed. Please try again or use email login."
+
+**Google strategy is conditional:** Only registered if both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` env vars are present. If not configured, the Google button still renders but the server route does not exist.
+
+---
+
+### 29.7 Email Verification Flow
+
+New accounts start with `emailVerified: false`. The app does **not** block access behind email verification — users can log in and use the app — but certain features may show prompts.
+
+```
+POST /api/auth/register (or Google login)
+  → createVerificationToken(userId):
+      1. crypto.randomBytes(32).toString("hex")  → raw token
+      2. sha256(rawToken)                         → tokenHash (stored in DB)
+      3. DELETE any existing token for userId
+      4. INSERT email_verification_tokens { userId, tokenHash, expiresAt: +24h }
+      5. Return raw token
+  → sendVerificationEmail(email, username, rawToken)
+      URL: APP_BASE_URL/api/auth/verify-email?token=RAW_TOKEN
+
+User clicks email link:
+  GET /api/auth/verify-email?token=RAW_TOKEN
+    1. sha256(token) → look up in email_verification_tokens
+    2. Check expiry (24 hours)
+    3. UPDATE users_auth SET emailVerified=true, emailVerifiedAt=now
+    4. DELETE token record
+    → redirect /verify-email?success=1    (success)
+    → redirect /verify-email?error=...   (invalid/expired/server)
+
+/verify-email page renders one of three states:
+  success=1     → green CheckCircle, "Email Verified!", button → /dashboard
+  error=...     → red XCircle, error message, button → /login
+  (no params)   → blue Mail icon, "Check Your Email", button → /login
+```
+
+**Resend verification:**
+```
+POST /api/auth/resend-verification  (requires auth session, rate-limited 3/15min)
+  → If already verified: 200 "Email already verified."
+  → Else: createVerificationToken + sendVerificationEmail
+  → Always 200 (no enumeration)
+```
+
+**Reminder blast (admin):**
+```
+POST /api/admin/send-verification-reminders
+  Auth: X-Admin-Secret header OR authenticated session
+  → Queries all users where emailVerified=false
+  → For each: createVerificationToken + sendVerificationReminderEmail
+  → Returns { total, sent, failed, results[] }
+```
+
+---
+
+### 29.8 Password Reset Flow
+
+```
+POST /api/auth/forgot-password { email: string }
+  Rate: 5/15min
+  → Always returns 200 with generic message (no enumeration):
+    "If that email is registered, you will receive a password reset link."
+  → If user exists:
+      createPasswordResetToken(userId) → raw token (stored as sha256 hash, 1hr TTL)
+      sendPasswordResetEmail(email, username, rawToken)
+        URL: APP_BASE_URL/reset-password?token=RAW_TOKEN
+
+/reset-password?token=... page:
+  Reads token from URL query params on mount
+  Fields: newPassword, confirmPassword
+  Password requirements (live indicators):
+    ✓ At least 8 characters
+    ✓ Contains a letter
+    ✓ Contains a number
+  Password strength label: Too short / Weak / Good / Strong
+    (scored by lowercase, uppercase, digit, special char, length≥12 presence)
+
+POST /api/auth/reset-password { token: string, password: string }
+  → verifyPasswordResetToken: sha256(token) → look up, check expiry
+  → argon2.hash(newPassword) → UPDATE users_auth.passwordHash
+  → invalidatePasswordResetToken (delete from DB)
+  → 200 "Password reset successful."
+  → Client shows success state, button → /login
+
+Error states:
+  400  Validation error (password too short, missing letter/number)
+  400  "Invalid or expired reset link"
+  500  Server error
+```
+
+---
+
+### 29.9 Session / Logout
+
+```
+POST /api/auth/logout
+  req.logout()
+  req.session.destroy()
+  res.clearCookie("connect.sid")
+  → 200 { ok: true }
+
+Client (useLogout hook):
+  - Sets ["/api/auth/me"] cache to null
+  - queryClient.clear() — clears all cached data
+  - localStorage.removeItem("fitness_app_username")
+  - Navigates to /
+  - Toast: "Signed out / You have been logged out."
+```
+
+**GET /api/auth/me — the auth check:**
+```
+→ 401 { message: "Not authenticated" }  if no session
+→ 200 { user: { id, email, username, emailVerified } }
+
+Client (useAuth hook):
+  - queryKey: ["/api/auth/me"]
+  - staleTime: 5 minutes
+  - retry: false (don't retry 401s)
+  - On success: syncs username to localStorage
+  - On 401: clears localStorage username
+```
+
+---
+
+### 29.10 Username Change
+
+```
+PATCH /api/auth/username { username: string }
+  Requires: auth session
+
+Validation pipeline:
+  1. validateUsername(raw) from shared/username-validation.ts
+     Rules: 3–20 chars, a-z 0-9 . _ only, cannot start/end with . or _,
+            no consecutive . or _, no reserved words
+  2. Normalise: lowercase + trim
+  3. Cannot be same as current username
+  4. Rate limit: max 3 changes per 24-hour window (checked against username_changes table)
+  5. Check uniqueness in users_auth
+
+On success:
+  → UPDATE users_auth.username
+  → UPDATE users.username (profile table)
+  → INSERT username_changes { userId, oldUsername, newUsername }
+
+Error codes:
+  400  VALIDATION_ERROR / SAME_USERNAME / INVALID_FORMAT
+  409  USERNAME_TAKEN
+  429  RATE_LIMITED { nextAllowedAt: ISO timestamp }
+```
+
+**Live availability check (used in registration forms):**
+```
+GET /api/auth/username-available?username=RAW_VALUE
+→ { available: boolean, error?: string }
+
+Client hook: useUsernameValidation
+  - Debounces 500ms
+  - States: idle | checking | available | taken | invalid
+  - Shows spinner while checking, green ✓ or red ✗ inline below input
+```
+
+---
+
+### 29.11 UI Screens — Complete Element Reference
+
+#### 29.11.1 Login Screen (`/login`)
+
+**Layout:** Two-column on desktop (lg+), single-column on mobile. Left = form, right = hero image (boxer photo, `fight_action_1.jpg`, gradient overlay, tagline "Make weight. Peak on fight night. No guessing.").
+
+**Elements:**
+| Element | testid | Notes |
+|---|---|---|
+| PRFMR logo icon | — | 48×48px orange rounded-xl, Activity icon |
+| Heading | — | "Welcome back" |
+| Subtext | — | "Sign in to continue tracking your nutrition and training." |
+| Google error banner | `text-google-error` | Only shown if `?error=google_auth_failed` in URL |
+| Google button | `button-google-login` | Full-width, outline variant, Google icon (react-icons/si SiGoogle) |
+| Divider | — | "or" text divider |
+| Identifier input | `input-identifier` | Label: "Email or Username", placeholder: "you@example.com or username" |
+| Password input | `input-password` | h-12, right-padded for toggle |
+| Password toggle | `button-toggle-password` | Eye / EyeOff icon |
+| Sign In button | `button-login` | Disabled while pending or inputs empty. ArrowRight icon with hover translate |
+| Forgot password link | `link-forgot-password` | → /forgot-password |
+| Register link | `link-register` | → /start ("Request an invite") |
+
+**Animations:** Framer Motion `opacity: 0 → 1, y: 20 → 0` on heading; delayed fade on form.
+
+**Google button click:** `window.location.href = "/auth/google"` — full page navigation (not fetch), required for OAuth redirect chain.
+
+---
+
+#### 29.11.2 Signup Screen (`/signup`)
+
+**Two render states depending on invite validity:**
+
+**State A — No invite / invalid invite (gate screen):**
+| Element | testid | Notes |
+|---|---|---|
+| Heading | `text-invite-invalid` | "Enter your invite code" |
+| Error detail | `text-invite-error-detail` | e.g. "No invite code provided." |
+| Invite code input | `input-invite-code` | Monospace, centred, tracks to uppercase, font size lg |
+| Validate button | `button-validate-code` | Disabled while empty or validating |
+| Request invite button | `button-request-invite` | → /start |
+| Sign in link | `link-login` | → / |
+
+**State B — Valid invite (registration form):**
+| Element | testid | Notes |
+|---|---|---|
+| Email input | `input-email` | Pre-filled from `?email=` query param |
+| Username input | `input-username` | With live availability indicator |
+| Username status | `text-username-checking / available / error` | Inline below input |
+| Password input | `input-password` | With visibility toggle |
+| Password requirements | — | Live ✓/✗: 8+ chars, letter, number |
+| Confirm password | `input-confirm-password` | |
+| Passwords match indicator | — | Live ✓/✗ |
+| Submit button | `button-register` | "Create Account" / "Creating account..." |
+| Server error | `text-server-error` | Red banner, shown on API error |
+| Sign in link | `link-login` | → / |
+
+**On mount:** Immediately validates invite token: `GET /api/invites/validate?token=`. Shows loading spinner ("Validating your invite...") during this check. If invalid, shows State A. If valid and `?email=` param exists, pre-fills email field.
+
+**Post-registration redirect:** → `/onboarding` (not dashboard)
+
+---
+
+#### 29.11.3 Register Screen (`/register`)
+
+An alternative registration page without invite-code validation (used internally / for direct admin-created accounts). Identical form to Signup State B except no invite token gate and no source tracking from URL params. Redirects to `/onboarding` on success.
+
+---
+
+#### 29.11.4 Verify Email Screen (`/verify-email`)
+
+Three pure render states based on URL query params:
+
+**Success (`?success=1`):**
+- Large green CheckCircle (64×64px, `bg-green-500/10`)
+- "Email Verified!" heading
+- "Your email has been successfully verified."
+- Button `button-go-to-dashboard` → /dashboard
+
+**Error (`?error=...`):**
+- Large red XCircle (`bg-destructive/10`)
+- "Verification Failed"
+- Error message mapping:
+  - `invalid` / `"Invalid or expired token"` → "This verification link is invalid or has already been used."
+  - `"Token has expired"` → "This verification link has expired. Please request a new one."
+  - `server` → "A server error occurred. Please try again later."
+- Button `button-go-to-login` → /login
+
+**Neutral (no params — user arrived directly):**
+- Blue Mail icon (`bg-primary/10`)
+- "Check Your Email"
+- "We sent you a verification link. Click the link in your email to verify your account."
+- Button `button-back-to-login` → /login
+
+---
+
+#### 29.11.5 Forgot Password Screen (`/forgot-password`)
+
+**State A — Input:**
+| Element | testid | Notes |
+|---|---|---|
+| Heading | — | "Reset password" |
+| Subtext | — | "Enter your email and we'll send you a reset link." |
+| Email input | `input-email` | Mail icon prefix, `h-12 pl-10` |
+| Send Reset Link button | `button-send-reset` | Disabled while pending or email empty |
+| Back to Sign In | `link-back-to-login` | Ghost button |
+
+**State B — Submitted (both success and error render this — no enumeration):**
+- Green CheckCircle banner: "If that email is registered, you will receive a password reset link. Check your inbox and spam folder."
+- Back to Sign In button `button-back-to-login`
+
+Note: `onError` also sets `submitted=true`, so the UI is identical regardless of whether an email was found.
+
+---
+
+#### 29.11.6 Reset Password Screen (`/reset-password`)
+
+**On mount:** Reads `?token=` from URL. If missing, shows error state.
+
+| Element | testid | Notes |
+|---|---|---|
+| New Password | `input-password` | Lock icon prefix, visibility toggle |
+| Password strength | `text-password-strength` | "Too short / Weak / Good / Strong" with colour |
+| Confirm Password | `input-confirm-password` | Lock icon prefix, separate visibility toggle |
+| Passwords mismatch | `text-password-mismatch` | Live red warning |
+| Error banner | `text-error` | AlertCircle icon + destructive styling |
+| Reset Password button | `button-reset-password` | Disabled until both fields valid, token present |
+| Sign in link | `link-login` | → / |
+
+**Password strength scoring:**
+```
+< 8 chars              → "Too short"  (red)
+≥ 8, strength < 3      → "Weak"       (orange)
+≥ 8, strength 3        → "Good"       (yellow)
+≥ 8, strength 4+       → "Strong"     (green)
+
+Strength points: lowercase present (+1), uppercase (+1), digit (+1), special char (+1), length≥12 (+1)
+```
+
+**On success:** Heading changes to "Password reset!", shows green CheckCircle banner, `button-go-to-login` → /.
+
+---
+
+### 29.12 Mobile Replication Guide (React Native / Expo)
+
+The web app uses HTTP-only session cookies, OAuth redirects, and server-side session storage — none of which translate directly to React Native. This section maps each web concept to the recommended mobile approach.
+
+---
+
+#### 29.12.1 Replace Sessions with JWT
+
+The PRFMR Express backend manages sessions in PostgreSQL. For mobile, add a parallel JWT-based auth path:
+
+```
+Option A — Add JWT to existing Express server:
+  POST /api/auth/login  → return { user, accessToken, refreshToken }
+  accessToken: JWT, 15min expiry (HS256 or RS256)
+  refreshToken: opaque token, stored in DB, 90-day expiry
+  Mobile client: store tokens in expo-secure-store (NOT AsyncStorage)
+
+Option B — Use a managed auth service (Clerk, Supabase Auth, Firebase Auth):
+  Most support Google OAuth on mobile natively
+  Map external user ID to PRFMR userId via a users_auth.providerUserId lookup
+  Still need to call PRFMR API for all data endpoints
+```
+
+**Secure storage in Expo:**
+```javascript
+import * as SecureStore from 'expo-secure-store';
+await SecureStore.setItemAsync('access_token', token);
+const token = await SecureStore.getItemAsync('access_token');
+```
+
+**Add token middleware to Express (parallel to session middleware):**
+```typescript
+// In requireAuth middleware — check both session (web) and Bearer token (mobile)
+export function requireAuth(req, res, next) {
+  // 1. Session (existing web path)
+  if (req.isAuthenticated()) return next();
+  
+  // 2. Bearer token (new mobile path)
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.slice(7);
+    try {
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = { id: payload.userId, email: payload.email, username: payload.username };
+      return next();
+    } catch { /* fall through */ }
+  }
+  
+  res.status(401).json({ message: "Unauthorized" });
+}
+```
+
+---
+
+#### 29.12.2 Google OAuth on Mobile
+
+Web app uses redirect-based OAuth (`window.location.href = "/auth/google"`). Mobile uses a different flow:
+
+**Recommended: `expo-auth-session` + Google Identity**
+
+```javascript
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const [request, response, promptAsync] = Google.useAuthRequest({
+  androidClientId: 'YOUR_ANDROID_CLIENT_ID',
+  iosClientId: 'YOUR_IOS_CLIENT_ID',
+  webClientId: 'YOUR_WEB_CLIENT_ID',  // same GOOGLE_CLIENT_ID as web
+});
+
+// On button press:
+await promptAsync();
+
+// On response:
+if (response?.type === 'success') {
+  const { authentication } = response;
+  // Send ID token to your server:
+  const res = await fetch('/api/auth/google/mobile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${appToken}` },
+    body: JSON.stringify({ idToken: authentication.idToken }),
+  });
+  // Server verifies idToken with Google, creates/links account, returns JWT
+}
+```
+
+**New server endpoint for mobile Google auth:**
+```typescript
+POST /api/auth/google/mobile
+Body: { idToken: string }
+  → Verify idToken with Google: POST https://oauth2.googleapis.com/tokeninfo?id_token=TOKEN
+  → Extract email, sub (Google ID), displayName
+  → Run the same account lookup/create logic as the web Google strategy (§29.6)
+  → Return { accessToken, refreshToken, user }
+```
+
+**Google Cloud Console setup for mobile:**
+- Add iOS Bundle ID → generates `iosClientId`
+- Add Android Package Name + SHA-1 fingerprint → generates `androidClientId`
+- Web client ID (`GOOGLE_CLIENT_ID`) used for token verification on server
+- Authorised redirect URIs: add `https://auth.expo.io/@your-username/prfmr`
+
+---
+
+#### 29.12.3 Invite-Only Registration on Mobile
+
+The invite validation logic is fully server-side and works unchanged from mobile:
+
+```javascript
+// Step 1: Validate invite code
+const validateRes = await fetch(`/api/invites/validate?token=${encodeURIComponent(code)}`);
+const { valid, email, error } = await validateRes.json();
+
+// Step 2: Register
+const registerRes = await fetch('/api/auth/register', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email, username, password, inviteToken: code, source: 'mobile' }),
+});
+```
+
+**Mobile invite entry UX recommendations:**
+- Show a fullscreen invite code input as the first screen
+- Use a large monospaced input with auto-capitalisation off, letter-spacing
+- Auto-advance on paste (detect 10+ char paste → auto-submit validation)
+- Deep-link support: `prfmr://signup?invite=CODE` opens the app directly to the form with the code pre-filled
+  ```
+  // In Expo: configure in app.json
+  "scheme": "prfmr"
+  // Deep link handler
+  Linking.addEventListener('url', ({ url }) => {
+    const invite = new URL(url).searchParams.get('invite');
+    if (invite) navigateTo('Signup', { invite });
+  });
+  ```
+
+---
+
+#### 29.12.4 Email Verification on Mobile
+
+The verification link in the email goes to `APP_BASE_URL/api/auth/verify-email?token=...` which is a web URL. On mobile you have two options:
+
+**Option A — Deep link interception (recommended):**
+Configure the mobile app to intercept `app.prfmr.link` links:
+```json
+// app.json (Expo)
+"intentFilters": [
+  { "action": "VIEW", "data": [{ "scheme": "https", "host": "app.prfmr.link" }], "category": ["BROWSABLE", "DEFAULT"] }
+]
+```
+Then handle the `/api/auth/verify-email?token=...` URL in the app and call the API programmatically.
+
+**Option B — Web fallback:**
+The verification link opens in a browser. After success, redirect to `prfmr://verify-email?success=1` which the app catches. Works out of the box with no server changes.
+
+```typescript
+// On server: change the success redirect to include app deep link
+res.redirect(`/verify-email?success=1&appRedirect=prfmr%3A%2F%2Fverify-success`);
+```
+
+**Resend verification from mobile:**
+```javascript
+// Requires auth Bearer token
+await fetch('/api/auth/resend-verification', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${accessToken}` },
+});
+```
+
+---
+
+#### 29.12.5 Password Reset on Mobile
+
+The reset email link goes to `APP_BASE_URL/reset-password?token=...`. Same two options as email verification:
+
+**Recommended — deep link:**
+```
+prfmr://reset-password?token=RAW_TOKEN
+```
+Intercept this in the app, extract the token, navigate to ResetPasswordScreen.
+
+**Reset password API call (unchanged):**
+```javascript
+await fetch('/api/auth/reset-password', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ token, password }),
+});
+```
+
+---
+
+#### 29.12.6 Username Validation Hook (Mobile)
+
+Port the `useUsernameValidation` hook logic to React Native:
+
+```javascript
+// Core validation (same rules as server's validateUsername):
+const USERNAME_REGEX = /^[a-z0-9._]{3,20}$/;
+const INVALID_PATTERNS = [/^[._]/, /[._]$/, /[._]{2}/];
+
+function validateUsernameFormat(raw) {
+  const normalised = raw.toLowerCase().trim();
+  if (normalised.length < 3) return { valid: false, error: 'At least 3 characters' };
+  if (normalised.length > 20) return { valid: false, error: 'Max 20 characters' };
+  if (!USERNAME_REGEX.test(normalised)) return { valid: false, error: 'Letters, numbers, . and _ only' };
+  if (INVALID_PATTERNS.some(p => p.test(normalised))) return { valid: false, error: 'Cannot start/end with . or _ or use them consecutively' };
+  return { valid: true, normalised };
+}
+
+// Availability check (debounced 500ms):
+const checkAvailability = useCallback(
+  debounce(async (username) => {
+    const res = await fetch(`/api/auth/username-available?username=${encodeURIComponent(username)}`);
+    const { available, error } = await res.json();
+    setStatus(available ? 'available' : error ? 'invalid' : 'taken');
+  }, 500),
+  []
+);
+```
+
+**Status indicator component:**
+- `idle` → nothing
+- `checking` → spinner
+- `available` → green ✓ "Username available"
+- `taken` → red ✗ "Username already taken"
+- `invalid` → red ✗ server error message
+
+---
+
+#### 29.12.7 Password Requirements Component (Mobile)
+
+Used on signup and reset password screens:
+
+```javascript
+const requirements = [
+  { met: password.length >= 8, text: 'At least 8 characters' },
+  { met: /[a-zA-Z]/.test(password), text: 'Contains a letter' },
+  { met: /[0-9]/.test(password), text: 'Contains a number' },
+];
+
+// Render each:
+{requirements.map(({ met, text }) => (
+  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <Icon name={met ? 'check' : 'x'} color={met ? '#22c55e' : '#6b7280'} size={12} />
+    <Text style={{ color: met ? '#22c55e' : '#6b7280', fontSize: 12 }}>{text}</Text>
+  </View>
+))}
+```
+
+**Password strength meter (reset password screen):**
+```javascript
+function getPasswordStrength(password) {
+  if (!password) return null;
+  if (password.length < 8) return { text: 'Too short', color: '#ef4444' };
+  let score = 0;
+  if (/[a-z]/.test(password)) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/\d/.test(password)) score++;
+  if (/[^a-zA-Z0-9]/.test(password)) score++;
+  if (password.length >= 12) score++;
+  if (score < 3) return { text: 'Weak', color: '#f97316' };
+  if (score < 4) return { text: 'Good', color: '#eab308' };
+  return { text: 'Strong', color: '#22c55e' };
+}
+```
+
+---
+
+#### 29.12.8 Auth State Management on Mobile
+
+Replace TanStack Query auth check with a React Context + SecureStore pattern:
+
+```javascript
+// AuthContext.tsx
+const AuthContext = createContext(null);
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Restore session on app start
+    (async () => {
+      const token = await SecureStore.getItemAsync('access_token');
+      if (token) {
+        try {
+          const res = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const { user } = await res.json();
+            setUser(user);
+          } else {
+            // Token expired — try refresh
+            await refreshTokens();
+          }
+        } catch { /* network error — keep user null */ }
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  const login = async ({ identifier, password }) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message);
+    await SecureStore.setItemAsync('access_token', data.accessToken);
+    await SecureStore.setItemAsync('refresh_token', data.refreshToken);
+    setUser(data.user);
+  };
+
+  const logout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${await SecureStore.getItemAsync('access_token')}` } });
+    await SecureStore.deleteItemAsync('access_token');
+    await SecureStore.deleteItemAsync('refresh_token');
+    setUser(null);
+  };
+
+  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
+}
+
+export const useAuth = () => useContext(AuthContext);
+```
+
+---
+
+#### 29.12.9 Navigation Guards
+
+```javascript
+// RootNavigator.tsx
+function RootNavigator() {
+  const { user, loading } = useAuth();
+
+  if (loading) return <SplashScreen />;
+
+  if (!user) {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Signup" component={SignupScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+        <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+      </Stack.Navigator>
+    );
+  }
+
+  // New user → onboarding
+  if (!user.profile?.gender) {
+    return <OnboardingNavigator />;
+  }
+
+  return <MainTabNavigator />;
+}
+```
+
+---
+
+#### 29.12.10 Env Vars & Configuration Checklist
+
+| Item | Web value | Mobile equivalent |
+|---|---|---|
+| `SESSION_SECRET` | Used by server | Not needed on mobile client |
+| `GOOGLE_CLIENT_ID` | Web OAuth client | Also used for server-side token verification |
+| `GOOGLE_CLIENT_SECRET` | Web OAuth only | Same, server-side only |
+| iOS Google client ID | N/A | Add in Google Cloud Console |
+| Android Google client ID | N/A | Add with SHA-1 fingerprint |
+| `JWT_SECRET` | Not in web app | Add to server for mobile JWT |
+| `APP_BASE_URL` | `https://app.prfmr.link` | Same — mobile calls same API |
+| Deep link scheme | N/A | `prfmr` → configure in app.json |
+| Deep link host | N/A | `app.prfmr.link` (Associated Domains / App Links) |
+
+---
+
+#### 29.12.11 Rate Limits — Mobile Behaviour
+
+The server rate limits by IP. Mobile users on the same carrier NAT may share IPs. Consider:
+- Displaying user-friendly messages when 429 is returned
+- Surfacing `Retry-After` header if present
+- The limits are: login 10/15min, register 10/15min, resend-verification 3/15min, forgot-password 5/15min
+
+```javascript
+if (res.status === 429) {
+  const data = await res.json();
+  showToast({ title: 'Too many attempts', message: data.message, variant: 'destructive' });
+  return;
+}
+```
+
+---
+
+#### 29.12.12 Username Change Constraints (Mobile)
+
+Rate limit: 3 changes per 24-hour window. On `429` the response includes:
+```json
+{ "error": "Too many username changes.", "code": "RATE_LIMITED", "nextAllowedAt": "2026-07-18T10:00:00.000Z" }
+```
+Surface `nextAllowedAt` as a human-readable countdown: "You can change your username again in 4 hours."
+
+---
+
+#### 29.12.13 Email Change (Mobile)
+
+```javascript
+// Requires auth
+POST /api/auth/change-email { newEmail: string }
+  → Resets emailVerified to false
+  → Sends new verification email
+  → 200 "Email updated. Please verify your new email address."
+  → 409 "Email already in use"
+  → 502 "Email service error"
+```
+After a successful email change, show a prompt to the user to check their new inbox.
+
+---
+
+### 29.13 Security Notes for Mobile Replication
+
+1. **Never store tokens in AsyncStorage** — it is unencrypted. Always use `expo-secure-store` (iOS Keychain / Android Keystore backed).
+2. **Access token expiry** — keep short (15 minutes). Implement silent refresh using the refresh token before expiry.
+3. **Jailbreak/root detection** — consider `expo-device` checks before allowing biometric or token storage on compromised devices.
+4. **Certificate pinning** — optional but recommended for a health app; use `expo-ssl-pinning` or configure in native modules.
+5. **No password in memory** — clear password state after successful login: `setPassword('')`.
+6. **Google ID token verification** — always verify `idToken` server-side via Google's tokeninfo endpoint. Never trust the client's claimed Google ID.
+7. **Argon2 is server-only** — passwords are hashed on the server. The mobile app sends plain passwords over HTTPS to the `/api/auth/login` endpoint. This is correct and expected — do not hash client-side.
+
+---
+
+### 29.14 Screen Screenshots — All Auth Pages & Variants
+
+All screenshots taken from the live dev build at 1280×720. Mobile implementations should match these layouts, adapted for native UI conventions.
+
+---
+
+#### 29.14.1 Login — Default State
+
+> Route: `/login`
+> Two-column layout (lg+). Left: form with Google button + email/password fields. Right: boxer hero image with gradient overlay and tagline.
+
+![Login — default](screenshots/auth-login.jpg)
+
+---
+
+#### 29.14.2 Login — Google Auth Error State
+
+> Route: `/login?error=google_auth_failed`
+> Identical to default but with a red error banner above the Google button. Triggered when the Google OAuth callback fails or when a user with an unverified local account tries to sign in via Google.
+
+![Login — Google error](screenshots/auth-login-google-error.jpg)
+
+---
+
+#### 29.14.3 Signup — No Invite / Invalid Invite (Gate Screen)
+
+> Route: `/signup` (no `?invite=` param, or invalid token)
+> Full-screen centred card. Large monospaced invite code input, auto-uppercases, "Continue" validates live. "Request an Invite" navigates to `/start`.
+
+![Signup — invite gate](screenshots/auth-signup-no-invite.jpg)
+
+---
+
+#### 29.14.4 Verify Email — Pending (No Params)
+
+> Route: `/verify-email`
+> Card state shown when user arrives directly (e.g. after registration). Orange Mail icon, "Check Your Email" heading, "Back to Login" button.
+
+![Verify email — pending](screenshots/auth-verify-email-pending.jpg)
+
+---
+
+#### 29.14.5 Verify Email — Success
+
+> Route: `/verify-email?success=1`
+> Shown after a valid token is consumed. Green CheckCircle icon, "Email Verified!", "Go to Dashboard" button.
+
+![Verify email — success](screenshots/auth-verify-email-success.jpg)
+
+---
+
+#### 29.14.6 Verify Email — Error (Invalid / Expired Token)
+
+> Route: `/verify-email?error=invalid`
+> Shown when token is bad or already used. Red XCircle icon, "Verification Failed", error message, "Go to Login" button.
+
+![Verify email — error](screenshots/auth-verify-email-error.jpg)
+
+---
+
+#### 29.14.7 Forgot Password — Input State
+
+> Route: `/forgot-password`
+> Two-column layout matching login. Mail icon prefixed email input, "Send Reset Link" button (disabled until email present), ghost "Back to Sign In" below.
+
+![Forgot password — input](screenshots/auth-forgot-password.jpg)
+
+---
+
+#### 29.14.8 Reset Password — Form (No Token Error State Visible)
+
+> Route: `/reset-password` (no `?token=` param)
+> The orange AlertCircle error banner ("Invalid reset link. Please request a new password reset.") appears when no token is found in the URL — this is the only state capturable without a valid token. With a valid token the banner is hidden and both password fields are enabled. Password requirements list is always visible below the confirm field.
+
+![Reset password — no token error](screenshots/auth-reset-password.jpg)
+
+---
+
+#### 29.14.9 Screenshot Summary
+
+| Screen | Variant | File |
+|---|---|---|
+| Login | Default | `screenshots/auth-login.jpg` |
+| Login | Google error banner | `screenshots/auth-login-google-error.jpg` |
+| Signup | No invite / gate | `screenshots/auth-signup-no-invite.jpg` |
+| Verify Email | Pending (no params) | `screenshots/auth-verify-email-pending.jpg` |
+| Verify Email | Success | `screenshots/auth-verify-email-success.jpg` |
+| Verify Email | Error (invalid token) | `screenshots/auth-verify-email-error.jpg` |
+| Forgot Password | Input state | `screenshots/auth-forgot-password.jpg` |
+| Reset Password | No-token error state | `screenshots/auth-reset-password.jpg` |
+
+**Not capturable via URL alone (require user interaction to trigger):**
+- Login — Google button disabled/loading state (requires OAuth redirect)
+- Signup — valid invite form (requires a live invite code in query params)
+- Signup — username checking / available / taken indicators (require typing)
+- Forgot Password — submitted state (requires form submit)
+- Reset Password — success state (requires valid token + form submit)
+- Reset Password — password strength meter states (require typing)
+
+---
+
+## §30 Sport Identity Badge
+
+### 30.1 Overview
+
+The Sport Identity Badge (`SportBadge`) is a pill-shaped chip that displays the user's combat sport discipline and competition level (e.g. "Amateur Boxer", "Pro MMA", "Semi-pro Kickboxer"). It is purely a **display component** — no logic lives inside it — that renders a sport-specific icon alongside a text label, with three visual styles driven by a simple prefix detection rule.
+
+---
+
+### 30.2 Data Storage
+
+**Table:** `users`  
+**Column:** `main_sport` (`text`, nullable)
+
+```sql
+-- schema.ts
+mainSport: text("main_sport"), -- e.g. "Amateur Boxer", "Pro MMA", "Semi-pro Kickboxer"
+```
+
+The value is a **free-form string** constructed by concatenating a competition level prefix and a sport display name:
+
+```
+"<Level> <SportDisplay>"
+-- examples:
+"Amateur Boxer"
+"Pro MMA"
+"Semi-pro Kickboxer"
+"White collar Martial Artist"
+```
+
+- `null` means the user has not set a sport badge (feature is optional).
+- Max length enforced server-side: **80 characters**.
+- No enum constraint at the DB level — any string up to 80 chars is accepted.
+
+---
+
+### 30.3 Client vs. Server Responsibilities
+
+| Concern | Where handled |
+|---|---|
+| Storing `mainSport` | PostgreSQL `users.main_sport` |
+| Validation (length ≤ 80, trim) | **Server** (`PATCH /api/me/sport`) |
+| Writing to DB | **Server** via `storage.updateUser()` |
+| Parsing level prefix ("Pro ", "Amateur ", custom) | **Client** (`detectLevel()` in `SportBadge.tsx`, `openSportEditor()` in `profile.tsx`) |
+| Mapping sport display name → icon | **Client** (`SPORT_ICONS` record in `SportBadge.tsx`) |
+| Building the concatenated string | **Client** (`buildProfileMainSport(level, sport)` in `profile.tsx` and `onboarding.tsx`) |
+| Cache invalidation after save | **Client** (TanStack Query `invalidateQueries`) |
+| Badge rendering (colours, icon, text) | **Client** (`SportBadge.tsx`) |
+
+---
+
+### 30.4 The `SportBadge` Component
+
+**File:** `client/src/components/SportBadge.tsx`
+
+#### Icon map
+
+Seven sports each have a bundled PNG asset (white-outlined glyphs):
+
+```ts
+const SPORT_ICONS: Record<string, string> = {
+  "Boxer":          boxingIcon,
+  "MMA":            mmaIcon,
+  "Muay Thai":      muaythaiIcon,
+  "Kickboxer":      kickboxingIcon,
+  "BJJ":            bjjIcon,
+  "Wrestler":       wrestlingIcon,
+  "Martial Artist": traditionalIcon,
+};
+```
+
+Icon matching is case-insensitive substring search on the `mainSport` value:
+
+```ts
+function getSportIcon(mainSport: string): string | undefined {
+  const lower = mainSport.toLowerCase();
+  for (const [name, icon] of Object.entries(SPORT_ICONS)) {
+    if (lower.includes(name.toLowerCase())) return icon;
+  }
+  return undefined;
+}
+```
+
+If no match, the badge renders text only (no icon). Custom sport labels that don't match any key fall into this case.
+
+Icon render: `<img>` with CSS `filter: invert(1) brightness(2); opacity: 0.9` — forces all icons to appear white regardless of the source asset colour.
+
+#### Level detection
+
+```ts
+function detectLevel(mainSport: string): "pro" | "amateur" | "custom" {
+  const lower = mainSport.toLowerCase();
+  if (lower.startsWith("pro ")) return "pro";
+  if (lower.startsWith("amateur ")) return "amateur";
+  return "custom";  // includes "Semi-pro", "White collar", "Hobbyist", etc.
+}
+```
+
+#### Three visual variants
+
+| Detected level | Background | Border | Text colour |
+|---|---|---|---|
+| `"pro"` | `from-amber-500/25 to-yellow-400/15` | `border-amber-400/50` | `text-amber-300` (gold) |
+| `"amateur"` | `bg-primary/15` | `border-primary/30` | `text-primary` (orange) |
+| `"custom"` | `from-slate-400/20 to-slate-300/10` | `border-slate-300/40` | `text-slate-200` (silver-grey) |
+
+All three variants share: `inline-flex items-center gap-1.5 rounded-full font-semibold border`.
+
+#### Size prop
+
+| `size` | Padding | Font size |
+|---|---|---|
+| `"md"` (default) | `px-3.5 py-1.5` | `text-xs` (12px) |
+| `"sm"` | `px-2.5 py-1` | `text-[11px]` |
+
+Icons scale with size: `h-5 w-5` (md) or `h-4 w-4` (sm).
+
+#### `data-testid`
+
+All three variants render `data-testid="badge-main-sport"`.
+
+---
+
+### 30.5 Where the Badge Appears in the App
+
+| Location | Size | Condition |
+|---|---|---|
+| **Dashboard** — greeting header, inline after username `"Hello, {user.username}"` | `md` | `user.mainSport` is truthy |
+| **Profile** — identity header, below username + experience/goal line | `sm` | `user.mainSport` is truthy |
+| **Profile** — Sport Identity card, read view | `md` | `user.mainSport` is truthy |
+| **Profile** — Sport Identity card, editor preview | `md` | Sport + level both selected |
+| **Onboarding** — live preview during sport selection step | `md` | Sport + level both selected |
+
+---
+
+### 30.6 API Endpoint
+
+```
+PATCH /api/me/sport
+Authorization: session cookie required
+Content-Type: application/json
+
+Body (set):  { "mainSport": "Amateur Boxer" }
+Body (clear): { "mainSport": null }
+
+Response 200: updated User object (full users row)
+Response 400: { "message": "mainSport too long" }  (> 80 chars)
+Response 401: not authenticated
+```
+
+Server logic:
+
+```ts
+app.patch("/api/me/sport", async (req, res) => {
+  const auth = await getAuthenticatedUser(req, res);
+  if (!auth) return;
+  const { mainSport } = req.body;
+  if (mainSport !== null && mainSport !== undefined) {
+    const trimmed = String(mainSport).trim();
+    if (trimmed.length > 80) return res.status(400).json({ message: "mainSport too long" });
+    await storage.updateUser(auth.profileUser.username, { mainSport: trimmed || null });
+  } else {
+    await storage.updateUser(auth.profileUser.username, { mainSport: null });
+  }
+  const updated = await storage.getUserById(auth.profileUser.id);
+  res.json(updated);
+});
+```
+
+Key behaviours:
+- Trimmed before save. An all-whitespace string becomes `null`.
+- Sending `null` or omitting the field both clear the badge.
+- Returns the **full updated user object** — client uses this to refresh the cache.
+
+---
+
+### 30.7 How the Sport Identity Editor Works (Profile Page)
+
+**File:** `client/src/pages/profile.tsx`
+
+The editor is an **inline expand/collapse** within the "Sport Identity" card — no modal, no navigation.
+
+#### State variables
+
+```ts
+const [isEditingSport, setIsEditingSport]       = useState(false);
+const [sportPick, setSportPick]                 = useState("");  // one of PROFILE_SPORTS[].v
+const [levelPreset, setLevelPreset]             = useState<"Amateur" | "Pro" | "Custom">("Amateur");
+const [customLevelText, setCustomLevelText]     = useState("");
+const [isSavingSport, setIsSavingSport]         = useState(false);
+
+// Derived — the actual level string used in the badge:
+const levelPick = levelPreset === "Custom" ? customLevelText.trim() : levelPreset;
+```
+
+#### `openSportEditor()` — pre-populates editor from existing value
+
+When the pencil icon is clicked, the function reads `user.mainSport` and reverse-engineers it back into `levelPreset` + `sportPick`:
+
+```
+1. If starts with "pro "    → levelPreset = "Pro"
+2. If starts with "amateur " → levelPreset = "Amateur"
+3. Otherwise                → levelPreset = "Custom", customLevelText = everything before the sport display name
+4. Sport pick: find PROFILE_SPORTS entry whose `.display` appears in mainSport (case-insensitive), set sportPick = .v
+```
+
+If user has no sport set, editor opens fresh: Amateur level, no sport selected.
+
+#### Editor UI structure
+
+```
+Card: "Sport Identity"
+  Header row: "Sport Identity" title + ShieldCheck icon + Pencil button (ghost, h-8 px-2)
+  Content (isEditingSport = false):
+    → Badge display OR "No sport set" + "Set sport" outline button
+  Content (isEditingSport = true):
+    1. "Competition level" label
+       [Amateur] [Pro] [Custom]  — 3 equal-width pill buttons, flex row
+       If Custom: Input "e.g. Semi-pro, White collar, Hobbyist…" (autoFocus)
+    2. "Sport" label
+       2-column grid of photo cards (h-16 each):
+         Boxing / MMA / Muay Thai / Kickboxing / BJJ / Wrestling / Traditional martial arts
+         (last item spans 2 cols if count is odd — currently 7 items so "Trad martial arts" spans full width)
+       Each card: background photo + dark overlay (65% unselected / 40% selected)
+         + primary/15 tint if selected + orange border ring + Check icon badge (top-right)
+    3. Preview row (if sportPick set):
+       "Preview:" muted label + live SportBadge (updates as user changes level/sport)
+    4. Action row:
+       [Save] (primary, disabled if no sportPick or saving, spinner during save)
+       [Cancel] (ghost)
+       [Remove badge] (ghost, destructive colour, ml-auto — only shown if user.mainSport exists)
+```
+
+#### `PROFILE_SPORTS` — the sport picker data
+
+```ts
+const PROFILE_SPORTS = [
+  { v: "Boxing",                   display: "Boxer" },
+  { v: "MMA",                      display: "MMA" },
+  { v: "Muay Thai",                display: "Muay Thai" },
+  { v: "Kickboxing",               display: "Kickboxer" },
+  { v: "BJJ",                      display: "BJJ" },
+  { v: "Wrestling",                display: "Wrestler" },
+  { v: "Traditional martial arts", display: "Martial Artist" },
+];
+```
+
+- `.v` is what goes into `sportPick` state and used as the photo lookup key.
+- `.display` is the human-readable label used in `buildProfileMainSport()`.
+
+#### `PROFILE_SPORT_PHOTOS` — sport card background images
+
+Each sport card uses a Pexels image (300×150, auto-compress crop), except Wrestling which uses a bundled local asset (`wrestling_2_1780663494759.jpg`):
+
+```ts
+const PROFILE_SPORT_PHOTOS: Record<string, string> = {
+  "Boxing":                   "https://images.pexels.com/photos/6699106/pexels-photo-6699106.jpeg?...",
+  "MMA":                      "https://images.pexels.com/photos/5616798/pexels-photo-5616798.jpeg?...",
+  "Muay Thai":                "https://images.pexels.com/photos/11045334/pexels-photo-11045334.jpeg?...",
+  "Kickboxing":               "https://images.pexels.com/photos/13808098/pexels-photo-13808098.jpeg?...",
+  "BJJ":                      "https://images.pexels.com/photos/8611381/pexels-photo-8611381.jpeg?...",
+  "Wrestling":                wrestlingPhoto,   // local bundled asset
+  "Traditional martial arts": "https://images.pexels.com/photos/7045666/pexels-photo-7045666.jpeg?...",
+};
+```
+
+#### `buildProfileMainSport(level, sport)` — string construction
+
+```ts
+function buildProfileMainSport(level: string, sport: string): string {
+  const display = PROFILE_SPORTS.find(s => s.v === sport)?.display ?? sport;
+  return `${level} ${display}`;
+}
+// buildProfileMainSport("Amateur", "Boxing") → "Amateur Boxer"
+// buildProfileMainSport("Pro", "MMA")       → "Pro MMA"
+// buildProfileMainSport("Semi-pro", "BJJ")  → "Semi-pro BJJ"
+```
+
+#### `saveSport()` — save flow
+
+```
+1. Guard: if (!sportPick || !levelPick) return early
+2. Build string: mainSport = buildProfileMainSport(levelPick, sportPick)
+3. setIsSavingSport(true)
+4. PATCH /api/me/sport  { mainSport }
+5. On success:
+   - invalidate USER_ME_QUERY_KEY → re-fetches /api/user/me
+   - setIsEditingSport(false)
+   - toast: "Sport identity updated"
+6. On error: toast destructive "Failed to save"
+7. finally: setIsSavingSport(false)
+```
+
+#### "Remove badge" flow
+
+Inline `onClick` (no separate function):
+
+```
+1. PATCH /api/me/sport  { mainSport: null }
+2. invalidate USER_ME_QUERY_KEY
+3. setIsEditingSport(false)
+4. toast: "Sport badge removed"
+```
+
+No confirmation dialog — fires immediately on click.
+
+#### `data-testid` attributes in the editor
+
+| Element | testid |
+|---|---|
+| Pencil button (card header) | `button-edit-sport` |
+| "Set sport" button (no-sport state) | `button-set-sport` |
+| Level pill: Amateur | `button-level-amateur` |
+| Level pill: Pro | `button-level-pro` |
+| Level pill: Custom | `button-level-custom` |
+| Custom level text input | `input-custom-level` |
+| Sport photo card (each) | `button-sport-pick-{sport-v-kebab}` e.g. `button-sport-pick-boxing`, `button-sport-pick-traditional-martial-arts` |
+| Save button | `button-save-sport` |
+| Cancel button | `button-cancel-sport` |
+| Remove badge button | `button-remove-sport` |
+
+---
+
+### 30.8 Sport Set During Onboarding
+
+`mainSport` is also written in the **onboarding submit payload** (`POST /api/user/:username/onboard`). The value is constructed as:
+
+```ts
+mainSport: (() => {
+  const sport = localData.selectedSports.length === 1
+    ? localData.selectedSports[0]
+    : localData.primarySport;
+  const level = localData.competitionLevel.trim();
+  return sport && level ? buildMainSport(level, sport) : undefined;
+})()
+```
+
+- If user selected exactly one sport during onboarding, that becomes the sport.
+- If multiple sports were selected, `primarySport` (the one they nominated as primary) is used.
+- `competitionLevel` is the level string collected on the onboarding competition step.
+- If either is missing/empty, `mainSport` is `undefined` (omitted from payload → DB stays null).
+
+The onboarding submit goes to `POST /api/user/:username/onboard` (not to `PATCH /api/me/sport`), and `mainSport` is just one of many fields in that payload.
+
+---
+
+### 30.9 Mobile Replication Notes
+
+#### Data layer
+- `mainSport` is a plain string column — fetch it as part of the user profile response (already included in `GET /api/user/me`).
+- Save/clear with the same `PATCH /api/me/sport` endpoint — no changes needed.
+
+#### Badge component
+- Rebuild `detectLevel()` on the native side to drive three visual styles (gold/orange/grey).
+- The seven sport icon assets are PNGs at `client/src/assets/` — use the same files exported to your mobile bundle.
+- Apply equivalent of `filter: invert(1) brightness(2)` so icons appear white on coloured backgrounds. In React Native this is a `tintColor` prop on `<Image>`.
+- Pill shape: `borderRadius: 9999`, `borderWidth: 1`. Sizes: md = 12px font / 14×20px icon; sm = 11px font / 16×16px icon.
+
+#### Sport Identity editor
+- The editor can be a **bottom sheet or modal** on mobile (the inline expand pattern doesn't translate well to small screens).
+- Three-segment control for Amateur / Pro / Custom (maps naturally to a `SegmentedControl`).
+- Sport picker: a horizontal scroll or 2-col grid of photo cards, same selection logic.
+- Live preview badge below the picker.
+- "Remove badge" — a destructive button in the sheet footer.
+
+#### Where to show the badge
+- Dashboard greeting: inline after the username text, same row, `size="md"`.
+- Profile header: below the username line, `size="sm"`.
+- Profile sport card: in the card body, `size="md"`.
 

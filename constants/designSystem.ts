@@ -58,9 +58,9 @@ export const fontFamily = {
   sansSb: "Inter_600SemiBold",
   sansBd: "Inter_700Bold",
   
-  // Headings & display (Space Grotesk)
-  display: "SpaceGrotesk_700Bold",
-  displaySb: "SpaceGrotesk_600SemiBold",
+  // Headings & display (Inter)
+  display: "Inter_700Bold",
+  displaySb: "Inter_600SemiBold",
   
   // Monospace numbers (JetBrains Mono)
   mono: "JetBrainsMono_400Regular",
