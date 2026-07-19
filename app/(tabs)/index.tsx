@@ -1087,13 +1087,14 @@ function MorningCheckInGate({ date }: { date: string }) {
       statusBarTranslucent
     >
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        <View style={{
-          flex: 1, backgroundColor: "rgba(0,0,0,0.7)",
-          justifyContent: "center", alignItems: "center", padding: 20,
-        }}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 }}
+          onPress={markSeen}
+        >
+          <Pressable onPress={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 400 }}>
           <View style={{
-            backgroundColor: "#0b0f16", borderRadius: 14, width: "100%", maxWidth: 400,
-            borderWidth: 1.2, borderColor: "#e5e7eb", overflow: "hidden",
+            backgroundColor: "#141820", borderRadius: 14, width: "100%",
+            borderWidth: 1.5, borderColor: "#d0d5dd", overflow: "hidden",
           }}>
             {/* Header */}
             <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 0 }}>
@@ -1270,7 +1271,8 @@ function MorningCheckInGate({ date }: { date: string }) {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </KeyboardAvoidingView>
     </Modal>
   );

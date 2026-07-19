@@ -546,17 +546,17 @@ export default function SupplementsScreen() {
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <AppLogoHeader />
       <View style={[s.header, { borderBottomColor: "#e5e7eb" }]}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
-          <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
-          <Text style={[s.pageSubtitle, { color: colors.mutedForeground }]}>Track your personal supplement inventory</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Text numberOfLines={1} style={[s.pageTitle, { flex: 1, color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
+          <TouchableOpacity
+            style={[s.addBtn, { backgroundColor: colors.primary, marginLeft: 10 }]}
+            testID="button-add-supplement"
+            onPress={() => setAddOpen(true)}>
+            <Feather name="plus" size={14} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, marginLeft: 5, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={[s.addBtn, { backgroundColor: colors.primary }]}
-          testID="button-add-supplement"
-          onPress={() => setAddOpen(true)}>
-          <Feather name="plus" size={14} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, marginLeft: 5, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
-        </TouchableOpacity>
+        <Text style={[s.pageSubtitle, { color: colors.mutedForeground, marginTop: 4 }]}>Track your personal supplement inventory</Text>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
@@ -636,8 +636,7 @@ export default function SupplementsScreen() {
 // ─────────────────────────────────────────
 const s = StyleSheet.create({
   flex:       { flex: 1 },
-  header:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1 },
+  header:     { flexDirection: "column", paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1 },
   pageTitle:  { fontSize: 21, fontWeight: "800" },
   pageSubtitle: { fontSize: 13, lineHeight: 19, marginTop: 3, fontFamily: "Inter_400Regular" },
   scrollPad:  { padding: 16, gap: 18 },
