@@ -75,7 +75,7 @@ function MacroAccordionRow({
         style={styles.accordionTrigger}
       >
         <Text style={[styles.accordionTitle, { color: colors.foreground }]}>{title}</Text>
-        <Feather name={expanded ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
+        <Feather name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
       </TouchableOpacity>
       {expanded && <Text style={[styles.bodyText, { color: colors.mutedForeground }]}>{children}</Text>}
     </View>
@@ -105,7 +105,7 @@ export default function PlaybookScreen() {
       <GuideCard accent>
         <CardHeader
           accent
-          icon={<Feather name="target" size={24} color={colors.primary} />}
+          icon={<Feather name="target" size={22} color={colors.primary} />}
           title="Energy Balance is King"
         />
         <Text style={[styles.bodyText, { color: colors.mutedForeground }]}>
@@ -115,7 +115,7 @@ export default function PlaybookScreen() {
 
       <GuideCard>
         <CardHeader
-          icon={<MaterialCommunityIcons name="silverware-fork-knife" size={24} color={colors.foreground} />}
+          icon={<MaterialCommunityIcons name="silverware-fork-knife" size={22} color={colors.foreground} />}
           title="Macronutrients Matter"
         />
         <View style={{ marginTop: 10 }}>
@@ -148,7 +148,7 @@ export default function PlaybookScreen() {
 
       <GuideCard>
         <CardHeader
-          icon={<MaterialCommunityIcons name="scale-balance" size={24} color={colors.foreground} />}
+          icon={<MaterialCommunityIcons name="scale-balance" size={22} color={colors.foreground} />}
           title="Weight Fluctuations"
         />
         <Text style={[styles.bodyText, { color: colors.mutedForeground }]}>
@@ -163,7 +163,7 @@ export default function PlaybookScreen() {
 
       <GuideCard>
         <CardHeader
-          icon={<Feather name="zap" size={24} color={colors.foreground} />}
+          icon={<Feather name="zap" size={22} color={colors.foreground} />}
           title="Actionable Habits"
         />
         {[
@@ -190,22 +190,22 @@ export default function PlaybookScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, gap: 24 },
-  pageHeader: { alignItems: "center", gap: 12, marginBottom: 8 },
-  title: { fontSize: 36, lineHeight: 42, fontWeight: "800", textAlign: "center", fontFamily: "Inter_700Bold" },
-  subtitle: { fontSize: 18, lineHeight: 26, textAlign: "center", fontFamily: "Inter_400Regular" },
-  card: { borderRadius: 12, borderWidth: 1.5, padding: 20, gap: 14 },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 14 },
-  iconBox: { width: 42, height: 42, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  cardTitle: { flex: 1, fontSize: 22, lineHeight: 28, fontWeight: "800", fontFamily: "Inter_700Bold" },
-  bodyText: { fontSize: 15, lineHeight: 23, fontFamily: "Inter_400Regular" },
+  content: { paddingHorizontal: 16, gap: 20 },
+  pageHeader: { alignItems: "center", gap: 10, marginBottom: 8 },
+  title: { fontSize: 32, lineHeight: 38, fontWeight: "800", textAlign: "center", fontFamily: "Inter_700Bold" },
+  subtitle: { fontSize: 16, lineHeight: 23, textAlign: "center", fontFamily: "Inter_400Regular" },
+  card: { borderRadius: 12, borderWidth: 1.5, padding: 18, gap: 12 },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  iconBox: { width: 38, height: 38, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  cardTitle: { flex: 1, fontSize: 20, lineHeight: 25, fontWeight: "800", fontFamily: "Inter_700Bold" },
+  bodyText: { fontSize: 14, lineHeight: 21, fontFamily: "Inter_400Regular" },
   accordionItem: { borderTopWidth: 1 },
-  accordionTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  accordionTitle: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  accordionTrigger: { minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  accordionTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
   bullets: { gap: 5, marginTop: 4 },
-  habitRow: { flexDirection: "row", gap: 14, marginTop: 12 },
-  habitNum: { fontSize: 22, fontWeight: "800", fontFamily: "JetBrainsMono_700Bold" },
-  habitTitle: { fontSize: 15, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  habitText: { fontSize: 14, lineHeight: 21, marginTop: 2, fontFamily: "Inter_400Regular" },
-  disclaimer: { fontSize: 12, lineHeight: 19, textAlign: "center", paddingVertical: 16, fontFamily: "Inter_400Regular" },
+  habitRow: { flexDirection: "row", gap: 13, marginTop: 11 },
+  habitNum: { fontSize: 20, fontWeight: "800", fontFamily: "JetBrainsMono_700Bold" },
+  habitTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  habitText: { fontSize: 13, lineHeight: 19, marginTop: 2, fontFamily: "Inter_400Regular" },
+  disclaimer: { fontSize: 11, lineHeight: 17, textAlign: "center", paddingVertical: 14, fontFamily: "Inter_400Regular" },
 });
