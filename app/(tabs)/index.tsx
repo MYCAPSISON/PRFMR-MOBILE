@@ -3656,17 +3656,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             const nextSnackNum = allSnackIdxs.length > 0 ? Math.max(...allSnackIdxs) + 1 : 0;
             const snackSlotLabel = snackSlot === "new" ? `New Snack #${nextSnackNum}` : `Snack #${snackSlot}`;
             return (
-              <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 18, borderBottomWidth: 1.2, borderBottomColor: "#e5e7eb" }}>
+              <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 18, borderBottomWidth: 1.2, borderBottomColor: "#e5e7eb", zIndex: 10 }}>
                 <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: "600", letterSpacing: 0.4 }}>Add to meal</Text>
-                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, zIndex: mealDropdownOpen || snackSlotOpen ? 100 : 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
                   {/* Meal type picker */}
-                  <View style={{ flex: mealType === "snack" ? 1 : undefined, flexGrow: mealType === "snack" ? 1 : undefined, minWidth: 0,
-                    width: mealType === "snack" ? undefined : "100%",
-                    zIndex: mealDropdownOpen ? 110 : 1 }}>
+                  <View style={{ flex: 1, zIndex: mealDropdownOpen ? 110 : 1 }}>
                     <TouchableOpacity onPress={() => { setMealDropdownOpen(v => !v); setSnackSlotOpen(false); }}
-                      style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 11,
-                        borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26",
-                        borderColor: mealType === "snack" ? "#ff7a00" : "#1a1e28" }}>
+                      style={[styles.mealDropdownTrigger, { borderColor: mealType === 'snack' ? colors.primary : '#1a1e28' }]}>
                       <Feather name={mealIcon[mealType] as any} size={15} color={mealType === "snack" ? "#ff7a00" : "#6b7280"} style={{ marginRight: 8 }} />
                       <Text style={{ flex: 1, color: "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mealType}</Text>
                       <Feather name={mealDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
@@ -3695,11 +3691,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                   </View>
 
                   {/* Snack slot picker — only when snack selected */}
-                  {mealType === "snack" && (
-                    <View style={{ flex: 1, minWidth: 0, zIndex: snackSlotOpen ? 110 : 1 }}>
+                  {mealType === 'snack' && (
+                    <View style={{ flex: 1, zIndex: snackSlotOpen ? 110 : 1 }}>
                       <TouchableOpacity onPress={() => { setSnackSlotOpen(v => !v); setMealDropdownOpen(false); }}
-                        style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 11,
-                          borderRadius: 10, borderWidth: 1, backgroundColor: "#181c26", borderColor: "#1a1e28" }}>
+                        style={styles.mealDropdownTrigger}>
                         <Text style={{ flex: 1, color: "#eceef2", fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{snackSlotLabel}</Text>
                         <Feather name={snackSlotOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
                       </TouchableOpacity>
