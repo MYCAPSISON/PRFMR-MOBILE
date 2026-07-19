@@ -554,8 +554,8 @@ export default function SupplementsScreen() {
           style={[s.addBtn, { backgroundColor: colors.primary }]}
           testID="button-add-supplement"
           onPress={() => setAddOpen(true)}>
-          <Feather name="plus" size={16} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, marginLeft: 6, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
+          <Feather name="plus" size={14} color="#fff" />
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, marginLeft: 5, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
         </TouchableOpacity>
       </View>
 
@@ -637,13 +637,13 @@ export default function SupplementsScreen() {
 const s = StyleSheet.create({
   flex:       { flex: 1 },
   header:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                paddingHorizontal: 16, paddingVertical: 18, borderBottomWidth: 1 },
-  pageTitle:  { fontSize: 23, fontWeight: "800" },
-  pageSubtitle: { fontSize: 14, lineHeight: 21, marginTop: 3, fontFamily: "Inter_400Regular" },
+                paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1 },
+  pageTitle:  { fontSize: 21, fontWeight: "800" },
+  pageSubtitle: { fontSize: 13, lineHeight: 19, marginTop: 3, fontFamily: "Inter_400Regular" },
   scrollPad:  { padding: 16, gap: 18 },
   card:       { borderRadius: 12, borderWidth: 1.5, padding: 24 },
-  cardTitle:  { fontSize: 21, fontWeight: "800" },
-  listDescription: { fontSize: 13, lineHeight: 20, marginTop: 7, fontFamily: "Inter_400Regular" },
+  cardTitle:  { fontSize: 19, fontWeight: "800" },
+  listDescription: { fontSize: 12, lineHeight: 18, marginTop: 7, fontFamily: "Inter_400Regular" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   badge:      { borderRadius: 5, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
   microBadge: { borderRadius: 4, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2,
@@ -651,7 +651,7 @@ const s = StyleSheet.create({
   xs:         { fontSize: 12, fontWeight: "500" },
   sm:         { fontSize: 13 },
   addBtn:     { flexDirection: "row", alignItems: "center", borderRadius: 8,
-                paddingHorizontal: 15, paddingVertical: 12, borderWidth: 1.5, borderColor: "#e5e7eb" },
+                paddingHorizontal: 13, paddingVertical: 11, borderWidth: 1.5, borderColor: "#e5e7eb" },
   explainer:  { borderRadius: 10, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14 },
   suppRow:    { flexDirection: "row", alignItems: "flex-start", borderRadius: 9, borderWidth: 1.5,
                 padding: 14, marginTop: 12, gap: 10 },

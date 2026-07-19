@@ -21,6 +21,7 @@ import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/core
 import { QuickLogModal } from "../../components/QuickLogModal";
 import { useToast } from "../../components/AppToast";
 import { AppLogoHeader } from "../../components/AppLogoHeader";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 // ─────────────────────────────────────────
 // Types
@@ -4419,15 +4420,13 @@ export default function DashboardScreen() {
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <AppLogoHeader />
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.flex}
         contentContainerStyle={styles.scrollPad}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
-        keyboardDismissMode="on-drag"
         scrollEventThrottle={16}
         bounces
-        scrollEnabled
       >
         {/* Morning Check-In Gate ("Start your day" modal) */}
         {isToday && <MorningCheckInGate date={selectedDate} />}
@@ -4556,7 +4555,7 @@ export default function DashboardScreen() {
         </Card>
 
         <View style={{ height: 100 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Floating Action Button — Add Food */}
       <View
