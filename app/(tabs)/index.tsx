@@ -4426,10 +4426,8 @@ export default function DashboardScreen() {
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
         scrollEventThrottle={16}
-        alwaysBounceVertical
-        nestedScrollEnabled
-        canCancelContentTouches
-        directionalLockEnabled
+        bounces
+        scrollEnabled
       >
         {/* Morning Check-In Gate ("Start your day" modal) */}
         {isToday && <MorningCheckInGate date={selectedDate} />}
