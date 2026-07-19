@@ -4731,7 +4731,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "flex-start", paddingHorizontal: 18, paddingTop: 20, paddingBottom: 18, borderBottomWidth: 1 },
   logo: { fontSize: 18, fontWeight: "900", letterSpacing: 3 },
   dashboardListPad: { paddingBottom: 0 },
-  scrollPad: { padding: 16, gap: 16 },
+  scrollPad: { padding: 16, gap: 16, paddingBottom: 120 },
   card: {
     borderRadius: 14,
     borderWidth: 1,
