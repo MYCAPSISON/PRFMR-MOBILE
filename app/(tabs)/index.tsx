@@ -1078,41 +1078,30 @@ function MorningCheckInGate({ date }: { date: string }) {
   const incomplete = !allDone;
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={markSeen}
-      statusBarTranslucent
-    >
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        <Pressable
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 }}
-          onPress={markSeen}
-        >
-          <Pressable onPress={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 400 }}>
-          <View style={{
-            backgroundColor: "#141820", borderRadius: 14, width: "100%",
-            borderWidth: 1.5, borderColor: "#d0d5dd", overflow: "hidden",
-          }}>
-            {/* Header */}
-            <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 0 }}>
-              <View style={{ alignItems: "center", justifyContent: "center", marginBottom: 6, minHeight: 28 }}>
-                <Text style={{ color: colors.foreground, fontSize: 17, lineHeight: 22, fontWeight: "700", fontFamily: "Inter_700Bold" }}>Start your day</Text>
-                <TouchableOpacity
-                  onPress={markSeen}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={{ position: "absolute", right: 0, top: 0, width: 28, height: 28, alignItems: "center", justifyContent: "center" }}
-                >
-                  <Feather name="x" size={22} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              </View>
-              <Text style={{ color: colors.mutedForeground, fontSize: 15, lineHeight: 22, textAlign: "center", fontFamily: "Inter_400Regular" }}>
-                Complete your check-in to get accurate readiness and fuel targets
-              </Text>
-            </View>
+    <View style={{
+      backgroundColor: colors.card,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6, minHeight: 28 }}>
+          <Text style={{ color: colors.foreground, fontSize: 17, lineHeight: 22, fontWeight: "700", fontFamily: "Inter_700Bold" }}>Start your day</Text>
+          <TouchableOpacity
+            onPress={markSeen}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Feather name="x" size={22} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        </View>
+        <Text style={{ color: colors.mutedForeground, fontSize: 15, lineHeight: 22, fontFamily: "Inter_400Regular" }}>
+          Complete your check-in to get accurate readiness and fuel targets
+        </Text>
+      </View>
 
-            <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ padding: 20, paddingTop: 18 }}>
+      <View style={{ padding: 20, paddingTop: 18 }}>
               {/* ── SLEEP ROW ── */}
               {status.hasSleep ? (
                 <View style={[gateRow, { borderColor: colors.border }]}>
@@ -1261,19 +1250,15 @@ function MorningCheckInGate({ date }: { date: string }) {
                 </Text>
               )}
 
-              {/* Continue button */}
-              <TouchableOpacity
-                onPress={markSeen}
-                style={{ backgroundColor: colors.primary, borderRadius: 8, borderWidth: 1.2, borderColor: "#e5e7eb", padding: 13,
-                  alignItems: "center", marginTop: 16 }}>
-                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+        {/* Continue button */}
+        <TouchableOpacity
+          onPress={markSeen}
+          style={{ backgroundColor: colors.primary, borderRadius: 8, padding: 13,
+            alignItems: "center", marginTop: 16 }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
