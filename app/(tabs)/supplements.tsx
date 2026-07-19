@@ -546,17 +546,15 @@ export default function SupplementsScreen() {
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <AppLogoHeader />
       <View style={[s.header, { borderBottomColor: "#e5e7eb" }]}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Text numberOfLines={1} style={[s.pageTitle, { flex: 1, color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
-          <TouchableOpacity
-            style={[s.addBtn, { backgroundColor: colors.primary, marginLeft: 10 }]}
-            testID="button-add-supplement"
-            onPress={() => setAddOpen(true)}>
-            <Feather name="plus" size={14} color="#fff" />
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, marginLeft: 5, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={[s.pageSubtitle, { color: colors.mutedForeground, marginTop: 4 }]}>Track your personal supplement inventory</Text>
+        <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
+        <Text style={[s.pageSubtitle, { color: colors.mutedForeground, marginTop: 3 }]}>Track your personal supplement inventory</Text>
+        <TouchableOpacity
+          style={[s.addBtn, { backgroundColor: colors.primary, marginTop: 10, alignSelf: "flex-start" }]}
+          testID="button-add-supplement"
+          onPress={() => setAddOpen(true)}>
+          <Feather name="plus" size={14} color="#fff" />
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, marginLeft: 5, fontFamily: colors.fonts.sansBd }}>Add Supplement</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={s.flex} contentContainerStyle={s.scrollPad} showsVerticalScrollIndicator={false}>
