@@ -5,6 +5,7 @@ import {
   Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
@@ -294,6 +295,7 @@ function BodyFatEditor({ current, onSave }: { current: number | null; onSave: (v
 // ─────────────────────────────────────────
 export default function ProfileScreen() {
   const colors = useColors();
+  const router = useRouter();
   const { user: authUser, logout, refetchUser } = useAuth();
   const { showToast } = useToast();
   const qc = useQueryClient();
@@ -640,9 +642,12 @@ export default function ProfileScreen() {
           </Card>
         )}
 
-        <TouchableOpacity style={[s.recalculateBtn, { borderColor: "#e5e7eb" }]}>
-          <Feather name="settings" size={18} color={colors.foreground} />
-          <Text style={[s.outlineButtonText, { color: colors.foreground }]}>Recalculate Goals</Text>
+        <TouchableOpacity
+          style={[s.recalculateBtn, { borderColor: colors.primary }]}
+          onPress={() => router.push("/onboarding?recalculate=1" as any)}
+        >
+          <Feather name="settings" size={18} color={colors.primary} />
+          <Text style={[s.outlineButtonText, { color: colors.primary }]}>Recalculate Goals</Text>
         </TouchableOpacity>
 
         <Text style={[s.xs, { color: colors.mutedForeground, textAlign: "center", marginTop: 8 }]}>

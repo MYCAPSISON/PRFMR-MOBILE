@@ -1001,7 +1001,7 @@ export default function TrainingScreen() {
 
           {totalCal > 0 && (
             <View style={[s.calRow, { borderColor: colors.border }]}>
-              <Feather name="flame" size={14} color={colors.primary} />
+              <Feather name="zap" size={14} color={colors.primary} />
               <Text style={[s.sm, { color: colors.foreground, fontWeight: "700", marginLeft: 6 }]}>
                 ~{Math.round(totalCal)} kcal
               </Text>

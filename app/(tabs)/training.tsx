@@ -12,6 +12,7 @@ import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/components/AppToast";
 import { AppLogoHeader } from "@/components/AppLogoHeader";
+import { TrainingBlockModal } from "@/components/TrainingBlockModal";
 
 // ─────────────────────────────────────────
 // Types
@@ -92,9 +93,21 @@ interface WeightCutPlan {
 interface TrainingBlock {
   id: number;
   name: string;
+  startDate: string;
+  weekCount: number;
   days?: Array<{
     dayOfWeek: number;
-    activities?: Array<{ rpe?: number | null; durationMinutes?: number | null }>;
+    activities?: Array<{
+      activityType?: string;
+      name?: string;
+      rpe?: number | null;
+      durationMinutes?: number | null;
+      metValue?: number | null;
+      intensity?: string;
+      bodyRegion?: string;
+      activityCatalogId?: number;
+      slot?: string;
+    }>;
   }>;
 }
 
@@ -960,6 +973,7 @@ export default function TrainingScreen() {
   const { showToast } = useToast();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [loadWarning, setLoadWarning] = useState<{ analysis: TrainingLoad; date: string } | null>(null);
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
 
   const displayDate = format(new Date(selectedDate + "T12:00:00"), "dd MMM yyyy");
 
@@ -1032,9 +1046,14 @@ export default function TrainingScreen() {
                 <Text style={s.headerChipText}>🥊 {weightCutPlan.daysUntil} days to fight night</Text>
               </View>
             )}
-            <TouchableOpacity style={[s.planBlockBtn, { borderColor: colors.primary }]}>
+            <TouchableOpacity
+              style={[s.planBlockBtn, { borderColor: colors.primary }]}
+              onPress={() => setBlockModalOpen(true)}
+            >
               <Feather name="calendar" size={14} color={colors.primary} />
-              <Text style={[s.planBlockText, { color: colors.primary }]}>{activeBlock ? activeBlock.name : "Plan Block"}</Text>
+              <Text style={[s.planBlockText, { color: colors.primary }]}>
+                {activeBlock ? activeBlock.name : "Plan Block"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1202,6 +1221,18 @@ export default function TrainingScreen() {
           onViewTrend={() => router.push("/load-trend" as any)}
         />
       )}
+
+      <TrainingBlockModal
+        visible={blockModalOpen}
+        onClose={() => setBlockModalOpen(false)}
+        activeBlockId={activeBlock?.id ?? null}
+        initialBlock={activeBlock ? {
+          name: activeBlock.name,
+          startDate: activeBlock.startDate,
+          weekCount: activeBlock.weekCount,
+          days: activeBlock.days ?? [],
+        } : null}
+      />
     </SafeAreaView>
   );
 }

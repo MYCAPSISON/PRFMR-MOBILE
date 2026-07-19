@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { apiFetch } from "@/lib/api";
@@ -72,6 +72,7 @@ interface WizardData {
   demoTargetWeight: string;
   demoFightDate: string;
   demoWeighInTiming: "same_day" | "day_before";
+  demoManualTempReduction: string;
   nonFightPrepMode: string;
   bodyFatPct: string;
   surveyStarRating: number;
@@ -86,6 +87,7 @@ const INIT: WizardData = {
   surveyUnderfueling: "", surveyTrainingLoadTracking: "", surveyMicroKnowledge: "",
   surveyEnergyScore: 5, surveyPerformance: "", surveyMainProblems: [],
   demoTargetWeight: "", demoFightDate: "", demoWeighInTiming: "same_day",
+  demoManualTempReduction: "",
   nonFightPrepMode: "", bodyFatPct: "", surveyStarRating: 0, surveyCommitment: "",
   demoSleepHours: 7, demoEnergyLevel: 3,
 };
@@ -350,14 +352,34 @@ const loadSt = StyleSheet.create({
 // ─────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
-  const { refetchUser } = useAuth();
-  const [step, setStep]           = useState(0);
+  const { user: authUser, refetchUser } = useAuth();
+  const params = useLocalSearchParams<{ recalculate?: string }>();
+  const isRecalculate = params.recalculate === "1";
+
+  const [step, setStep]           = useState(isRecalculate ? 9 : 0);
   const [d, setD]                 = useState<WizardData>(INIT);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showAdvanced22, setShowAdvanced22] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Pre-seed form from existing user profile when recalculating
+  useEffect(() => {
+    if (!isRecalculate) return;
+    apiFetch<Record<string, unknown>>("/user/me")
+      .then(profile => {
+        setD(prev => ({
+          ...prev,
+          age:           profile.age != null ? String(profile.age) : prev.age,
+          gender:        typeof profile.gender === "string" ? profile.gender : prev.gender,
+          height:        profile.height != null ? String(profile.height) : prev.height,
+          currentWeight: profile.currentWeight != null ? String(profile.currentWeight) : prev.currentWeight,
+        }));
+      })
+      .catch(() => { /* use empty defaults */ });
+  }, [isRecalculate]);
 
   function set<K extends keyof WizardData>(k: K, v: WizardData[K]) {
     setD(p => ({ ...p, [k]: v }));
@@ -406,12 +428,26 @@ export default function OnboardingScreen() {
   }
 
   function advance() {
-    const next = (step === 22 && skipCutChart) ? 24 : step + 1;
+    let next = step + 1;
+    if (step === 22 && skipCutChart) next = 24;
+    if (isRecalculate) {
+      if (step === 9)  next = 22;
+      if (step === 22) next = 28;
+      if (step === 30 || step === 31 || step === 32 || step === 33) {
+        router.replace("/(tabs)/");
+        return;
+      }
+    }
     setStep(next);
     setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 50);
   }
   function retreat() {
-    const prev = (step === 24 && skipCutChart) ? 22 : step - 1;
+    let prev = step - 1;
+    if (step === 24 && skipCutChart) prev = 22;
+    if (isRecalculate) {
+      if (step === 22) prev = 9;
+      if (step === 28) prev = 22;
+    }
     setStep(Math.max(prev, 1));
     setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 50);
   }
@@ -458,6 +494,7 @@ export default function OnboardingScreen() {
       // Fight camp — separate endpoint per spec (POST /me/weight-cut)
       if (!d.nonFightPrepMode && d.demoFightDate && d.demoTargetWeight) {
         try {
+          const manualKg = d.demoManualTempReduction ? parseFloat(d.demoManualTempReduction) : null;
           await apiFetch("/me/weight-cut", {
             method: "POST",
             body: {
@@ -465,7 +502,7 @@ export default function OnboardingScreen() {
               targetWeight:         parseFloat(d.demoTargetWeight),
               fightDate:            d.demoFightDate,
               weighInTiming:        d.demoWeighInTiming,
-              manualTempReductionKg: null,
+              manualTempReductionKg: (manualKg && !isNaN(manualKg)) ? manualKg : null,
             },
           });
         } catch { /* non-critical — user can set fight camp later from dashboard */ }
@@ -966,6 +1003,69 @@ export default function OnboardingScreen() {
               <Text style={{ color: "#52525b", fontSize: 12, textAlign: "center", marginBottom: 16, fontFamily: "Inter_400Regular" }}>
                 Enter your target weight and fight date to build your plan.
               </Text>
+            )}
+
+            {/* Advanced options: manual temp reduction */}
+            {planValid && !d.nonFightPrepMode && (
+              <View style={{ marginBottom: 12 }}>
+                <TouchableOpacity
+                  onPress={() => setShowAdvanced22(p => !p)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 }}
+                >
+                  <Feather
+                    name={showAdvanced22 ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color="#71717a"
+                  />
+                  <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular" }}>
+                    Advanced options
+                  </Text>
+                </TouchableOpacity>
+                {showAdvanced22 && (
+                  <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(39,39,42,0.3)", padding: 14, gap: 10 }}>
+                    <Text style={{ color: "#d4d4d8", fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>
+                      Manual Temporary Weight Reduction
+                    </Text>
+                    <Text style={{ color: "#71717a", fontSize: 12, lineHeight: 18, fontFamily: "Inter_400Regular" }}>
+                      How many kg do you plan to cut through water/glycogen manipulation in the final 24–48 hours? Leave blank to let PRFMR calculate automatically.
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {["", "1", "2", "3", "4", "5", "6", "8"].map(opt => {
+                        const isSelected = d.demoManualTempReduction === opt;
+                        const label = opt === "" ? "Auto (recommended)" : `${opt} kg`;
+                        return (
+                          <TouchableOpacity
+                            key={opt}
+                            onPress={() => set("demoManualTempReduction", opt)}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              borderRadius: 8,
+                              borderWidth: 1.5,
+                              borderColor: isSelected ? PRIMARY : "rgba(255,255,255,0.12)",
+                              backgroundColor: isSelected ? "rgba(249,115,22,0.15)" : "transparent",
+                            }}
+                          >
+                            <Text style={{
+                              color: isSelected ? PRIMARY : "#a1a1aa",
+                              fontSize: 13,
+                              fontWeight: isSelected ? "700" : "400",
+                              fontFamily: isSelected ? "Inter_700Bold" : "Inter_400Regular",
+                            }}>
+                              {label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {d.demoManualTempReduction !== "" && (
+                      <Text style={{ color: "#facc15", fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 }}>
+                        ⚠ A manual cut of {d.demoManualTempReduction} kg will be factored into your fat-loss phase calculation — your diet targets will adjust accordingly.
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </View>
             )}
 
             <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.06)", marginVertical: 8 }} />
