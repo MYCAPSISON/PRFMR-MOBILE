@@ -362,23 +362,29 @@ export default function OnboardingScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showAdvanced22, setShowAdvanced22] = useState(false);
+  const [tempDropdownOpen, setTempDropdownOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Pre-seed form from existing user profile when recalculating
+  // Pre-seed form from existing user profile + fight camp plan when recalculating
   useEffect(() => {
     if (!isRecalculate) return;
-    apiFetch<Record<string, unknown>>("/user/me")
-      .then(profile => {
-        setD(prev => ({
-          ...prev,
-          age:           profile.age != null ? String(profile.age) : prev.age,
-          gender:        typeof profile.gender === "string" ? profile.gender : prev.gender,
-          height:        profile.height != null ? String(profile.height) : prev.height,
-          currentWeight: profile.currentWeight != null ? String(profile.currentWeight) : prev.currentWeight,
-        }));
-      })
-      .catch(() => { /* use empty defaults */ });
+    Promise.all([
+      apiFetch<Record<string, unknown>>("/user/me").catch(() => null),
+      apiFetch<Record<string, unknown>>("/me/weight-cut").catch(() => null),
+    ]).then(([profile, plan]) => {
+      setD(prev => ({
+        ...prev,
+        age:           profile?.age != null ? String(profile.age) : prev.age,
+        gender:        typeof profile?.gender === "string" ? profile.gender : prev.gender,
+        height:        profile?.height != null ? String(profile.height) : prev.height,
+        currentWeight: profile?.currentWeight != null ? String(profile.currentWeight) : prev.currentWeight,
+        // Pre-seed fight camp plan fields so the user sees their existing plan
+        demoTargetWeight:         plan?.targetWeight != null ? String(plan.targetWeight) : prev.demoTargetWeight,
+        demoFightDate:            typeof plan?.fightDate === "string" ? plan.fightDate : prev.demoFightDate,
+        demoWeighInTiming:        (plan?.weighInTiming === "day_before" ? "day_before" : prev.demoWeighInTiming) as "same_day" | "day_before",
+        demoManualTempReduction:  plan?.manualTempReductionKg != null ? String(plan.manualTempReductionKg) : prev.demoManualTempReduction,
+      }));
+    });
   }, [isRecalculate]);
 
   function set<K extends keyof WizardData>(k: K, v: WizardData[K]) {
@@ -506,6 +512,9 @@ export default function OnboardingScreen() {
             },
           });
         } catch { /* non-critical — user can set fight camp later from dashboard */ }
+      } else if (d.nonFightPrepMode) {
+        // User switched to non-fight-prep — clear any existing fight camp plan
+        try { await apiFetch("/me/weight-cut", { method: "DELETE" }); } catch { /* non-critical */ }
       }
 
       // Body fat — separate endpoint (PATCH /me/body-composition)
@@ -882,8 +891,9 @@ export default function OnboardingScreen() {
           const cw = parseFloat(d.currentWeight) || 0;
           const tw = parseFloat(d.demoTargetWeight) || 0;
           const planValid = !d.nonFightPrepMode && !!d.demoFightDate && tw > 0 && tw < cw;
+          const manualTempKg = d.demoManualTempReduction ? parseFloat(d.demoManualTempReduction) : undefined;
           const plan: WeightCutPlanResult | null = planValid
-            ? calculateWeightCutPlan(cw, tw, d.demoFightDate, d.demoWeighInTiming)
+            ? calculateWeightCutPlan(cw, tw, d.demoFightDate, d.demoWeighInTiming, manualTempKg && !isNaN(manualTempKg) ? manualTempKg : undefined)
             : null;
           const statusColors: Record<string, { text: string; border: string; bg: string }> = {
             on_track:       { text: "#4ade80", border: "rgba(74,222,128,0.3)",  bg: "rgba(74,222,128,0.05)" },
@@ -1005,68 +1015,103 @@ export default function OnboardingScreen() {
               </Text>
             )}
 
-            {/* Advanced options: manual temp reduction */}
-            {planValid && !d.nonFightPrepMode && (
-              <View style={{ marginBottom: 12 }}>
-                <TouchableOpacity
-                  onPress={() => setShowAdvanced22(p => !p)}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 }}
-                >
-                  <Feather
-                    name={showAdvanced22 ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color="#71717a"
-                  />
-                  <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular" }}>
-                    Advanced options
+            {/* Manual temp reduction — always visible dropdown with safety warnings */}
+            {planValid && !d.nonFightPrepMode && (() => {
+              const TEMP_OPTIONS = ["", "1", "2", "3", "4", "5", "6", "8", "10"];
+              const selLabel = d.demoManualTempReduction === "" ? "Auto (recommended)" : `${d.demoManualTempReduction} kg`;
+              const manualKgNum = d.demoManualTempReduction ? parseFloat(d.demoManualTempReduction) : 0;
+              // Safety cap per §9.5.1
+              const maxSafe = d.demoWeighInTiming === "day_before"
+                ? (tw + manualKgNum) * 0.10
+                : (tw + manualKgNum) * 0.02;
+              const exceedsSafeCap = manualKgNum > 0 && manualKgNum > maxSafe;
+              const pctBW = cw > 0 ? (manualKgNum / cw) * 100 : 0;
+              const isHighCut = manualKgNum > 0 && pctBW > (d.demoWeighInTiming === "day_before" ? 5 : 1.5);
+              return (
+                <View style={{ marginBottom: 12, zIndex: tempDropdownOpen ? 50 : 1 }}>
+                  <Text style={{ color: "#d4d4d8", fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold", marginBottom: 6 }}>
+                    Manual water cut (24–48h before weigh-in)
                   </Text>
-                </TouchableOpacity>
-                {showAdvanced22 && (
-                  <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(39,39,42,0.3)", padding: 14, gap: 10 }}>
-                    <Text style={{ color: "#d4d4d8", fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold" }}>
-                      Manual Temporary Weight Reduction
+                  {/* Dropdown trigger */}
+                  <TouchableOpacity
+                    onPress={() => setTempDropdownOpen(p => !p)}
+                    style={{
+                      flexDirection: "row", alignItems: "center",
+                      borderRadius: 10, borderWidth: 1.2,
+                      borderColor: exceedsSafeCap ? "#ef4444" : isHighCut ? "#facc15" : "rgba(255,255,255,0.15)",
+                      backgroundColor: "#1a1e28",
+                      paddingHorizontal: 14, paddingVertical: 12,
+                    }}
+                  >
+                    <Text style={{ flex: 1, color: d.demoManualTempReduction === "" ? "#52525b" : "#d4d4d8", fontSize: 14, fontFamily: "Inter_400Regular" }}>
+                      {selLabel}
                     </Text>
-                    <Text style={{ color: "#71717a", fontSize: 12, lineHeight: 18, fontFamily: "Inter_400Regular" }}>
-                      How many kg do you plan to cut through water/glycogen manipulation in the final 24–48 hours? Leave blank to let PRFMR calculate automatically.
-                    </Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      {["", "1", "2", "3", "4", "5", "6", "8"].map(opt => {
+                    <Feather name={tempDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#71717a" />
+                  </TouchableOpacity>
+                  {tempDropdownOpen && (
+                    <View style={{
+                      position: "absolute", top: 80, left: 0, right: 0,
+                      backgroundColor: "#1e2232", borderRadius: 10,
+                      borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+                      overflow: "hidden", zIndex: 100,
+                      shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, elevation: 10,
+                    }}>
+                      {TEMP_OPTIONS.map((opt, i) => {
                         const isSelected = d.demoManualTempReduction === opt;
-                        const label = opt === "" ? "Auto (recommended)" : `${opt} kg`;
+                        const optKg = opt ? parseFloat(opt) : 0;
+                        const optPct = cw > 0 ? (optKg / cw * 100).toFixed(1) : "0";
                         return (
                           <TouchableOpacity
                             key={opt}
-                            onPress={() => set("demoManualTempReduction", opt)}
+                            onPress={() => { set("demoManualTempReduction", opt); setTempDropdownOpen(false); }}
                             style={{
-                              paddingHorizontal: 12,
-                              paddingVertical: 8,
-                              borderRadius: 8,
-                              borderWidth: 1.5,
-                              borderColor: isSelected ? PRIMARY : "rgba(255,255,255,0.12)",
-                              backgroundColor: isSelected ? "rgba(249,115,22,0.15)" : "transparent",
+                              flexDirection: "row", alignItems: "center",
+                              paddingHorizontal: 14, paddingVertical: 12,
+                              backgroundColor: isSelected ? "rgba(249,115,22,0.08)" : "transparent",
+                              borderBottomWidth: i < TEMP_OPTIONS.length - 1 ? 1 : 0,
+                              borderBottomColor: "rgba(255,255,255,0.05)",
                             }}
                           >
-                            <Text style={{
-                              color: isSelected ? PRIMARY : "#a1a1aa",
-                              fontSize: 13,
-                              fontWeight: isSelected ? "700" : "400",
-                              fontFamily: isSelected ? "Inter_700Bold" : "Inter_400Regular",
-                            }}>
-                              {label}
+                            <Text style={{ flex: 1, color: isSelected ? PRIMARY : "#d4d4d8", fontSize: 14, fontFamily: "Inter_400Regular" }}>
+                              {opt === "" ? "Auto (recommended)" : `${opt} kg`}
                             </Text>
+                            {opt !== "" && (
+                              <Text style={{ color: "#52525b", fontSize: 11, fontFamily: "Inter_400Regular", marginRight: 8 }}>
+                                {optPct}% BW
+                              </Text>
+                            )}
+                            {isSelected && <Feather name="check" size={14} color={PRIMARY} />}
                           </TouchableOpacity>
                         );
                       })}
                     </View>
-                    {d.demoManualTempReduction !== "" && (
-                      <Text style={{ color: "#facc15", fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 }}>
-                        ⚠ A manual cut of {d.demoManualTempReduction} kg will be factored into your fat-loss phase calculation — your diet targets will adjust accordingly.
+                  )}
+                  {/* Safety warnings */}
+                  {exceedsSafeCap && (
+                    <View style={{ marginTop: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)", backgroundColor: "rgba(239,68,68,0.08)", padding: 10 }}>
+                      <Text style={{ color: "#f87171", fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular" }}>
+                        ⚠️ This exceeds the safe maximum ({d.demoWeighInTiming === "day_before" ? "10%" : "2%"} BW for {d.demoWeighInTiming === "day_before" ? "day-before" : "same-day"} weigh-ins). The engine will silently cap it to the safe limit.
                       </Text>
-                    )}
-                  </View>
-                )}
-              </View>
-            )}
+                    </View>
+                  )}
+                  {!exceedsSafeCap && isHighCut && (
+                    <View style={{ marginTop: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(250,204,21,0.3)", backgroundColor: "rgba(250,204,21,0.06)", padding: 10 }}>
+                      <Text style={{ color: "#fde047", fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular" }}>
+                        ⚠️ A cut of {pctBW.toFixed(1)}% BW is aggressive. This will reduce your required fat-loss phase deficit accordingly.
+                      </Text>
+                    </View>
+                  )}
+                  {d.demoManualTempReduction !== "" && !exceedsSafeCap && !isHighCut && (
+                    <Text style={{ color: "#71717a", fontSize: 11, marginTop: 6, fontFamily: "Inter_400Regular", lineHeight: 16 }}>
+                      This overrides the automatic estimate and adjusts your fat-loss targets.
+                    </Text>
+                  )}
+                  <Text style={{ color: "#52525b", fontSize: 11, marginTop: 6, fontFamily: "Inter_400Regular", fontStyle: "italic" }}>
+                    This app does not provide acute weight-cut guidance.
+                  </Text>
+                </View>
+              );
+            })()}
 
             <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.06)", marginVertical: 8 }} />
             <Text style={{ color: "#71717a", fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 10 }}>

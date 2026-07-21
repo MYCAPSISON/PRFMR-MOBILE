@@ -2389,7 +2389,7 @@ function WeightTrend({ date }: { date: string }) {
     <Card style={styles.chartCard}>
       <View style={styles.rowBetween}>
         <View>
-          <Text style={[styles.cardTitle, { color: colors.foreground, fontSize: 24 }]}>Weight Trend</Text>
+          <Text style={[styles.cardTitle, { color: colors.foreground, fontSize: 17 }]}>Weight Trend</Text>
           <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground, marginTop: 4 }]}>Last 7 recorded entries</Text>
         </View>
         <View style={[styles.iconTile, { backgroundColor: colors.secondary }]}>
@@ -2403,7 +2403,7 @@ function WeightTrend({ date }: { date: string }) {
       ) : (
         <>
         <View style={{ marginTop: 8, height: SVG_H }}>
-          <Svg width="100%" height={SVG_H} viewBox={`0 0 ${SVG_W} ${SVG_H}`} pointerEvents="none">
+          <Svg width="100%" height={SVG_H} viewBox={`0 0 ${SVG_W} ${SVG_H}`}>
             {[0, 0.5, 1].map(pct => {
               const y = PAD.t + pct * cH;
               const val = (maxW - pct * rng).toFixed(1);
@@ -2426,8 +2426,12 @@ function WeightTrend({ date }: { date: string }) {
             <SvgPath d={smoothPath} fill="none" stroke="#ff7a00" strokeWidth={2.5}
               strokeLinejoin="round" strokeLinecap="round" />
             {last7.map((e, i) => (
-              <SvgCircle key={e.date} cx={xOf(i)} cy={yOf(e.weight)} r={3.5}
-                fill="#ff7a00" stroke="#0f1117" strokeWidth={1.5} />
+              <React.Fragment key={e.date}>
+                <SvgCircle cx={xOf(i)} cy={yOf(e.weight)} r={3.5}
+                  fill="#ff7a00" stroke="#0f1117" strokeWidth={1.5} />
+                <SvgCircle cx={xOf(i)} cy={yOf(e.weight)} r={16}
+                  fill="transparent" onPress={() => setSelectedIndex(i)} />
+              </React.Fragment>
             ))}
             {active && activeIndex != null && (
               <>
@@ -3556,7 +3560,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   return (
     <Card style={[styles.outlineCard, styles.mealsCard]}>
       <View style={[styles.rowBetween, { gap: 8 }]}>
-        <Text style={[styles.sectionTitle, { color: colors.foreground, flexShrink: 1 }]}>Today's Meals</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground, flexShrink: 1, fontSize: 16 }]}>Today's Meals</Text>
         <TouchableOpacity style={styles.savedMealsBtn} onPress={() => Alert.alert("Saved Meals", "Saved meal templates are managed from the food logging flow.")}>
           <Feather name="book-open" size={16} color={colors.foreground} />
           <Text style={styles.savedMealsText} numberOfLines={1}>Saved Meals</Text>
@@ -3649,7 +3653,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                   {/* Meal type picker */}
                   <View style={{ flex: 1, zIndex: mealDropdownOpen ? 110 : 1 }}>
                     <TouchableOpacity onPress={() => { setMealDropdownOpen(v => !v); setSnackSlotOpen(false); }}
-                      style={[styles.mealDropdownTrigger, { borderColor: mealType === 'snack' ? colors.primary : '#1a1e28' }]}>
+                      style={[styles.mealDropdownTrigger, { borderColor: mealType === 'snack' ? colors.primary : '#e5e7eb' }]}>
                       <Feather name={mealIcon[mealType] as any} size={15} color={mealType === "snack" ? "#ff7a00" : "#6b7280"} style={{ marginRight: 8 }} />
                       <Text style={{ flex: 1, color: "#eceef2", fontSize: 14, fontWeight: "600", textTransform: "capitalize" }}>{mealType}</Text>
                       <Feather name={mealDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#6b7280" />
@@ -4893,14 +4897,14 @@ const styles = StyleSheet.create({
   mealGroup: { marginTop: 15 },
   mealHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   mealTitleStack: { flex: 1, minWidth: 0 },
-  mealName: { color: "#8791a3", fontSize: 14, lineHeight: 17, fontWeight: "600", fontFamily: "Inter_600SemiBold", marginLeft: 7, textTransform: "capitalize" },
+  mealName: { color: "#8791a3", fontSize: 12, lineHeight: 15, fontWeight: "600", fontFamily: "Inter_600SemiBold", marginLeft: 7, textTransform: "capitalize" },
   mealCountBadge: { marginLeft: 7, minWidth: 19, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(31,37,50,0.85)" },
   mealCountText: { color: "#f6f8fb", fontSize: 9, lineHeight: 12, fontWeight: "700", fontFamily: "Inter_700Bold" },
   mealKcal: { color: "#8791a3", fontSize: 10, lineHeight: 14, fontFamily: "JetBrainsMono_700Bold", marginTop: 6, marginLeft: 22 },
   mealHeaderIcons: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 3 },
   mealMacroLine: { color: "#596274", fontSize: 10, lineHeight: 14, fontFamily: "JetBrainsMono_700Bold", marginTop: 1, marginBottom: 8, marginLeft: 22 },
   mealFoodRow: { paddingHorizontal: 10, paddingVertical: 8, marginTop: 7 },
-  foodItemName: { color: "#f6f8fb", fontSize: 13, lineHeight: 16, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  foodItemName: { color: "#f6f8fb", fontSize: 11, lineHeight: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
   foodItemMacros: { color: "#8791a3", fontSize: 9, lineHeight: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
   foodActions: { flexDirection: "row", alignItems: "center", gap: 7, marginLeft: 7 },
   foodActionBtn: { padding: 3 },
@@ -4937,4 +4941,5 @@ const styles = StyleSheet.create({
   mealTypeChip: { borderRadius: 10, borderWidth: 1, borderColor: "#181d28", paddingHorizontal: 12, paddingVertical: 7, marginRight: 7 },
   searchBar: { flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 10, marginBottom: 9 },
   searchResult: { borderRadius: 12, borderWidth: 1, borderColor: "#181d28", padding: 10, marginBottom: 7 },
+  mealDropdownTrigger: { flexDirection: "row", alignItems: "center", borderRadius: 10, borderWidth: 1.2, borderColor: "#e5e7eb", paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#1a1e28" },
 });

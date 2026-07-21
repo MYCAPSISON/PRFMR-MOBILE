@@ -1,1 +1,5 @@
 - [pnpm root project is an implicit workspace member](pnpm-root-implicit-member.md) — root package.json in a pnpm-workspace repo counts as a package too; duplicate names across it and a real package cause silent ambiguity.
+- [PRFMR active code lives at workspace root](prfmr-root-code.md) — `app/`, `components/`, `hooks/`, `lib/`, `context/` are at `/home/runner/workspace/`, NOT `artifacts/prfmr-mobile/`. The artifacts copy is stale and only used for typecheck.
+- [PRFMR recalculate mode pre-seeding](prfmr-recalculate-preseed.md) — onboarding recalculate mode must fetch both `/user/me` and `/me/weight-cut` to pre-seed profile + fight camp fields; doSubmit must DELETE `/me/weight-cut` when nonFightPrepMode is set.
+- [PRFMR WeightTrend SVG tap targets](prfmr-svg-taps.md) — react-native-svg circles support onPress; use invisible r=16 transparent circles layered over visible r=3.5 dots for tap areas; pointerEvents="none" on SVG blocks all interaction.
+- [PRFMR guides saved to docs/](prfmr-guides.md) — authoritative spec guides copied to `docs/PRFMR_MOBILE_REPLICATION_GUIDE.md` and `docs/PRFMR_UI_REPLICATION_GUIDE.md`.
