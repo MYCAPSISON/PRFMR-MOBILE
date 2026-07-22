@@ -2192,7 +2192,7 @@ function AmqsCard({ date }: { date: string }) {
   const microGoals = dashboardGaps.filter(g => g.suggestion).slice(0, 3);
 
   return (
-    <Card style={{ borderColor: "rgba(255,255,255,0.38)", borderWidth: 1.2 }}>
+    <Card style={styles.outlineCard}>
         <View style={styles.rowBetween}>
           <View>
             <Text style={[styles.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>
