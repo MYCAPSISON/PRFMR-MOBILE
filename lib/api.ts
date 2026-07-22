@@ -284,7 +284,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   try {
     return JSON.parse(text) as T;
   } catch {
-    console.warn("[api] Non-JSON from", path, text.slice(0, 200));
-    throw new ApiError(`Unexpected response from ${path}`, response.status, method, path);
+    console.warn("[api] Non-JSON 2xx from", path, text.slice(0, 120));
+    return {} as T;
   }
 }

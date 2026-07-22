@@ -472,7 +472,7 @@ export default function AMQSScreen() {
         ) : (
           <>
             {/* Score hero — side-by-side General / Performance */}
-            <View style={[s.scoreCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[s.scoreCard, { backgroundColor: colors.card, borderColor: "rgba(255,255,255,0.38)", borderWidth: 1.2 }]}>
               <View style={s.scoreRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.eyebrow, { color: colors.mutedForeground }]}>GENERAL SCORE</Text>

@@ -2192,7 +2192,7 @@ function AmqsCard({ date }: { date: string }) {
   const microGoals = dashboardGaps.filter(g => g.suggestion).slice(0, 3);
 
   return (
-    <Card style={{ borderColor: "rgba(255,255,255,0.18)", borderWidth: 1.2 }}>
+    <Card style={{ borderColor: "rgba(255,255,255,0.38)", borderWidth: 1.2 }}>
         <View style={styles.rowBetween}>
           <View>
             <Text style={[styles.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>
@@ -3256,7 +3256,10 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     if (!copyEntry || !user) return;
     setCopyPending(true);
     try {
-      const targetDate = copyDate.toISOString().split("T")[0];
+      const y = copyDate.getFullYear();
+      const mo = String(copyDate.getMonth() + 1).padStart(2, "0");
+      const dy = String(copyDate.getDate()).padStart(2, "0");
+      const targetDate = `${y}-${mo}-${dy}`;
       await apiFetch("/food", {
         method: "POST",
         body: {
@@ -3717,55 +3720,55 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               <Feather name="x" size={22} color="#6b7280" />
             </TouchableOpacity>
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 20 }}>
-            {/* Subtitle */}
-            <Text style={{ color: "#6b7280", fontSize: 14, textAlign: "center", lineHeight: 20 }}>
-              {copyEntry?.name} — choose a target date and meal.
-            </Text>
 
-            {/* Date */}
-            <View>
-              <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 10, letterSpacing: 0.4 }}>DATE</Text>
-              <DateTimePicker
-                value={copyDate}
-                mode="date"
-                display="inline"
-                onChange={(_, d) => { if (d) setCopyDate(d); }}
-                minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
-                maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
-                themeVariant="dark"
-                accentColor="#ff7a00"
-                style={{ alignSelf: "stretch", marginHorizontal: -8 }}
-              />
+          {/* Subtitle */}
+          <Text style={{ color: "#6b7280", fontSize: 14, textAlign: "center", lineHeight: 20,
+            paddingHorizontal: 24, paddingTop: 16 }}>
+            {copyEntry?.name} — choose a target date and meal.
+          </Text>
+
+          {/* Date label */}
+          <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4,
+            paddingHorizontal: 24, marginTop: 20, marginBottom: 6 }}>DATE</Text>
+
+          {/* DateTimePicker OUTSIDE ScrollView to avoid iOS touch conflict */}
+          <DateTimePicker
+            value={copyDate}
+            mode="date"
+            display="inline"
+            onChange={(_, d) => { if (d) setCopyDate(d); }}
+            minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+            maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+            themeVariant="dark"
+            accentColor="#ff7a00"
+            style={{ marginHorizontal: 8 }}
+          />
+
+          {/* Meal selector + button (not inside ScrollView) */}
+          <View style={{ paddingHorizontal: 24, paddingTop: 16, gap: 12 }}>
+            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4 }}>MEAL</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {MEAL_META.map(m => (
+                <TouchableOpacity key={m.value} onPress={() => setCopyMeal(m.value)}
+                  style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 10, alignItems: "center",
+                    backgroundColor: copyMeal === m.value ? "#ff7a0018" : "#181c26",
+                    borderWidth: 1.2, borderColor: copyMeal === m.value ? "#ff7a00" : "#1a1e28" }}>
+                  <Feather name={m.icon as any} size={16} color={copyMeal === m.value ? "#ff7a00" : "#6b7280"} />
+                  <Text style={{ color: copyMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 11, fontWeight: "600", marginTop: 4 }}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
-            {/* Meal selector */}
-            <View>
-              <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 10, letterSpacing: 0.4 }}>MEAL</Text>
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {MEAL_META.map(m => (
-                  <TouchableOpacity key={m.value} onPress={() => setCopyMeal(m.value)}
-                    style={{ flex: 1, minWidth: 80, paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, alignItems: "center",
-                      backgroundColor: copyMeal === m.value ? "#ff7a0018" : "#181c26",
-                      borderWidth: 1.2, borderColor: copyMeal === m.value ? "#ff7a00" : "#1a1e28" }}>
-                    <Feather name={m.icon as any} size={16} color={copyMeal === m.value ? "#ff7a00" : "#6b7280"} />
-                    <Text style={{ color: copyMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 12, fontWeight: "600", marginTop: 4 }}>
-                      {m.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Copy button */}
             <TouchableOpacity onPress={handleCopyItem} disabled={copyPending}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", marginTop: 8, opacity: copyPending ? 0.7 : 1 }}>
+                backgroundColor: "#ff7a00", marginTop: 4, opacity: copyPending ? 0.7 : 1 }}>
               {copyPending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy item</Text>}
             </TouchableOpacity>
-          </ScrollView>
+          </View>
         </SafeAreaView>
       </Modal>
 
