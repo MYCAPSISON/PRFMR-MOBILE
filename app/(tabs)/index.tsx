@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
   KeyboardAvoidingView, Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -2191,7 +2192,7 @@ function AmqsCard({ date }: { date: string }) {
   const microGoals = dashboardGaps.filter(g => g.suggestion).slice(0, 3);
 
   return (
-    <Card style={{ borderColor: tierColor + "30" }}>
+    <Card style={{ borderColor: "rgba(255,255,255,0.18)", borderWidth: 1.2 }}>
         <View style={styles.rowBetween}>
           <View>
             <Text style={[styles.cardTitle, { color: colors.foreground, fontFamily: colors.fonts.sansSb }]}>
@@ -3238,6 +3239,54 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [barcodeGrams, setBarcodeGrams] = useState("100");
   const [showBarcodeCamera, setShowBarcodeCamera] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
+  const [copyEntry, setCopyEntry] = useState<FoodEntry | null>(null);
+  const [copyDate, setCopyDate] = useState(new Date());
+  const [copyMeal, setCopyMeal] = useState("breakfast");
+  const [copyMealDropdownOpen, setCopyMealDropdownOpen] = useState(false);
+  const [copyPending, setCopyPending] = useState(false);
+
+  function openCopyModal(e: FoodEntry) {
+    setCopyDate(new Date());
+    setCopyMeal(e.meal ?? "breakfast");
+    setCopyEntry(e);
+    setCopyMealDropdownOpen(false);
+  }
+
+  async function handleCopyItem() {
+    if (!copyEntry || !user) return;
+    setCopyPending(true);
+    try {
+      const targetDate = copyDate.toISOString().split("T")[0];
+      await apiFetch("/food", {
+        method: "POST",
+        body: {
+          userId: user.id,
+          name: copyEntry.name,
+          calories: Math.round(copyEntry.calories || 0),
+          protein: Math.round(copyEntry.protein || 0),
+          carbs: Math.round(copyEntry.carbs || 0),
+          fat: Math.round(copyEntry.fat || 0),
+          fibre: Math.round(copyEntry.fibre || 0),
+          grams: Math.round(copyEntry.grams || 100),
+          meal: copyMeal,
+          date: targetDate,
+          sourceType: copyEntry.sourceType ?? "manual",
+          macroSource: "ingredient",
+          microSource: copyEntry.ingredientIndex != null ? "ingredient" : "none",
+          ...(copyEntry.ingredientIndex != null && { ingredientIndex: copyEntry.ingredientIndex }),
+        },
+      });
+      qc.invalidateQueries({ queryKey: ["food", targetDate] });
+      qc.invalidateQueries({ queryKey: ["amqs-score", targetDate] });
+      setCopyEntry(null);
+      const label = copyMeal.charAt(0).toUpperCase() + copyMeal.slice(1);
+      showToast({ title: "Item copied!", description: `${copyEntry.name} → ${label} on ${targetDate}` });
+    } catch {
+      showToast({ title: "Failed to copy item", variant: "destructive" });
+    } finally {
+      setCopyPending(false);
+    }
+  }
 
   useEffect(() => {
     if (openAddFood) { setModal(true); onAddFoodOpened?.(); }
@@ -3640,7 +3689,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                     </Text>
                   </View>
                   <View style={styles.foodActions}>
-                    <TouchableOpacity onPress={() => duplicateFoodEntry(e)} style={styles.foodActionBtn}>
+                    <TouchableOpacity onPress={() => openCopyModal(e)} style={styles.foodActionBtn}>
                       <Feather name="copy" size={16} color={colors.mutedForeground} />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setEditingEntry(e)} style={styles.foodActionBtn}>
@@ -3656,6 +3705,69 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           );
         })
       )}
+
+      {/* ── Copy Food Modal ── */}
+      <Modal visible={!!copyEntry} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setCopyEntry(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }} edges={["top"]}>
+          {/* Header */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+            paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Copy item</Text>
+            <TouchableOpacity onPress={() => setCopyEntry(null)}>
+              <Feather name="x" size={22} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 20 }}>
+            {/* Subtitle */}
+            <Text style={{ color: "#6b7280", fontSize: 14, textAlign: "center", lineHeight: 20 }}>
+              {copyEntry?.name} — choose a target date and meal.
+            </Text>
+
+            {/* Date */}
+            <View>
+              <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 10, letterSpacing: 0.4 }}>DATE</Text>
+              <DateTimePicker
+                value={copyDate}
+                mode="date"
+                display="inline"
+                onChange={(_, d) => { if (d) setCopyDate(d); }}
+                minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+                maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+                themeVariant="dark"
+                accentColor="#ff7a00"
+                style={{ alignSelf: "stretch", marginHorizontal: -8 }}
+              />
+            </View>
+
+            {/* Meal selector */}
+            <View>
+              <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 10, letterSpacing: 0.4 }}>MEAL</Text>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {MEAL_META.map(m => (
+                  <TouchableOpacity key={m.value} onPress={() => setCopyMeal(m.value)}
+                    style={{ flex: 1, minWidth: 80, paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, alignItems: "center",
+                      backgroundColor: copyMeal === m.value ? "#ff7a0018" : "#181c26",
+                      borderWidth: 1.2, borderColor: copyMeal === m.value ? "#ff7a00" : "#1a1e28" }}>
+                    <Feather name={m.icon as any} size={16} color={copyMeal === m.value ? "#ff7a00" : "#6b7280"} />
+                    <Text style={{ color: copyMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 12, fontWeight: "600", marginTop: 4 }}>
+                      {m.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Copy button */}
+            <TouchableOpacity onPress={handleCopyItem} disabled={copyPending}
+              style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                backgroundColor: "#ff7a00", marginTop: 8, opacity: copyPending ? 0.7 : 1 }}>
+              {copyPending
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy item</Text>}
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal visible={modal} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeModal}>
         <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117", borderWidth: 1.2, borderColor: "#e5e7eb" }}>
@@ -3765,15 +3877,17 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
           {/* Tab content */}
           {selectedFood ? (
-            <MealConfirmView
-              food={selectedFood} grams={grams} onGramsChange={setGrams}
-              onConfirm={(ingredientIndex) => addMut.mutate(buildPayload(
-                ingredientIndex != null ? { ...selectedFood, ingredientIndex } : selectedFood,
-                grams
-              ))}
-              onBack={() => setSelectedFood(null)}
-              isPending={addMut.isPending}
-            />
+            <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+              <MealConfirmView
+                food={selectedFood} grams={grams} onGramsChange={setGrams}
+                onConfirm={(ingredientIndex) => addMut.mutate(buildPayload(
+                  ingredientIndex != null ? { ...selectedFood, ingredientIndex } : selectedFood,
+                  grams
+                ))}
+                onBack={() => setSelectedFood(null)}
+                isPending={addMut.isPending}
+              />
+            </KeyboardAvoidingView>
           ) : (
             <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
               {activeTab === "search" && (

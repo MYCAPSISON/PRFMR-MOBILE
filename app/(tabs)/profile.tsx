@@ -359,14 +359,18 @@ export default function ProfileScreen() {
 
   const nameMut = useMutation({
     mutationFn: (newName: string) =>
-      apiFetch("/me/profile", { method: "PATCH", body: { displayName: newName } }),
+      apiFetch("/me/profile", { method: "PATCH", body: { name: newName, displayName: newName, username: newName } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-me"] });
       void refetchUser();
       setEditingName(false);
       showToast({ title: "Name updated" });
     },
-    onError: () => showToast({ title: "Failed to update name", variant: "destructive" }),
+    onError: (err: any) => {
+      const status = err?.status ? ` (${err.status})` : "";
+      console.error("[profile] name update failed:", err);
+      showToast({ title: `Failed to update name${status}`, variant: "destructive" });
+    },
   });
 
   const handleLogout = () => {

@@ -4750,7 +4750,21 @@ A mobile replication should preserve at least the score-delta and generic-fallba
 - Core Foods list rows: `hover-elevate`, name left / `"{serving}g serving"` caption, calories right in `text-sm font-mono font-medium` + `kcal` unit label.
 - Barcode scanner viewport: `id="reader"`, `w-full rounded-lg border bg-black min-h-[200px]` when active, `hidden` otherwise; pulsing helper caption `"Position barcode within the frame"` (`animate-pulse`, `text-[10px]`).
 
-#### 9.18.10 Replication checklist
+#### 9.18.10 Copy Item to Another Day / Meal
+
+Each logged food entry has a copy icon (Feather `"copy"`) in its action row (alongside edit and delete). Tapping it opens a **"Copy item"** bottom sheet modal with:
+
+- **Header:** "Copy item" title + ✕ close button.
+- **Subtitle:** `"{food name} — choose a target date and meal."` in muted text, centered.
+- **Date section (label: DATE):** Full inline calendar picker (`DateTimePicker display="inline" mode="date"`), dark themed with orange accent (`accentColor="#ff7a00"`). Range: ±60 days from today. Defaults to today.
+- **Meal section (label: MEAL):** 4 tile buttons in a row (Breakfast / Lunch / Dinner / Snack), each with its icon (Feather coffee/sun/moon/package), selected state = orange border + orange text on dark background, unselected = gray border + gray text.
+- **"Copy item" orange button** (height 54, full width). Shows `ActivityIndicator` while pending. On success: invalidates `["food", targetDate]` and `["amqs-score", targetDate]` query keys, shows a toast with the destination meal + date.
+
+**API call:** `POST /food` — exact same body shape as a regular food log, with `userId` (client must provide it — see replit.md note), `date` = the selected target date (YYYY-MM-DD), `meal` = the selected meal, all other fields copied verbatim from the source entry. `microSource` should be set to `"ingredient"` if `ingredientIndex != null`, otherwise `"none"`.
+
+**AMQS effect:** Because the copy posts the entry to the production API with the source `ingredientIndex` (if any), micronutrients are automatically applied to the target date's AMQS score — no special extra call needed.
+
+#### 9.18.11 Replication checklist
 
 1. Build the shared macro-preview grid and segmented-toggle as standalone components first — they're reused 3–4×.
 2. Implement `data/ingredients.json` as a bundled local asset (not a live DB table) with per-item `supportsCookedToggle`, `canonicalBasis`, `cookedYieldFactor`, `commonScore`, and macro/micro per-100g fields — the Whole Food tab and AMQS both depend on it.
