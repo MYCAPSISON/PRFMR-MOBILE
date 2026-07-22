@@ -508,7 +508,7 @@ function AddActivityModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
       onClose();
@@ -699,7 +699,7 @@ function EditActivityModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
       onClose();
@@ -820,7 +820,7 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
     mutationFn: () => apiFetch(`/workouts/sessions/${session.id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
       showToast({ title: "Session deleted" });
     },
@@ -830,7 +830,7 @@ function SessionCard({ session, date, onActivityMutated }: { session: WorkoutSes
     mutationFn: (id: number) => apiFetch(`/workouts/activities/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
       qc.invalidateQueries({ queryKey: ["training-load", date] });
       showToast({ title: "Activity deleted" });
@@ -920,7 +920,7 @@ function TimeSection({ section, sessions, date, onActivityMutated }: {
     mutationFn: () => apiFetch("/workouts/sessions", { method: "POST", body: { date, timeOfDay: section.key } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sessions", date] });
-      qc.invalidateQueries({ queryKey: ["targets", date] });
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });
       showToast({ title: "Session created" });
     },
@@ -1005,7 +1005,7 @@ export default function TrainingScreen() {
       apiFetch(`/me/rest-day/${selectedDate}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["morning-status", selectedDate] });
-      qc.invalidateQueries({ queryKey: ["targets", selectedDate] });
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", selectedDate] });
       showToast({ title: morning?.isRestDay ? "Rest day removed" : "Rest day marked" });
     },
@@ -1263,13 +1263,13 @@ const s = StyleSheet.create({
   restPill: { flexDirection: "row", alignItems: "center", borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   estimatedHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
   estimatedTitleRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", paddingRight: 4 },
-  estimatedTitle: { fontSize: 18, lineHeight: 23, fontWeight: "700", marginLeft: 8, flex: 1, flexShrink: 1, fontFamily: "Inter_700Bold" },
+  estimatedTitle: { fontSize: 14, lineHeight: 19, fontWeight: "700", marginLeft: 8, flex: 1, flexShrink: 1, fontFamily: "Inter_700Bold" },
   estimatedMeta: { alignItems: "flex-end", flexShrink: 0, maxWidth: 116, gap: 6 },
   classificationBadge: { alignSelf: "flex-end", borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
   classificationText: { fontSize: 10, fontWeight: "700", fontFamily: "Inter_700Bold" },
   kcalBurnedRow: { flexDirection: "row", justifyContent: "flex-end", alignItems: "baseline" },
-  kcalBurnedValue: { fontSize: 24, lineHeight: 29, fontWeight: "800", fontFamily: "Inter_700Bold" },
-  kcalBurnedUnit: { fontSize: 16, fontWeight: "800", marginLeft: 3, fontFamily: "Inter_700Bold" },
+  kcalBurnedValue: { fontSize: 20, lineHeight: 25, fontWeight: "800", fontFamily: "Inter_700Bold" },
+  kcalBurnedUnit: { fontSize: 12, fontWeight: "800", marginLeft: 3, fontFamily: "Inter_700Bold" },
   timeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, padding: 12 },
   addSessionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderStyle: "dashed", padding: 12, marginTop: 8 },
   addActivityBtn: { flexDirection: "row", alignItems: "center", borderRadius: 9, borderWidth: 1, borderStyle: "dashed", padding: 10, marginTop: 8 },

@@ -305,6 +305,8 @@ export default function ProfileScreen() {
   const [levelPreset, setLevelPreset] = useState<SportLevelPreset>("Amateur");
   const [customLevelText, setCustomLevelText] = useState("");
   const levelPick = levelPreset === "Custom" ? customLevelText.trim() : levelPreset;
+  const [editingName, setEditingName] = useState(false);
+  const [newDisplayNameInput, setNewDisplayNameInput] = useState("");
 
   const { data: user, isLoading } = useQuery<UserProfile>({
     queryKey: ["user-me"],
@@ -339,6 +341,18 @@ export default function ProfileScreen() {
       showToast({ title: mainSport ? "Sport identity updated" : "Sport badge removed" });
     },
     onError: () => showToast({ title: "Failed to save", variant: "destructive" }),
+  });
+
+  const nameMut = useMutation({
+    mutationFn: (newName: string) =>
+      apiFetch("/me/profile", { method: "PATCH", body: { displayName: newName } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-me"] });
+      void refetchUser();
+      setEditingName(false);
+      showToast({ title: "Name updated" });
+    },
+    onError: () => showToast({ title: "Failed to update name", variant: "destructive" }),
   });
 
   const handleLogout = () => {
@@ -393,17 +407,43 @@ export default function ProfileScreen() {
         <View style={[s.profileHeader, { borderBottomColor: "#e5e7eb" }]}>
           <View style={{ position: "relative" }}>
             <Avatar username={user.username} size={86} />
-            <View style={[s.cameraPill, { backgroundColor: colors.primary, borderColor: "#fff" }]}>
+            <TouchableOpacity
+              style={[s.cameraPill, { backgroundColor: colors.primary, borderColor: "#fff" }]}
+              onPress={() => Alert.alert("Profile Photo", "Profile photo upload coming soon.")}
+            >
               <Feather name="camera" size={18} color="#fff" />
-            </View>
+            </TouchableOpacity>
           </View>
           <View style={{ flex: 1 }}>
-            <View style={s.row}>
-              <Text style={[s.profileName, { color: colors.foreground }]}>{displayName}</Text>
-              <TouchableOpacity style={{ padding: 8 }}>
-                <Feather name="edit-2" size={18} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
+            {editingName ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <TextInput
+                  style={[s.profileName, { color: colors.foreground, borderBottomWidth: 1, borderBottomColor: colors.primary, flex: 1, paddingBottom: 2 }]}
+                  value={newDisplayNameInput}
+                  onChangeText={setNewDisplayNameInput}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={() => { if (newDisplayNameInput.trim()) nameMut.mutate(newDisplayNameInput.trim()); }}
+                />
+                <TouchableOpacity
+                  style={{ backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}
+                  onPress={() => { if (newDisplayNameInput.trim()) nameMut.mutate(newDisplayNameInput.trim()); }}
+                  disabled={!newDisplayNameInput.trim() || nameMut.isPending}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={{ padding: 6 }} onPress={() => setEditingName(false)}>
+                  <Feather name="x" size={18} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={s.row}>
+                <Text style={[s.profileName, { color: colors.foreground }]}>{displayName}</Text>
+                <TouchableOpacity style={{ padding: 8 }} onPress={() => { setNewDisplayNameInput(displayName); setEditingName(true); }}>
+                  <Feather name="edit-2" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+            )}
             <Text style={[s.profileMeta, { color: colors.mutedForeground }]}>
               {levelText.replace(/_/g, " ")} • {goalText}
             </Text>
@@ -415,7 +455,7 @@ export default function ProfileScreen() {
         <Card>
           <View style={[s.rowBetween, { alignItems: "flex-start", marginBottom: 20 }]}>
             <View style={{ flex: 1 }}>
-              <Text style={[s.cardTitle, { color: colors.foreground }]}>Current Metrics</Text>
+              <Text style={[s.cardTitle, { color: colors.foreground, fontSize: 18 }]}>Current Metrics</Text>
               <Text style={[s.cardDescription, { color: colors.mutedForeground }]}>Based on your latest update</Text>
             </View>
             <TouchableOpacity style={[s.outlineButton, { borderColor: "#e5e7eb" }]}>

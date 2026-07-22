@@ -471,7 +471,7 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
             const isThisDay = activeDay === dow;
 
             return (
-              <View key={dow} style={[st.dayCard, { backgroundColor: c.card, borderColor: c.border }]}>
+              <View key={dow} style={[st.dayCard, { backgroundColor: c.card, borderColor: "rgba(255,255,255,0.22)" }]}>
                 <View style={st.dayHeaderRow}>
                   <Text style={[st.dayLabelText, { color: c.foreground }]}>{dayLabel}</Text>
                   <View style={[st.loadChip, { borderColor: loadColor + "50" }]}>
@@ -861,7 +861,7 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
                 <Text style={{ color: c.mutedForeground, fontWeight: "600" }}>Back</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[st.primaryBtn, { flex: 1, opacity: !hasAnyActivity || previewLoading ? 0.5 : 1 }]}
+                style={[st.primaryBtn, { flex: 1, opacity: !hasAnyActivity || previewLoading ? 0.5 : 1, borderWidth: 1.5, borderColor: "#fff" }]}
                 onPress={fetchPreview}
                 disabled={!hasAnyActivity || previewLoading}
               >

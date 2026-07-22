@@ -208,6 +208,7 @@ export const INGREDIENTS_DATA: IngredientEntry[] = [
   { name: "Dates (Dried)",                         defaultGrams: 50,  caloriesPer100g: 282, proteinPer100g: 2.5,  carbsPer100g: 75.0, fatPer100g: 0.4,  fibrePer100g: 8.0, sourceType: "ingredient" },
   { name: "Raisins",                               defaultGrams: 40,  caloriesPer100g: 299, proteinPer100g: 3.1,  carbsPer100g: 79.0, fatPer100g: 0.5,  fibrePer100g: 3.7, sourceType: "ingredient" },
   { name: "Dried Apricots",                        defaultGrams: 40,  caloriesPer100g: 241, proteinPer100g: 3.4,  carbsPer100g: 63.0, fatPer100g: 0.5,  fibrePer100g: 7.3, sourceType: "ingredient" },
+  { name: "Prunes (Dried)",                        defaultGrams: 40,  caloriesPer100g: 240, proteinPer100g: 2.2,  carbsPer100g: 64.0, fatPer100g: 0.4,  fibrePer100g: 7.1, sourceType: "ingredient" },
   { name: "Pear",                                  defaultGrams: 150, caloriesPer100g: 57,  proteinPer100g: 0.4,  carbsPer100g: 15.2, fatPer100g: 0.1,  fibrePer100g: 3.1, sourceType: "ingredient" },
   { name: "Nectarine",                             defaultGrams: 140, caloriesPer100g: 44,  proteinPer100g: 1.1,  carbsPer100g: 11.0, fatPer100g: 0.3,  fibrePer100g: 1.7, sourceType: "ingredient" },
   { name: "Papaya",                                defaultGrams: 150, caloriesPer100g: 43,  proteinPer100g: 0.5,  carbsPer100g: 11.0, fatPer100g: 0.3,  fibrePer100g: 1.7, sourceType: "ingredient" },

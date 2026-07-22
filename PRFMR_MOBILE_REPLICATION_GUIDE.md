@@ -4063,7 +4063,7 @@ This is the most nuanced UI/logic combination in the dialog. Two independent cli
 | Lime | 44g | lime | 1 |
 | Figs (Fresh) | 50g | fig | 2 |
 | Dates (Dried) | 8g | date | 3 |
-| Prunes | 9g | prune | 3 |
+|   | 9g | prune | 3 |
 | Dried Apricots | 8g | apricot half | 4 |
 | Cherries | 8g | cherry | 10 |
 | Pomegranate | 87g | ½ pomegranate | 1 |

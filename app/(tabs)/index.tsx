@@ -2741,9 +2741,9 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   );
 }
 
-function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
+function MealSearchTab({ query, onQueryChange, results, searching, onSelect, error }: {
   query: string; onQueryChange: (q: string) => void; results: any[];
-  searching: boolean; onSelect: (item: any) => void;
+  searching: boolean; onSelect: (item: any) => void; error?: boolean;
 }) {
   return (
     <View style={{ flex: 1 }}>
@@ -2762,7 +2762,7 @@ function MealSearchTab({ query, onQueryChange, results, searching, onSelect }: {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           query.length > 1 && !searching
-            ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32 }}>No results</Text>
+            ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32 }}>{error ? "Search unavailable — please try again" : "No results"}</Text>
             : query.length < 2
             ? (
               <View style={{ alignItems: "center", paddingTop: 64, gap: 10 }}>
@@ -3199,6 +3199,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [searchQ, setSearchQ] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
@@ -3337,16 +3338,19 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
   const doSearch = useCallback((q: string) => {
     setSearchQ(q);
-    if (q.trim().length < 2) { setResults([]); setSearching(false); return; }
+    if (q.trim().length < 2) { setResults([]); setSearching(false); setSearchError(false); return; }
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     searchTimeoutRef.current = setTimeout(async () => {
       const version = ++searchVersionRef.current;
       setSearching(true);
       try {
         const r = await apiFetch<any[]>(`/foods/search?q=${encodeURIComponent(q.trim())}`);
-        if (version === searchVersionRef.current) setResults(Array.isArray(r) ? r.slice(0, 20) : []);
+        if (version === searchVersionRef.current) {
+          setResults(Array.isArray(r) ? r.slice(0, 20) : []);
+          setSearchError(false);
+        }
       } catch {
-        if (version === searchVersionRef.current) setResults([]);
+        if (version === searchVersionRef.current) { setResults([]); setSearchError(true); }
       } finally {
         if (version === searchVersionRef.current) setSearching(false);
       }
@@ -3497,7 +3501,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       sourceType: apiSourceType,
       macroSource: isOff ? "off" : "ingredient",
       microSource: (isIngredient || hasMappedIngredient) ? "ingredient" : "none",
-      enteredBasis: isRaw ? "raw" : "cooked",
+      ...(isRaw && { enteredBasis: "raw" }),
       ...(food.offBarcode && { offBarcode: food.offBarcode }),
       ...(food.ingredientIndex != null && { ingredientIndex: food.ingredientIndex }),
       ...(snackIdx !== undefined && { snackIndex: snackIdx }),
@@ -3525,7 +3529,6 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       sourceType: "manual",
       macroSource: "ingredient",
       microSource: "none",
-      enteredBasis: "cooked",
       ...(snackIdx !== undefined && { snackIndex: snackIdx }),
     });
   }
@@ -3553,7 +3556,6 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       sourceType: "manual",
       macroSource: "ingredient",
       microSource: "none",
-      enteredBasis: "cooked",
     });
   }
 
@@ -3747,7 +3749,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
               {activeTab === "search" && (
                 <MealSearchTab query={searchQ} onQueryChange={doSearch} results={results}
-                  searching={searching}
+                  searching={searching} error={searchError}
                   onSelect={item => { setSelectedFood(normalizeFood(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (

@@ -1015,10 +1015,8 @@ export default function OnboardingScreen() {
               </Text>
             )}
 
-            {/* Manual temp reduction — always visible dropdown with safety warnings */}
+            {/* Manual temp reduction — free-text input with safety warnings */}
             {planValid && !d.nonFightPrepMode && (() => {
-              const TEMP_OPTIONS = ["", "1", "2", "3", "4", "5", "6", "8", "10"];
-              const selLabel = d.demoManualTempReduction === "" ? "Auto (recommended)" : `${d.demoManualTempReduction} kg`;
               const manualKgNum = d.demoManualTempReduction ? parseFloat(d.demoManualTempReduction) : 0;
               // Safety cap per §9.5.1
               const maxSafe = d.demoWeighInTiming === "day_before"
@@ -1028,64 +1026,41 @@ export default function OnboardingScreen() {
               const pctBW = cw > 0 ? (manualKgNum / cw) * 100 : 0;
               const isHighCut = manualKgNum > 0 && pctBW > (d.demoWeighInTiming === "day_before" ? 5 : 1.5);
               return (
-                <View style={{ marginBottom: 12, zIndex: tempDropdownOpen ? 50 : 1 }}>
+                <View style={{ marginBottom: 12 }}>
                   <Text style={{ color: "#d4d4d8", fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold", marginBottom: 6 }}>
                     Manual water cut (24–48h before weigh-in)
                   </Text>
-                  {/* Dropdown trigger */}
-                  <TouchableOpacity
-                    onPress={() => setTempDropdownOpen(p => !p)}
-                    style={{
-                      flexDirection: "row", alignItems: "center",
-                      borderRadius: 10, borderWidth: 1.2,
-                      borderColor: exceedsSafeCap ? "#ef4444" : isHighCut ? "#facc15" : "rgba(255,255,255,0.15)",
-                      backgroundColor: "#1a1e28",
-                      paddingHorizontal: 14, paddingVertical: 12,
-                    }}
-                  >
-                    <Text style={{ flex: 1, color: d.demoManualTempReduction === "" ? "#52525b" : "#d4d4d8", fontSize: 14, fontFamily: "Inter_400Regular" }}>
-                      {selLabel}
-                    </Text>
-                    <Feather name={tempDropdownOpen ? "chevron-up" : "chevron-down"} size={15} color="#71717a" />
-                  </TouchableOpacity>
-                  {tempDropdownOpen && (
-                    <View style={{
-                      position: "absolute", top: 80, left: 0, right: 0,
-                      backgroundColor: "#1e2232", borderRadius: 10,
-                      borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
-                      overflow: "hidden", zIndex: 100,
-                      shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 8, elevation: 10,
-                    }}>
-                      {TEMP_OPTIONS.map((opt, i) => {
-                        const isSelected = d.demoManualTempReduction === opt;
-                        const optKg = opt ? parseFloat(opt) : 0;
-                        const optPct = cw > 0 ? (optKg / cw * 100).toFixed(1) : "0";
-                        return (
-                          <TouchableOpacity
-                            key={opt}
-                            onPress={() => { set("demoManualTempReduction", opt); setTempDropdownOpen(false); }}
-                            style={{
-                              flexDirection: "row", alignItems: "center",
-                              paddingHorizontal: 14, paddingVertical: 12,
-                              backgroundColor: isSelected ? "rgba(249,115,22,0.08)" : "transparent",
-                              borderBottomWidth: i < TEMP_OPTIONS.length - 1 ? 1 : 0,
-                              borderBottomColor: "rgba(255,255,255,0.05)",
-                            }}
-                          >
-                            <Text style={{ flex: 1, color: isSelected ? PRIMARY : "#d4d4d8", fontSize: 14, fontFamily: "Inter_400Regular" }}>
-                              {opt === "" ? "Auto (recommended)" : `${opt} kg`}
-                            </Text>
-                            {opt !== "" && (
-                              <Text style={{ color: "#52525b", fontSize: 11, fontFamily: "Inter_400Regular", marginRight: 8 }}>
-                                {optPct}% BW
-                              </Text>
-                            )}
-                            {isSelected && <Feather name="check" size={14} color={PRIMARY} />}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
+                  {/* Free-text numeric input */}
+                  <View style={{
+                    flexDirection: "row", alignItems: "center",
+                    borderRadius: 10, borderWidth: 1.2,
+                    borderColor: exceedsSafeCap ? "#ef4444" : isHighCut ? "#facc15" : "rgba(255,255,255,0.15)",
+                    backgroundColor: "#1a1e28",
+                    paddingHorizontal: 14, paddingVertical: 10,
+                    gap: 8,
+                  }}>
+                    <TextInput
+                      style={{ flex: 1, color: "#d4d4d8", fontSize: 14, fontFamily: "Inter_400Regular" }}
+                      placeholder="Auto (leave blank)"
+                      placeholderTextColor="#52525b"
+                      keyboardType="decimal-pad"
+                      value={d.demoManualTempReduction}
+                      onChangeText={(t) => {
+                        const clean = t.replace(/[^0-9.]/g, "");
+                        set("demoManualTempReduction", clean);
+                      }}
+                    />
+                    {d.demoManualTempReduction !== "" && (
+                      <Text style={{ color: "#71717a", fontSize: 12, fontFamily: "Inter_400Regular" }}>
+                        {manualKgNum > 0 && cw > 0 ? `${pctBW.toFixed(1)}% BW` : "kg"}
+                      </Text>
+                    )}
+                    {d.demoManualTempReduction !== "" && (
+                      <TouchableOpacity onPress={() => set("demoManualTempReduction", "")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Feather name="x" size={15} color="#71717a" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   {/* Safety warnings */}
                   {exceedsSafeCap && (
                     <View style={{ marginTop: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)", backgroundColor: "rgba(239,68,68,0.08)", padding: 10 }}>
