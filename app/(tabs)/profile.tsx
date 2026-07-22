@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Alert,
@@ -14,6 +14,12 @@ import { apiFetch } from "@/lib/api";
 import { format } from "date-fns";
 import { useToast } from "@/components/AppToast";
 import { AppLogoHeader } from "@/components/AppLogoHeader";
+import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const STORAGE_API_BASE = process.env.EXPO_PUBLIC_DOMAIN
+  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
+  : (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 // ─────────────────────────────────────────
 // Types
@@ -307,6 +313,14 @@ export default function ProfileScreen() {
   const levelPick = levelPreset === "Custom" ? customLevelText.trim() : levelPreset;
   const [editingName, setEditingName] = useState(false);
   const [newDisplayNameInput, setNewDisplayNameInput] = useState("");
+  const [localPhotoUrl, setLocalPhotoUrl] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem("prfmr_profile_photo").then(url => {
+      if (url) setLocalPhotoUrl(url);
+    });
+  }, []);
 
   const { data: user, isLoading } = useQuery<UserProfile>({
     queryKey: ["user-me"],
@@ -399,6 +413,58 @@ export default function ProfileScreen() {
 
   const removeSport = () => sportMut.mutate(null);
 
+  const displayPhotoUrl = user.photoUrl || localPhotoUrl;
+
+  const handlePickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow photo library access to upload a profile photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    setUploadingPhoto(true);
+    try {
+      const urlRes = await fetch(`${STORAGE_API_BASE}/storage/uploads/request-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "profile.jpg", size: asset.fileSize ?? 100000, contentType: "image/jpeg" }),
+      });
+      if (!urlRes.ok) throw new Error("Failed to get upload URL");
+      const { uploadURL, objectPath } = await urlRes.json();
+
+      const photoBlob = await fetch(asset.uri).then(r => r.blob());
+      const uploadRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: photoBlob,
+        headers: { "Content-Type": "image/jpeg" },
+      });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+
+      const servingUrl = `${STORAGE_API_BASE}/storage${objectPath}`;
+
+      try {
+        await apiFetch("/me/profile-photo", { method: "PUT", body: { profilePhotoUrl: servingUrl } });
+      } catch { }
+
+      await AsyncStorage.setItem("prfmr_profile_photo", servingUrl);
+      setLocalPhotoUrl(servingUrl);
+      qc.invalidateQueries({ queryKey: ["user-me"] });
+      showToast({ title: "Profile photo updated" });
+    } catch {
+      Alert.alert("Upload failed", "Could not upload photo. Please try again.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   return (
     <SafeAreaView style={[s.flex, { backgroundColor: colors.background }]} edges={["top"]}>
       <AppLogoHeader />
@@ -406,12 +472,19 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={[s.profileHeader, { borderBottomColor: "#e5e7eb" }]}>
           <View style={{ position: "relative" }}>
-            <Avatar username={user.username} size={86} />
+            {displayPhotoUrl ? (
+              <Image source={{ uri: displayPhotoUrl }} style={{ width: 86, height: 86, borderRadius: 43 }} />
+            ) : (
+              <Avatar username={user.username} size={86} />
+            )}
             <TouchableOpacity
-              style={[s.cameraPill, { backgroundColor: colors.primary, borderColor: "#fff" }]}
-              onPress={() => Alert.alert("Profile Photo", "Profile photo upload coming soon.")}
+              style={[s.cameraPill, { backgroundColor: colors.primary, borderColor: "#fff", opacity: uploadingPhoto ? 0.6 : 1 }]}
+              onPress={handlePickPhoto}
+              disabled={uploadingPhoto}
             >
-              <Feather name="camera" size={18} color="#fff" />
+              {uploadingPhoto
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Feather name="camera" size={18} color="#fff" />}
             </TouchableOpacity>
           </View>
           <View style={{ flex: 1 }}>

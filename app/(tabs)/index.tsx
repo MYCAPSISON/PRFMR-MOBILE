@@ -361,9 +361,6 @@ const MODAL_TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "custom", label: "Custom", icon: "edit-2" },
 ];
 
-const CORE_FOODS: NormalizedFood[] = INGREDIENTS_DATA;
-
-const WHOLE_FOODS_IDX = CORE_FOODS;
 
 function normalizeFood(item: any, sourceType: "off" | "database" | "manual"): NormalizedFood {
   const macros = item.macros_per_100g ?? item.off?.macros_per_100g ?? {};
@@ -2741,9 +2738,9 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
   );
 }
 
-function MealSearchTab({ query, onQueryChange, results, searching, onSelect, error }: {
+function MealSearchTab({ query, onQueryChange, results, searching, onSelect, error, serviceUnavailable }: {
   query: string; onQueryChange: (q: string) => void; results: any[];
-  searching: boolean; onSelect: (item: any) => void; error?: boolean;
+  searching: boolean; onSelect: (item: any) => void; error?: boolean; serviceUnavailable?: boolean;
 }) {
   return (
     <View style={{ flex: 1 }}>
@@ -2762,7 +2759,15 @@ function MealSearchTab({ query, onQueryChange, results, searching, onSelect, err
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           query.length > 1 && !searching
-            ? <Text style={{ color: "#6b7280", textAlign: "center", padding: 32 }}>{error ? "Search unavailable — please try again" : "No results"}</Text>
+            ? serviceUnavailable
+              ? (
+                <View style={{ alignItems: "center", paddingHorizontal: 24, paddingTop: 48, gap: 8 }}>
+                  <Feather name="alert-triangle" size={32} color="#d97706" />
+                  <Text style={{ color: "#d97706", fontWeight: "700", fontSize: 15, textAlign: "center" }}>Food search is temporarily unavailable</Text>
+                  <Text style={{ color: "#6b7280", fontSize: 13, textAlign: "center", lineHeight: 18 }}>The food database is having issues right now — try again in a moment, or use the Whole Food or Custom tabs.</Text>
+                </View>
+              )
+              : <Text style={{ color: "#6b7280", textAlign: "center", padding: 32 }}>{error ? "Search unavailable — please try again" : "No results found"}</Text>
             : query.length < 2
             ? (
               <View style={{ alignItems: "center", paddingTop: 64, gap: 10 }}>
@@ -3200,6 +3205,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
+  const [offSearchUnavailable, setOffSearchUnavailable] = useState(false);
+  const [wfTabActivated, setWfTabActivated] = useState(false);
 
   const [barcodeCode, setBarcodeCode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
@@ -3255,6 +3262,25 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     queryKey: ["food", date],
     queryFn: () => apiFetch(`/me/food/${date}`),
   });
+
+  const { data: apiIngredients = [] } = useQuery<any[]>({
+    queryKey: ["ingredients"],
+    queryFn: () => apiFetch<any[]>("/ingredients"),
+    enabled: wfTabActivated,
+    staleTime: 1000 * 60 * 30,
+  });
+
+  const wfIngredients: NormalizedFood[] = apiIngredients.length > 0
+    ? apiIngredients.map(ing => ({
+        name: ing.name ?? "",
+        caloriesPer100g: ing.calories_per_100g ?? 0,
+        proteinPer100g: ing.protein_g_per_100g ?? 0,
+        carbsPer100g: ing.carbs_g_per_100g ?? 0,
+        fatPer100g: ing.fat_g_per_100g ?? 0,
+        fibrePer100g: ing.fibre_g_per_100g ?? ing.fiber_g_per_100g ?? 0,
+        defaultGrams: 100,
+      }))
+    : INGREDIENTS_DATA;
 
   function closeModal() {
     setModal(false);
@@ -3338,23 +3364,26 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
   const doSearch = useCallback((q: string) => {
     setSearchQ(q);
-    if (q.trim().length < 2) { setResults([]); setSearching(false); setSearchError(false); return; }
+    if (q.trim().length < 2) { setResults([]); setSearching(false); setSearchError(false); setOffSearchUnavailable(false); return; }
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     searchTimeoutRef.current = setTimeout(async () => {
       const version = ++searchVersionRef.current;
       setSearching(true);
       try {
-        const r = await apiFetch<any[]>(`/foods/search?q=${encodeURIComponent(q.trim())}`);
+        const r = await apiFetch<{ results?: any[]; serviceUnavailable?: boolean } | any[]>(`/foods/search?q=${encodeURIComponent(q.trim())}`);
         if (version === searchVersionRef.current) {
-          setResults(Array.isArray(r) ? r.slice(0, 20) : []);
+          const list = Array.isArray(r) ? r : (r as any)?.results ?? [];
+          const unavailable = !Array.isArray(r) && !!(r as any)?.serviceUnavailable;
+          setResults(list.slice(0, 20));
+          setOffSearchUnavailable(unavailable);
           setSearchError(false);
         }
       } catch {
-        if (version === searchVersionRef.current) { setResults([]); setSearchError(true); }
+        if (version === searchVersionRef.current) { setResults([]); setSearchError(true); setOffSearchUnavailable(false); }
       } finally {
         if (version === searchVersionRef.current) setSearching(false);
       }
-    }, 350);
+    }, 250);
   }, []);
 
   async function lookupBarcode(overrideCode?: string) {
@@ -3726,7 +3755,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           <View style={{ flexDirection: "row", marginHorizontal: 24, marginTop: 16, marginBottom: 8,
             backgroundColor: "#181c26", borderRadius: 10, padding: 3 }}>
             {MODAL_TABS.map(tab => (
-              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); setWfSelectedFood(null); setMealDropdownOpen(false); }}
+              <TouchableOpacity key={tab.id} onPress={() => { setActiveTab(tab.id); setSelectedFood(null); setWfSelectedFood(null); setMealDropdownOpen(false); if (tab.id === "wholefood") setWfTabActivated(true); }}
                 style={{ flex: 1, paddingVertical: 7, alignItems: "center", borderRadius: 8,
                   backgroundColor: activeTab === tab.id ? "#2a2e3e" : "transparent" }}>
                 <Text style={{ color: activeTab === tab.id ? "#eceef2" : "#6b7280", fontSize: 11, fontWeight: "700" }}>{tab.label}</Text>
@@ -3749,7 +3778,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
               {activeTab === "search" && (
                 <MealSearchTab query={searchQ} onQueryChange={doSearch} results={results}
-                  searching={searching} error={searchError}
+                  searching={searching} error={searchError} serviceUnavailable={offSearchUnavailable}
                   onSelect={item => { setSelectedFood(normalizeFood(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
@@ -3903,7 +3932,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                     );
                   })() : (
                     <FlatList
-                      data={CORE_FOODS.filter(f =>
+                      data={wfIngredients.filter(f =>
                         wholeSearch.length < 1 || f.name.toLowerCase().includes(wholeSearch.toLowerCase())
                       )}
                       keyExtractor={item => item.name}
