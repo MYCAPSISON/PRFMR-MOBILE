@@ -2482,6 +2482,8 @@ Info row 2:  "Suggested minimum" → {carbRecommendedG} g (3 g/kg) (text-primary
 
 ### 9.12 Fight Camp Notification Overlay (fcModal)
 
+> **Mobile implementation** — see §9.12.1 below for the full React Native / Expo replication.
+
 **Source:** `WeightCutHero.tsx`, rendered via `createPortal(…, document.body)`
 **Purpose:** Full-screen celebration / weight trend notification. Separate from the EA/carb consent modals above — this is a non-blocking notice.
 
@@ -2535,6 +2537,179 @@ Tapping "Share this moment" in the fcModal:
 3. Opens `ShareMomentSheet` (`shareOpen = true`)
 
 The hero card also has a persistent `data-testid="button-demo-share"` button for testing share flow without waiting for a trigger event.
+
+---
+
+### 9.12.1 Mobile FcModal — React Native / Expo Implementation
+
+> **Files:** `components/FcModal.tsx` (web), `components/FcModal.native.tsx` (iOS/Android), `components/ShareCard.tsx`
+
+Metro resolves `.native.tsx` files for iOS/Android automatically. The web fallback (`FcModal.tsx`) renders the overlay without image capture.
+
+#### Data type (mobile)
+
+```typescript
+interface FcModalData {
+  title: string;
+  body: string;
+  emoji?: string;
+  isUp?: boolean;          // true → amber border (weight went up)
+  shareable?: boolean;     // show "Share moment" button
+  weightLostKg?: number;   // used in ShareCard
+  currentWeight?: number;
+  targetWeight?: number;
+  username?: string;
+  daysLeft?: number;
+  shareTitle?: string;
+}
+```
+
+#### Queue system (in `FightCampHero` component inside `app/(tabs)/index.tsx`)
+
+```typescript
+const [fcModalCurrent, setFcModalCurrent] = useState<FcModalData | null>(null);
+const fcModalQueueRef = useRef<FcModalData[]>([]);
+
+function enqueueFcModal(data: FcModalData) {
+  setFcModalCurrent(prev => {
+    if (!prev) return data;
+    fcModalQueueRef.current = [...fcModalQueueRef.current, data];
+    return prev;
+  });
+}
+
+function handleFcModalDismiss() {
+  setFcModalCurrent(null);
+  const q = fcModalQueueRef.current;
+  if (q.length > 0) {
+    const [next, ...rest] = q;
+    fcModalQueueRef.current = rest;
+    setTimeout(() => setFcModalCurrent(next), 350); // 350ms gap between modals
+  }
+}
+```
+
+#### Trigger 1 — weight logged (inline on fight camp card)
+
+Capture the previous weight BEFORE the API call so it's available in `onSuccess`:
+
+```typescript
+const weightMut = useMutation({
+  mutationFn: (w: number) => {
+    const sorted = [...recentWeights].sort((a, b) => b.date.localeCompare(a.date));
+    prevWeightRef.current = sorted.length > 0 ? sorted[0].weight : null;
+    return apiFetch("/weights", { method: "POST", body: { date, weight: w } });
+  },
+  onSuccess: (_, newWeight) => {
+    // … query invalidations …
+    const prev = prevWeightRef.current;
+    const isUp = prev !== null && newWeight > prev;
+    const weightLostKg = plan ? Math.max(0, plan.currentWeight - newWeight) : 0;
+    if (isUp) {
+      enqueueFcModal({ title: "Weight naturally fluctuates", emoji: "📊", isUp: true, shareable: false, … });
+    } else {
+      enqueueFcModal({ title: "On trend ↓", emoji: "🔥", shareable: plan ? weightLostKg >= 0.1 : false, weightLostKg, … });
+    }
+  },
+});
+```
+
+#### Trigger 2 — fight camp created
+
+```typescript
+const createMut = useMutation({
+  mutationFn: (body: object) => apiFetch("/me/weight-cut", { method: "POST", body }),
+  onSuccess: (_, variables: any) => {
+    const wasCreate = dialogMode === "create";
+    setDialogMode(null);
+    if (wasCreate) {
+      enqueueFcModal({
+        title: "Fight camp activated 🎯",
+        body: "Your personalised weight cut plan is live.",
+        emoji: "🥊", shareable: true, weightLostKg: 0,
+        currentWeight: variables?.currentWeight,
+        targetWeight: variables?.targetWeight,
+      });
+    } else {
+      showToast({ title: "Fight camp plan updated 🎯" });
+    }
+  },
+});
+```
+
+#### Trigger 3 — consistency milestones
+
+```typescript
+const prevConsistencyRef = useRef<number>(-1); // -1 = not yet initialised
+
+useEffect(() => {
+  const count = new Set(recentWeights.map(w => w.date.slice(0, 10))).size;
+  const prev = prevConsistencyRef.current;
+  if (prev < 0) { prevConsistencyRef.current = count; return; } // init
+  if (count === prev) return;
+  prevConsistencyRef.current = count;
+  // Threshold crossings: 3 → 🔥, 5 → 🥊, 6 → 💪
+  if (count >= 6 && prev < 6) enqueueFcModal({ title: "Excellent 💪", shareable: true, … });
+  else if (count >= 5 && prev < 5) enqueueFcModal({ title: "Great momentum 🥊", shareable: true, … });
+  else if (count >= 3 && prev < 3) enqueueFcModal({ title: "Building rhythm 🔥", shareable: true, … });
+}, [recentWeights]);
+```
+
+#### ShareCard — 9:16 premium shareable image
+
+**File:** `components/ShareCard.tsx`
+
+- Dimensions: **360 × 640 px** (exact 9:16 ratio)
+- Background: `#0a0c12` (deep PRFMR dark)
+- Top-left: PRFMR logo (`assets/logo-main.png`) + "PRFMR" wordmark
+- Centre: large orange number (kg lost) + `kg lost` label  
+- Stats row: current weight · kg to go (orange) · fight weight  
+- Thin orange divider (0.4 opacity)  
+- Motivational copy (contextual by kg lost amount)
+- Footer: shareable tagline + `PRFMR · Fight Camp Tracker`
+
+**Capturing and sharing (native only):**
+
+```typescript
+// In FcModal.native.tsx
+import ViewShot from "react-native-view-shot";
+import * as Sharing from "expo-sharing";
+
+const shareCardRef = useRef<ViewShot>(null);
+
+async function handleShare() {
+  const uri = await (shareCardRef.current as any).capture();
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) await Sharing.shareAsync(uri, { mimeType: "image/png" });
+}
+
+// Render hidden ShareCard inside the modal (off-screen left: -9999)
+<ViewShot ref={shareCardRef} options={{ format: "png", quality: 1.0, width: 360, height: 640 }}
+  style={{ position: "absolute", left: -9999, top: 0, width: 360, height: 640 }}>
+  <ShareCard weightLostKg={data.weightLostKg} currentWeight={data.currentWeight} … />
+</ViewShot>
+```
+
+**Platform file split (required for web bundler compatibility):**
+
+| File | Used on | Notes |
+|------|---------|-------|
+| `FcModal.native.tsx` | iOS, Android | Full ViewShot + expo-sharing |
+| `FcModal.tsx` | Web fallback | No image capture; share button shown but no-op in web preview |
+
+Metro resolves `.native.tsx` over `.tsx` automatically for native targets.
+
+#### Render in FightCampHero
+
+```tsx
+<FcModal data={fcModalCurrent} onDismiss={handleFcModalDismiss} />
+```
+
+Place inside the `<>…</>` fragment at the bottom of `FightCampHero`'s return, after the main card.
+
+#### QuickLogModal integration
+
+`QuickLogModal` accepts an optional `onWeightLogged?: (newWeight: number) => void` prop. Call it on successful weight POST. The Dashboard passes a callback that fires a simple confirmation modal (non-shareable) for weights logged via the quick-log text input.
 
 ---
 

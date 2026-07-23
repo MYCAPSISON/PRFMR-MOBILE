@@ -1055,35 +1055,37 @@ export default function TrainingScreen() {
                 <Text style={s.headerChipText}>🥊 {weightCutPlan.daysUntil} days to fight night</Text>
               </View>
             )}
-            <TouchableOpacity
-              style={[s.planBlockBtn, { borderColor: colors.primary }]}
-              onPress={() => setBlockModalOpen(true)}
-            >
-              <Feather name="calendar" size={14} color={colors.primary} />
-              <Text style={[s.planBlockText, { color: colors.primary }]}>
-                {activeBlock ? activeBlock.name : "Plan Block"}
-              </Text>
-            </TouchableOpacity>
-            {activeBlock && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <TouchableOpacity
-                onPress={() => Alert.alert(
-                  "Remove Training Block",
-                  `Remove "${activeBlock.name}"? This won't affect past sessions.`,
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Remove", style: "destructive", onPress: () => deleteBlockMut.mutate(activeBlock.id) },
-                  ]
-                )}
-                disabled={deleteBlockMut.isPending}
-                style={{ width: 32, height: 32, borderRadius: 8, borderWidth: 1,
-                  borderColor: "rgba(239,68,68,0.4)", backgroundColor: "rgba(239,68,68,0.1)",
-                  alignItems: "center", justifyContent: "center" }}
+                style={[s.planBlockBtn, { borderColor: colors.primary }]}
+                onPress={() => setBlockModalOpen(true)}
               >
-                {deleteBlockMut.isPending
-                  ? <ActivityIndicator size="small" color="#f87171" />
-                  : <Feather name="trash-2" size={14} color="#f87171" />}
+                <Feather name="calendar" size={14} color={colors.primary} />
+                <Text style={[s.planBlockText, { color: colors.primary }]}>
+                  {activeBlock ? activeBlock.name : "Plan Block"}
+                </Text>
               </TouchableOpacity>
-            )}
+              {activeBlock && (
+                <TouchableOpacity
+                  onPress={() => Alert.alert(
+                    "Remove Training Block",
+                    `Remove "${activeBlock.name}"? This won't affect past sessions.`,
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Remove", style: "destructive", onPress: () => deleteBlockMut.mutate(activeBlock.id) },
+                    ]
+                  )}
+                  disabled={deleteBlockMut.isPending}
+                  style={{ width: 32, height: 32, borderRadius: 8, borderWidth: 1,
+                    borderColor: "rgba(239,68,68,0.4)", backgroundColor: "rgba(239,68,68,0.1)",
+                    alignItems: "center", justifyContent: "center" }}
+                >
+                  {deleteBlockMut.isPending
+                    ? <ActivityIndicator size="small" color="#f87171" />
+                    : <Feather name="trash-2" size={14} color="#f87171" />}
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
       </View>

@@ -22,6 +22,7 @@ import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/core
 import { QuickLogModal } from "../../components/QuickLogModal";
 import { useToast } from "../../components/AppToast";
 import { AppLogoHeader } from "../../components/AppLogoHeader";
+import { FcModal, FcModalData } from "../../components/FcModal";
 
 // ─────────────────────────────────────────
 // Types
@@ -497,6 +498,30 @@ function FightCampHero({ date }: { date: string }) {
   const [formManualTemp, setFormManualTemp] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // FcModal queue
+  const [fcModalCurrent, setFcModalCurrent] = useState<FcModalData | null>(null);
+  const fcModalQueueRef = useRef<FcModalData[]>([]);
+  const prevWeightRef = useRef<number | null>(null);
+  const prevConsistencyRef = useRef<number>(-1);
+
+  function enqueueFcModal(data: FcModalData) {
+    setFcModalCurrent(prev => {
+      if (!prev) return data;
+      fcModalQueueRef.current = [...fcModalQueueRef.current, data];
+      return prev;
+    });
+  }
+
+  function handleFcModalDismiss() {
+    setFcModalCurrent(null);
+    const q = fcModalQueueRef.current;
+    if (q.length > 0) {
+      const [next, ...rest] = q;
+      fcModalQueueRef.current = rest;
+      setTimeout(() => setFcModalCurrent(next), 350);
+    }
+  }
+
   // 7-day start for trend/consistency
   const sevenDayStart = format(subDays(new Date(date + "T12:00:00"), 6), "yyyy-MM-dd");
 
@@ -513,8 +538,12 @@ function FightCampHero({ date }: { date: string }) {
   });
 
   const weightMut = useMutation({
-    mutationFn: (w: number) => apiFetch("/weights", { method: "POST", body: { date, weight: w } }),
-    onSuccess: () => {
+    mutationFn: (w: number) => {
+      const sorted = [...recentWeights].sort((a, b) => b.date.localeCompare(a.date));
+      prevWeightRef.current = sorted.length > 0 ? sorted[0].weight : null;
+      return apiFetch("/weights", { method: "POST", body: { date, weight: w } });
+    },
+    onSuccess: (_, newWeight) => {
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
       qc.invalidateQueries({ queryKey: ["morning-status", date] });
       qc.invalidateQueries({ queryKey: ["weights-range"] });
@@ -522,6 +551,32 @@ function FightCampHero({ date }: { date: string }) {
       qc.invalidateQueries({ queryKey: ["readiness", date] });
       qc.invalidateQueries({ queryKey: ["fuel", date] });
       setShowWeight(false); setWeightVal("");
+
+      const prev = prevWeightRef.current;
+      const isUp = prev !== null && newWeight > prev;
+      const weightLostKg = plan ? Math.max(0, plan.currentWeight - newWeight) : 0;
+
+      if (isUp) {
+        enqueueFcModal({
+          title: "Weight naturally fluctuates",
+          body: "A slight increase is completely normal. Hydration, sodium, and sleep all affect the scale. Stay consistent and trust the process.",
+          emoji: "📊",
+          isUp: true,
+          shareable: false,
+        });
+      } else {
+        enqueueFcModal({
+          title: "On trend ↓",
+          body: "Your weight is moving in the right direction. Consistency is the real secret weapon.",
+          emoji: "🔥",
+          shareable: plan ? weightLostKg >= 0.1 : false,
+          weightLostKg,
+          currentWeight: newWeight,
+          targetWeight: plan?.targetWeight,
+          daysLeft: plan?.daysUntil,
+          shareTitle: "Share your fight camp progress",
+        });
+      }
     },
     onError: (err) => showToast({
       title: "Weight not logged",
@@ -532,12 +587,24 @@ function FightCampHero({ date }: { date: string }) {
 
   const createMut = useMutation({
     mutationFn: (body: object) => apiFetch("/me/weight-cut", { method: "POST", body }),
-    onSuccess: () => {
+    onSuccess: (_, variables: any) => {
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
-      if (dialogMode === "edit") {
+      const wasCreate = dialogMode === "create";
+      setDialogMode(null);
+      if (wasCreate) {
+        enqueueFcModal({
+          title: "Fight camp activated 🎯",
+          body: "Your personalised weight cut plan is live. Train hard, eat right, and trust the numbers.",
+          emoji: "🥊",
+          shareable: true,
+          weightLostKg: 0,
+          currentWeight: variables?.currentWeight,
+          targetWeight: variables?.targetWeight,
+          shareTitle: "Fight camp activated",
+        });
+      } else {
         showToast({ title: "Fight camp plan updated 🎯" });
       }
-      setDialogMode(null);
     },
   });
 
@@ -593,6 +660,54 @@ function FightCampHero({ date }: { date: string }) {
       setWeightVal("");
     }
   }, [hasWeightForDate, showWeight]);
+
+  // Consistency milestone fcModals
+  useEffect(() => {
+    const count = new Set(recentWeights.map(w => w.date.slice(0, 10))).size;
+    const prev = prevConsistencyRef.current;
+    if (prev < 0) { prevConsistencyRef.current = count; return; }
+    if (count === prev) return;
+    prevConsistencyRef.current = count;
+    const latestWeight = recentWeights.sort((a, b) => b.date.localeCompare(a.date))[0]?.weight;
+    const lostKg = plan && latestWeight ? Math.max(0, plan.currentWeight - latestWeight) : 0;
+    if (count >= 6 && prev < 6) {
+      enqueueFcModal({
+        title: "Excellent 💪",
+        body: "6 out of 7 days logged. That's elite-level consistency — your data is building a clear picture.",
+        emoji: "💪",
+        shareable: true,
+        weightLostKg: lostKg,
+        currentWeight: latestWeight,
+        targetWeight: plan?.targetWeight,
+        daysLeft: plan?.daysUntil,
+        shareTitle: "Elite consistency 💪",
+      });
+    } else if (count >= 5 && prev < 5) {
+      enqueueFcModal({
+        title: "Great momentum 🥊",
+        body: "5 days this week. You're building the kind of discipline that makes weight cuts feel routine.",
+        emoji: "🥊",
+        shareable: true,
+        weightLostKg: lostKg,
+        currentWeight: latestWeight,
+        targetWeight: plan?.targetWeight,
+        daysLeft: plan?.daysUntil,
+        shareTitle: "Building real momentum 🥊",
+      });
+    } else if (count >= 3 && prev < 3) {
+      enqueueFcModal({
+        title: "Building rhythm 🔥",
+        body: "3 days logged this week. Momentum is everything — keep that streak alive.",
+        emoji: "🔥",
+        shareable: true,
+        weightLostKg: lostKg,
+        currentWeight: latestWeight,
+        targetWeight: plan?.targetWeight,
+        daysLeft: plan?.daysUntil,
+        shareTitle: "Building fight camp rhythm 🔥",
+      });
+    }
+  }, [recentWeights]);
 
   // ─── CREATE / EDIT MODAL ───────────────────────────────────────
   const formModal = (
@@ -976,16 +1091,38 @@ function FightCampHero({ date }: { date: string }) {
         </View>
 
         {/* Share row */}
-        <View style={styles.fightShareRow}>
-          <Feather name="share" size={14} color={colors.mutedForeground} />
-          <Text style={{ color: colors.mutedForeground, fontSize: 12, marginLeft: 6 }}>Try sharing a moment</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.fightShareRow}
+          onPress={() => {
+            const latestW = [...recentWeights].sort((a, b) => b.date.localeCompare(a.date))[0]?.weight;
+            const lostKg = plan && latestW ? Math.max(0, plan.currentWeight - latestW) : 0;
+            enqueueFcModal({
+              title: lostKg > 0 ? `${lostKg.toFixed(1)} kg down 🔥` : "Fight camp is on 🎯",
+              body: lostKg > 0
+                ? "Share your progress and inspire others on the same journey."
+                : "Your fight camp plan is set. Share the journey with your crew.",
+              emoji: lostKg > 0 ? "🥊" : "🎯",
+              shareable: true,
+              weightLostKg: lostKg,
+              currentWeight: latestW,
+              targetWeight: plan?.targetWeight,
+              daysLeft: plan?.daysUntil,
+              shareTitle: "Share your fight camp progress",
+            });
+          }}
+          activeOpacity={0.7}
+        >
+          <Feather name="share" size={14} color={colors.primary} />
+          <Text style={{ color: colors.primary, fontSize: 12, marginLeft: 6, fontWeight: "600" }}>Share your progress</Text>
+        </TouchableOpacity>
 
         {/* Planner note */}
         <Text style={styles.fightPlannerNote}>
           This planner focuses on gradual fat loss. Some athletes temporarily reduce body weight before weigh-ins. Weight naturally fluctuates day to day — focus on trends.
         </Text>
       </Card>
+
+      <FcModal data={fcModalCurrent} onDismiss={handleFcModalDismiss} />
     </>
   );
 }

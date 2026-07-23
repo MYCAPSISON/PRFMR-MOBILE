@@ -3,3 +3,4 @@
 - [PRFMR recalculate mode pre-seeding](prfmr-recalculate-preseed.md) — onboarding recalculate mode must fetch both `/user/me` and `/me/weight-cut` to pre-seed profile + fight camp fields; doSubmit must DELETE `/me/weight-cut` when nonFightPrepMode is set.
 - [PRFMR WeightTrend SVG tap targets](prfmr-svg-taps.md) — react-native-svg circles support onPress; use invisible r=16 transparent circles layered over visible r=3.5 dots for tap areas; pointerEvents="none" on SVG blocks all interaction.
 - [PRFMR guides saved to docs/](prfmr-guides.md) — authoritative spec guides copied to `docs/PRFMR_MOBILE_REPLICATION_GUIDE.md` and `docs/PRFMR_UI_REPLICATION_GUIDE.md`.
+- [FcModal platform split](fcmodal-platform-split.md) — react-native-view-shot is native-only; use .native.tsx for iOS/Android and .tsx as web fallback or Metro web bundle breaks.

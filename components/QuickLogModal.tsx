@@ -135,9 +135,10 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   date: string;
+  onWeightLogged?: (newWeight: number) => void;
 }
 
-export function QuickLogModal({ visible, onClose, date }: Props) {
+export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props) {
   const colors = useColors();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -419,6 +420,7 @@ export function QuickLogModal({ visible, onClose, date }: Props) {
       qc.invalidateQueries({ queryKey: ["weights-range"] });
       qc.invalidateQueries({ queryKey: ["targets", date] });
       setDialogState("done");
+      onWeightLogged?.(w);
     } catch (e: any) {
       setDialogState("review");
       Alert.alert("Error", e?.message ?? "Failed to save weight");
