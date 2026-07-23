@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Modal,
+  TextInput, ActivityIndicator, Modal, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -1000,6 +1000,15 @@ export default function TrainingScreen() {
     retry: false,
   });
 
+  const deleteBlockMut = useMutation({
+    mutationFn: (id: number) => apiFetch(`/training-blocks/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["training-block-active"] });
+      showToast({ title: "Training block removed" });
+    },
+    onError: () => showToast({ title: "Failed to remove block", variant: "destructive" }),
+  });
+
   const restMut = useMutation({
     mutationFn: (mark: boolean) =>
       apiFetch(`/me/rest-day/${selectedDate}`, { method: mark ? "POST" : "DELETE", body: mark ? {} : undefined }),
@@ -1055,6 +1064,26 @@ export default function TrainingScreen() {
                 {activeBlock ? activeBlock.name : "Plan Block"}
               </Text>
             </TouchableOpacity>
+            {activeBlock && (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  "Remove Training Block",
+                  `Remove "${activeBlock.name}"? This won't affect past sessions.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Remove", style: "destructive", onPress: () => deleteBlockMut.mutate(activeBlock.id) },
+                  ]
+                )}
+                disabled={deleteBlockMut.isPending}
+                style={{ width: 32, height: 32, borderRadius: 8, borderWidth: 1,
+                  borderColor: "rgba(239,68,68,0.4)", backgroundColor: "rgba(239,68,68,0.1)",
+                  alignItems: "center", justifyContent: "center" }}
+              >
+                {deleteBlockMut.isPending
+                  ? <ActivityIndicator size="small" color="#f87171" />
+                  : <Feather name="trash-2" size={14} color="#f87171" />}
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
