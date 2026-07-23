@@ -4004,7 +4004,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         ) : (
                           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                             <TextInput
-                              style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
+                              style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
                                 backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
                               value={wfGrams} onChangeText={setWfGrams} keyboardType="numeric" selectTextOnFocus
                             />
@@ -4219,7 +4219,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         {/* Amount input */}
                         <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>Amount (grams)</Text>
                         <TextInput
-                          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
+                          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
                             backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
                           value={barcodeGrams} onChangeText={setBarcodeGrams} keyboardType="numeric" selectTextOnFocus
                         />
