@@ -575,6 +575,7 @@ function FightCampHero({ date }: { date: string }) {
           targetWeight: plan?.targetWeight,
           daysLeft: plan?.daysUntil,
           shareTitle: "Share your fight camp progress",
+          weightHistory: [...recentWeights],
         });
       }
     },
@@ -601,6 +602,7 @@ function FightCampHero({ date }: { date: string }) {
           currentWeight: variables?.currentWeight,
           targetWeight: variables?.targetWeight,
           shareTitle: "Fight camp activated",
+          weightHistory: [...recentWeights],
         });
       } else {
         showToast({ title: "Fight camp plan updated 🎯" });
@@ -681,6 +683,7 @@ function FightCampHero({ date }: { date: string }) {
         targetWeight: plan?.targetWeight,
         daysLeft: plan?.daysUntil,
         shareTitle: "Elite consistency 💪",
+        weightHistory: [...recentWeights],
       });
     } else if (count >= 5 && prev < 5) {
       enqueueFcModal({
@@ -693,6 +696,7 @@ function FightCampHero({ date }: { date: string }) {
         targetWeight: plan?.targetWeight,
         daysLeft: plan?.daysUntil,
         shareTitle: "Building real momentum 🥊",
+        weightHistory: [...recentWeights],
       });
     } else if (count >= 3 && prev < 3) {
       enqueueFcModal({
@@ -705,6 +709,7 @@ function FightCampHero({ date }: { date: string }) {
         targetWeight: plan?.targetWeight,
         daysLeft: plan?.daysUntil,
         shareTitle: "Building fight camp rhythm 🔥",
+        weightHistory: [...recentWeights],
       });
     }
   }, [recentWeights]);

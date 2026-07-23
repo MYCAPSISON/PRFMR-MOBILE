@@ -1,5 +1,5 @@
 /**
- * FcModal — native version with ViewShot + expo-sharing.
+ * FcModal — native version with ViewShot + expo-sharing + background image picker.
  * Metro picks this file over FcModal.tsx on iOS and Android.
  */
 import React, { useEffect, useRef, useCallback } from "react";
@@ -10,6 +10,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
+import * as ImagePicker from "expo-image-picker";
 import { ShareCard } from "./ShareCard";
 
 export interface FcModalData {
@@ -24,6 +25,7 @@ export interface FcModalData {
   username?: string;
   daysLeft?: number;
   shareTitle?: string;
+  weightHistory?: Array<{ date: string; weight: number }>;
 }
 
 interface Props {
@@ -37,6 +39,7 @@ export function FcModal({ data, onDismiss }: Props) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareCardRef = useRef<ViewShot>(null);
   const [sharing, setSharing] = React.useState(false);
+  const [bgImageUri, setBgImageUri] = React.useState<string | null>(null);
 
   const dismiss = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -44,7 +47,10 @@ export function FcModal({ data, onDismiss }: Props) {
   }, [onDismiss]);
 
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      setBgImageUri(null);
+      return;
+    }
     setSharing(false);
     timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
@@ -71,6 +77,18 @@ export function FcModal({ data, onDismiss }: Props) {
     }
   }
 
+  async function handlePickBackground() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [9, 16],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setBgImageUri(result.assets[0].uri);
+    }
+  }
+
   if (!data) return null;
 
   const accent = data.isUp ? "#f59e0b" : "#ff7a00";
@@ -87,19 +105,35 @@ export function FcModal({ data, onDismiss }: Props) {
             <Text style={styles.body}>{data.body}</Text>
 
             {hasShare && (
-              <TouchableOpacity
-                style={[styles.shareBtn, { borderColor: accent }]}
-                onPress={handleShare}
-                disabled={sharing}
-                testID="button-share-moment"
-              >
-                {sharing
-                  ? <ActivityIndicator size="small" color={accent} />
-                  : <Feather name="share-2" size={15} color={accent} />}
-                <Text style={[styles.shareBtnText, { color: accent }]}>
-                  {sharing ? "Preparing…" : "Share moment"}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.btnRow}>
+                {/* Share button */}
+                <TouchableOpacity
+                  style={[styles.actionBtn, { borderColor: accent, flex: 1 }]}
+                  onPress={handleShare}
+                  disabled={sharing}
+                  testID="button-share-moment"
+                >
+                  {sharing
+                    ? <ActivityIndicator size="small" color={accent} />
+                    : <Feather name="share-2" size={14} color={accent} />}
+                  <Text style={[styles.actionBtnText, { color: accent }]}>
+                    {sharing ? "Preparing…" : "Share"}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Background picker button */}
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.bgBtn]}
+                  onPress={handlePickBackground}
+                  disabled={sharing}
+                  testID="button-change-background"
+                >
+                  <Feather name={bgImageUri ? "image" : "upload"} size={14} color="#6b7280" />
+                  <Text style={styles.bgBtnText}>
+                    {bgImageUri ? "Change bg" : "Add photo bg"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             <Text style={styles.hint}>Tap outside to dismiss</Text>
@@ -107,7 +141,7 @@ export function FcModal({ data, onDismiss }: Props) {
         </TouchableOpacity>
       </TouchableOpacity>
 
-      {/* Hidden ShareCard — captured by ViewShot (off-screen, size 360×640) */}
+      {/* Hidden ShareCard — captured by ViewShot (off-screen 360×640) */}
       {hasShare && (
         <ViewShot
           ref={shareCardRef}
@@ -120,6 +154,8 @@ export function FcModal({ data, onDismiss }: Props) {
             currentWeight={data.currentWeight}
             targetWeight={data.targetWeight}
             daysLeft={data.daysLeft}
+            weightHistory={data.weightHistory ?? []}
+            backgroundImageUri={bgImageUri ?? undefined}
           />
         </ViewShot>
       )}
@@ -144,12 +180,24 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 42, marginBottom: 4 },
   title: { color: "#eceef2", fontSize: 20, fontWeight: "800", textAlign: "center", letterSpacing: -0.3 },
   body: { color: "#9ca3af", fontSize: 14, textAlign: "center", lineHeight: 20 },
-  shareBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8,
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 11,
-    minWidth: 160, justifyContent: "center",
+  btnRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    width: "100%",
   },
-  shareBtnText: { fontSize: 14, fontWeight: "700" },
+  actionBtn: {
+    flexDirection: "row", alignItems: "center", gap: 7,
+    borderWidth: 1.5, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 11,
+    justifyContent: "center",
+  },
+  actionBtnText: { fontSize: 14, fontWeight: "700" },
+  bgBtn: {
+    borderColor: "#2a2d38",
+    backgroundColor: "#13161d",
+  },
+  bgBtnText: { color: "#6b7280", fontSize: 13, fontWeight: "600" },
   hint: { color: "#4b5563", fontSize: 11, marginTop: 6 },
   hiddenCard: {
     position: "absolute", left: -9999, top: 0,

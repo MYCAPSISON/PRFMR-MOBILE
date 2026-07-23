@@ -20,6 +20,7 @@ export interface FcModalData {
   username?: string;
   daysLeft?: number;
   shareTitle?: string;
+  weightHistory?: Array<{ date: string; weight: number }>;
 }
 
 interface Props {
