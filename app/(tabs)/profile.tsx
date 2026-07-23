@@ -357,10 +357,13 @@ export default function ProfileScreen() {
     onError: () => showToast({ title: "Failed to save", variant: "destructive" }),
   });
 
+  const [overrideDisplayName, setOverrideDisplayName] = useState<string | null>(null);
+
   const nameMut = useMutation({
     mutationFn: (newName: string) =>
       apiFetch("/me/profile", { method: "PATCH", body: { name: newName, displayName: newName, username: newName } }),
-    onSuccess: () => {
+    onSuccess: (_, newName) => {
+      setOverrideDisplayName(newName);
       qc.invalidateQueries({ queryKey: ["user-me"] });
       void refetchUser();
       setEditingName(false);
@@ -391,7 +394,7 @@ export default function ProfileScreen() {
     );
   }
 
-  const displayName = user.displayName || user.username;
+  const displayName = overrideDisplayName ?? user.displayName ?? user.username;
   const fightCampActive = weightCutPlan && weightCutPlan.daysUntil > 0;
   const mainSport = user.mainSport ?? user.sport ?? null;
   const levelText = user.experienceLevel ?? user.activityLevel ?? "advanced";

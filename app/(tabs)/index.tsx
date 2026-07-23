@@ -2237,9 +2237,9 @@ function AmqsCard({ date }: { date: string }) {
             <View style={styles.amqsScoreGrid}>
               <View style={styles.amqsScoreCell}>
                 <Text style={[styles.amqsScoreCaption, { color: colors.mutedForeground }]}>General Score</Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
                   <Text style={[styles.amqsScoreValue, { color: tierColor, fontFamily: colors.fonts.mono }]}>{amqs.score}</Text>
-                  <View style={[styles.badgePill, { backgroundColor: tierColor + "22", borderColor: tierColor + "44", borderWidth: 1 }]}>
+                  <View style={[styles.badgePill, { backgroundColor: tierColor + "22", borderColor: tierColor + "44", borderWidth: 1, alignSelf: "flex-start" }]}>
                     <Text style={{ fontSize: 11, color: tierColor, fontWeight: "700" }}>{amqs.tier}</Text>
                   </View>
                 </View>
@@ -2247,9 +2247,9 @@ function AmqsCard({ date }: { date: string }) {
               {amqs.layer2Score != null && (
                 <View style={styles.amqsScoreCell}>
                   <Text style={[styles.amqsScoreCaption, { color: colors.mutedForeground }]}>Performance Score</Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
                     <Text style={[styles.amqsScoreValueSmall, { color: layer2TierColor, fontFamily: colors.fonts.mono }]}>{amqs.layer2Score}</Text>
-                    <View style={[styles.badgePill, { backgroundColor: layer2TierColor + "22", borderColor: layer2TierColor + "44", borderWidth: 1 }]}>
+                    <View style={[styles.badgePill, { backgroundColor: layer2TierColor + "22", borderColor: layer2TierColor + "44", borderWidth: 1, alignSelf: "flex-start" }]}>
                       <Text style={{ fontSize: 11, color: layer2TierColor, fontWeight: "700" }}>{amqs.layer2Tier}</Text>
                     </View>
                   </View>
@@ -3523,6 +3523,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       }
     } finally {
       setBarcodeLoading(false);
+      setCameraScanned(false);
     }
   }
 
@@ -4094,13 +4095,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                 </View>
               )}
               {activeTab === "barcode" && (
-                <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
                   {/* Barcode input row */}
                   <View>
                     <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "700", marginBottom: 8 }}>Barcode</Text>
                     <View style={{ flexDirection: "row", gap: 10 }}>
                       <TextInput
-                        style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                        style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
                           backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 15, color: "#eceef2" }}
                         placeholder="e.g. 5000112548167" placeholderTextColor="#6b7280"
                         value={barcodeCode}
@@ -4184,7 +4185,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
                   {/* Inline result card */}
                   {barcodeResult && (() => {
-                    const bcCalPer100 = Math.round(barcodeResult.caloriesPer100g);
+                    const bcG = parseFloat(barcodeGrams) || 100;
+                    const bcR = bcG / 100;
+                    const bcCal = Math.round(barcodeResult.caloriesPer100g * bcR);
+                    const bcProt = rd1(barcodeResult.proteinPer100g * bcR);
+                    const bcCarb = rd1(barcodeResult.carbsPer100g * bcR);
+                    const bcFat = rd1(barcodeResult.fatPer100g * bcR);
+                    const bcFib = rd1(barcodeResult.fibrePer100g * bcR);
                     return (
                       <View style={{ gap: 12 }}>
                         <View style={{ height: 1, backgroundColor: "#1a1e28" }} />
@@ -4211,7 +4218,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         {/* Amount input */}
                         <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>Amount (grams)</Text>
                         <TextInput
-                          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                          style={{ height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
                             backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
                           value={barcodeGrams} onChangeText={setBarcodeGrams} keyboardType="numeric" selectTextOnFocus
                         />
@@ -4219,24 +4226,24 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           {[50, 100, 150, 200].map(q => (
                             <TouchableOpacity key={q} onPress={() => setBarcodeGrams(String(q))}
                               style={{ flex: 1, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center",
-                                borderWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+                                borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#181c26" }}>
                               <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>{q}g</Text>
                             </TouchableOpacity>
                           ))}
                         </View>
 
-                        {/* Nutrition per 100g */}
+                        {/* Estimated Nutrition — updates with grams */}
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                          <Text style={{ color: "#6b7280", fontSize: 13 }}>Nutrition per 100g</Text>
-                          <Text style={{ color: "#ff7a00", fontSize: 18, fontWeight: "800" }}>{bcCalPer100} kcal</Text>
+                          <Text style={{ color: "#6b7280", fontSize: 13 }}>Estimated Nutrition</Text>
+                          <Text style={{ color: "#ff7a00", fontSize: 18, fontWeight: "800" }}>{bcCal} kcal</Text>
                         </View>
                         <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
-                          borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", padding: 14 }}>
+                          borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb", padding: 14 }}>
                           {[
-                            { l: "Prot", v: rd1(barcodeResult.proteinPer100g), green: false },
-                            { l: "Carb", v: rd1(barcodeResult.carbsPer100g), green: false },
-                            { l: "Fat", v: rd1(barcodeResult.fatPer100g), green: false },
-                            { l: "Fib", v: rd1(barcodeResult.fibrePer100g), green: true },
+                            { l: "Prot", v: bcProt, green: false },
+                            { l: "Carb", v: bcCarb, green: false },
+                            { l: "Fat", v: bcFat, green: false },
+                            { l: "Fib", v: bcFib, green: true },
                           ].map(s => (
                             <View key={s.l} style={{ alignItems: "center" }}>
                               <Text style={{ color: "#6b7280", fontSize: 10, marginBottom: 2 }}>{s.l}</Text>
@@ -4246,7 +4253,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         </View>
 
                         {/* Micros Source — 3 states: mapped / skipped / unmapped */}
-                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
                           backgroundColor: "#13161d", padding: 14, gap: 10 }}>
                           {/* Header row */}
                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
