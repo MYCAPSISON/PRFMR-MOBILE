@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet,
   TextInput, ActivityIndicator, Modal, Alert, FlatList, Image, Dimensions,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Keyboard,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -3399,6 +3399,16 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [copyMeal, setCopyMeal] = useState("breakfast");
   const [copyMealDropdownOpen, setCopyMealDropdownOpen] = useState(false);
   const [copyPending, setCopyPending] = useState(false);
+  // Meal-level copy
+  const [mealCopyGroup, setMealCopyGroup] = useState<{ key: string; type: string; label: string } | null>(null);
+  const [mealCopyDate, setMealCopyDate] = useState(new Date());
+  const [mealCopyMeal, setMealCopyMeal] = useState("breakfast");
+  const [mealCopyMealOpen, setMealCopyMealOpen] = useState(false);
+  const [mealCopyPending, setMealCopyPending] = useState(false);
+  // Meal-level save-as-template
+  const [mealSaveGroup, setMealSaveGroup] = useState<{ key: string; type: string; label: string } | null>(null);
+  const [mealSaveName, setMealSaveName] = useState("");
+  const [mealSavePending, setMealSavePending] = useState(false);
 
   function openCopyModal(e: FoodEntry) {
     setCopyDate(new Date());
@@ -3443,6 +3453,47 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       showToast({ title: "Failed to copy item", variant: "destructive" });
     } finally {
       setCopyPending(false);
+    }
+  }
+
+  async function handleCopyMeal() {
+    if (!mealCopyGroup) return;
+    setMealCopyPending(true);
+    try {
+      const y = mealCopyDate.getFullYear();
+      const mo = String(mealCopyDate.getMonth() + 1).padStart(2, "0");
+      const dy = String(mealCopyDate.getDate()).padStart(2, "0");
+      const toDate = `${y}-${mo}-${dy}`;
+      const result: any = await apiFetch("/me/meals/copy", {
+        method: "POST",
+        body: { fromDate: date, fromMeal: mealCopyGroup.type, toDate, toMeal: mealCopyMeal },
+      });
+      qc.invalidateQueries({ queryKey: ["food", toDate] });
+      qc.invalidateQueries({ queryKey: ["amqs-score", toDate] });
+      showToast({ title: `${mealCopyGroup.label} copied`, description: `${result.count ?? ""} items added` });
+      setMealCopyGroup(null);
+    } catch (e) {
+      showToast({ title: "Copy failed", description: getErrorMessage(e), variant: "destructive" });
+    } finally {
+      setMealCopyPending(false);
+    }
+  }
+
+  async function handleSaveMealTemplate() {
+    if (!mealSaveGroup || !mealSaveName.trim()) return;
+    setMealSavePending(true);
+    try {
+      await apiFetch("/me/meals/templates/from-log", {
+        method: "POST",
+        body: { date, meal: mealSaveGroup.type, name: mealSaveName.trim() },
+      });
+      showToast({ title: "Meal saved", description: `"${mealSaveName.trim()}" saved to templates` });
+      setMealSaveGroup(null);
+      setMealSaveName("");
+    } catch (e) {
+      showToast({ title: "Save failed", description: getErrorMessage(e), variant: "destructive" });
+    } finally {
+      setMealSavePending(false);
     }
   }
 
@@ -3770,9 +3821,26 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     });
   }
 
-  const grouped = MEAL_TYPES.map(mt => ({
-    type: mt, items: entries.filter(e => e.meal === mt),
-  })).filter(g => g.items.length > 0);
+  type MealGroup = { key: string; type: string; label: string; items: FoodEntry[] };
+  const grouped: MealGroup[] = (() => {
+    const result: MealGroup[] = [];
+    for (const mt of ["breakfast", "lunch", "dinner"] as const) {
+      const items = (entries as FoodEntry[]).filter(e => e.meal === mt);
+      if (items.length > 0) result.push({ key: mt, type: mt, label: mt.charAt(0).toUpperCase() + mt.slice(1), items });
+    }
+    // Group snacks by snackIndex so each sub-occasion renders separately
+    const snackItems = (entries as FoodEntry[]).filter(e => e.meal === "snack");
+    const snackMap = new Map<number, FoodEntry[]>();
+    for (const item of snackItems) {
+      const idx = item.snackIndex ?? 1;
+      if (!snackMap.has(idx)) snackMap.set(idx, []);
+      snackMap.get(idx)!.push(item);
+    }
+    for (const idx of [...snackMap.keys()].sort((a, b) => a - b)) {
+      result.push({ key: `snack_${idx}`, type: "snack", label: `Snack #${idx}`, items: snackMap.get(idx)! });
+    }
+    return result;
+  })();
 
   const mealIcon: Record<string, any> = {
     breakfast: "coffee", lunch: "sun", dinner: "moon", snack: "package",
@@ -3816,12 +3884,12 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           const mealFat = g.items.reduce((sum, item) => sum + (item.fat || 0), 0);
           const mealFibre = g.items.reduce((sum, item) => sum + (item.fibre || 0), 0);
           return (
-            <View key={g.type} style={styles.mealGroup}>
+            <View key={g.key} style={styles.mealGroup}>
               <View style={styles.mealHeader}>
                 <View style={styles.mealTitleStack}>
                   <View style={styles.row}>
-                    <Feather name={mealIcon[g.type] ?? "utensils"} size={18} color={colors.mutedForeground} />
-                    <Text style={styles.mealName}>{g.type}</Text>
+                    <Feather name={mealIcon[g.type] ?? "package"} size={18} color={colors.mutedForeground} />
+                    <Text style={styles.mealName}>{g.label}</Text>
                     <View style={styles.mealCountBadge}>
                       <Text style={styles.mealCountText}>{g.items.length}</Text>
                     </View>
@@ -3829,8 +3897,12 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                     <Text style={styles.mealKcal} numberOfLines={1}>{Math.round(mealTotal)} kcal</Text>
                 </View>
                 <View style={styles.mealHeaderIcons}>
-                  <Feather name="bookmark" size={20} color={colors.mutedForeground} />
-                  <Feather name="copy" size={20} color={colors.mutedForeground} />
+                  <TouchableOpacity onPress={() => { setMealSaveGroup(g); setMealSaveName(""); }} hitSlop={8}>
+                    <Feather name="bookmark" size={20} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setMealCopyGroup(g); setMealCopyDate(new Date()); setMealCopyMeal(g.type); setMealCopyMealOpen(false); }} hitSlop={8}>
+                    <Feather name="copy" size={20} color={colors.mutedForeground} />
+                  </TouchableOpacity>
                 </View>
               </View>
               <Text style={styles.mealMacroLine} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
@@ -3923,6 +3995,99 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               {copyPending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy item</Text>}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Copy Meal Modal ── */}
+      <Modal visible={!!mealCopyGroup} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setMealCopyGroup(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }} edges={["top"]}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+            paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Copy {mealCopyGroup?.label}</Text>
+            <TouchableOpacity onPress={() => setMealCopyGroup(null)}>
+              <Feather name="x" size={22} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+          <Text style={{ color: "#6b7280", fontSize: 14, textAlign: "center", lineHeight: 20,
+            paddingHorizontal: 24, paddingTop: 16 }}>
+            Choose a target date and meal to copy all {mealCopyGroup?.label} items to.
+          </Text>
+          <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4,
+            paddingHorizontal: 24, marginTop: 20, marginBottom: 6 }}>DATE</Text>
+          <DateTimePicker
+            value={mealCopyDate}
+            mode="date"
+            display="inline"
+            onChange={(_, d) => { if (d) setMealCopyDate(d); }}
+            minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+            maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+            themeVariant="dark"
+            accentColor="#ff7a00"
+            style={{ marginHorizontal: 8 }}
+          />
+          <View style={{ paddingHorizontal: 24, paddingTop: 16, gap: 12 }}>
+            <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4 }}>MEAL</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {MEAL_META.map(m => (
+                <TouchableOpacity key={m.value} onPress={() => setMealCopyMeal(m.value)}
+                  style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 10, alignItems: "center",
+                    backgroundColor: mealCopyMeal === m.value ? "#ff7a0018" : "#181c26",
+                    borderWidth: 1.2, borderColor: mealCopyMeal === m.value ? "#ff7a00" : "#1a1e28" }}>
+                  <Feather name={m.icon as any} size={16} color={mealCopyMeal === m.value ? "#ff7a00" : "#6b7280"} />
+                  <Text style={{ color: mealCopyMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 11, fontWeight: "600", marginTop: 4 }}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity onPress={handleCopyMeal} disabled={mealCopyPending}
+              style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                backgroundColor: "#ff7a00", marginTop: 4, opacity: mealCopyPending ? 0.7 : 1 }}>
+              {mealCopyPending
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy meal</Text>}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Save Meal Template Modal ── */}
+      <Modal visible={!!mealSaveGroup} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setMealSaveGroup(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }} edges={["top"]}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+            paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Save {mealSaveGroup?.label}</Text>
+            <TouchableOpacity onPress={() => setMealSaveGroup(null)}>
+              <Feather name="x" size={22} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+          <View style={{ padding: 24, gap: 16 }}>
+            <Text style={{ color: "#6b7280", fontSize: 14, lineHeight: 20 }}>
+              Save all {mealSaveGroup?.label} items as a reusable template. You can log it from "Saved Meals" in the future.
+            </Text>
+            <View>
+              <Text style={{ color: "#9ca3af", fontSize: 13, fontWeight: "600", marginBottom: 8 }}>TEMPLATE NAME</Text>
+              <TextInput
+                style={{ height: 48, borderRadius: 10, borderWidth: 1.2, borderColor: "#e5e7eb",
+                  backgroundColor: "#181c26", paddingHorizontal: 14, color: "#eceef2", fontSize: 15 }}
+                placeholder="e.g. Post-workout lunch"
+                placeholderTextColor="#4b5563"
+                value={mealSaveName}
+                onChangeText={setMealSaveName}
+                autoFocus
+                returnKeyType="done"
+              />
+            </View>
+            <TouchableOpacity
+              onPress={handleSaveMealTemplate}
+              disabled={mealSavePending || !mealSaveName.trim()}
+              style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                backgroundColor: "#ff7a00", opacity: (mealSavePending || !mealSaveName.trim()) ? 0.4 : 1 }}>
+              {mealSavePending
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Save template</Text>}
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -4052,7 +4217,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               {activeTab === "search" && (
                 <MealSearchTab query={searchQ} onQueryChange={doSearch} results={results}
                   searching={searching} error={searchError} serviceUnavailable={offSearchUnavailable}
-                  onSelect={item => { setSelectedFood(normalizeFood(item, "off")); setGrams("100"); }} />
+                  onSelect={item => { Keyboard.dismiss(); setSelectedFood(normalizeFood(item, "off")); setGrams("100"); }} />
               )}
               {activeTab === "wholefood" && (
                 <View style={{ flex: 1 }}>
@@ -4226,6 +4391,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                               const initGrams = unit
                                 ? String(computeUnitGrams(unit, unit.defaultCount, unit.defaultSize ?? "medium"))
                                 : String(serving);
+                              Keyboard.dismiss();
                               setWfSelectedFood(wf);
                               setWfEntryMode(unit ? "count" : "grams");
                               setWfCount(unit?.defaultCount ?? 1);

@@ -248,7 +248,7 @@ function TrainingLoadWarningModal({
     <Modal visible animationType="fade" transparent onRequestClose={() => {}}>
       <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 20 }}>
         <View style={{ backgroundColor: colors.card, borderRadius: 16, borderWidth: 1,
-          borderColor: colors.border, padding: 20, gap: 16 }}>
+          borderColor: "#e5e7eb", padding: 20, gap: 16 }}>
 
           {/* Title */}
           <View style={{ alignItems: "center", gap: 4 }}>
@@ -337,7 +337,7 @@ function TrainingLoadWarningModal({
             <TouchableOpacity onPress={() => setOverrideOpen(o => !o)}
               style={{ flexDirection: "row", alignItems: "center", height: 44,
                 borderRadius: 10, borderWidth: 1,
-                borderColor: overrideOpen ? colors.primary : colors.border,
+                borderColor: overrideOpen ? colors.primary : "#e5e7eb",
                 backgroundColor: colors.secondary, paddingHorizontal: 12 }}>
               <Text style={{ flex: 1, color: colors.foreground, fontSize: 14 }}>
                 {OVERRIDE_OPTIONS.find(o => o.value === override)?.label}
@@ -374,7 +374,7 @@ function TrainingLoadWarningModal({
             onPress={handleContinue}
             disabled={saving}
             style={{ height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center",
-              backgroundColor: colors.primary }}>
+              backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#e5e7eb" }}>
             {saving
               ? <ActivityIndicator color="#fff" size="small" />
               : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>}
@@ -551,7 +551,7 @@ function AddActivityModal({
             <TouchableOpacity onPress={() => setDropdownOpen(o => !o)}
               style={{ flexDirection: "row", alignItems: "center", height: 48,
                 borderRadius: 10, borderWidth: 1,
-                borderColor: dropdownOpen ? "#ff7a00" : "#2a2e3a",
+                borderColor: dropdownOpen ? "#ff7a00" : "#e5e7eb",
                 backgroundColor: "#181c26", paddingHorizontal: 14 }}>
               <Text style={{ flex: 1, color: selectedActivity ? "#eceef2" : "#6b7280", fontSize: 15 }} numberOfLines={1}>
                 {selectedActivity ? activityDisplayName(selectedActivity) : "Search activities..."}
@@ -651,7 +651,7 @@ function AddActivityModal({
             </Text>
           )}
 
-          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSubmit ? 1 : 0.4 }]}
+          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSubmit ? 1 : 0.4, borderWidth: 1.5, borderColor: "#e5e7eb" }]}
             disabled={!canSubmit} onPress={() => addMut.mutate()}>
             {addMut.isPending
               ? <ActivityIndicator color="#fff" size="small" />
@@ -735,12 +735,12 @@ function EditActivityModal({
           <View>
             <Text style={lbl}>Activity</Text>
             <View style={{ flexDirection: "row", alignItems: "center", height: 48,
-              borderRadius: 10, borderWidth: 1, borderColor: "#2a2e3a",
+              borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
               backgroundColor: "#181c26", paddingHorizontal: 14 }}>
               <Text style={{ flex: 1, color: "#eceef2", fontSize: 15 }} numberOfLines={1}>
                 {activity.name}
               </Text>
-              <Feather name="chevron-down" size={16} color="#374151" />
+              <Feather name="chevron-down" size={16} color="#9ca3af" />
             </View>
           </View>
 
@@ -793,7 +793,7 @@ function EditActivityModal({
             </Text>
           )}
 
-          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4 }]}
+          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, borderWidth: 1.5, borderColor: "#e5e7eb" }]}
             disabled={!canSave} onPress={() => patchMut.mutate()}>
             {patchMut.isPending
               ? <ActivityIndicator color="#fff" size="small" />
