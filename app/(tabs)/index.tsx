@@ -663,6 +663,16 @@ function FightCampHero({ date }: { date: string }) {
     }
   }, [hasWeightForDate, showWeight]);
 
+  // Reset consistency tracking when the viewed date changes so stale thresholds
+  // don't fire falsely when the new date's data arrives (must run before the
+  // data-driven effect below — React runs effects in definition order).
+  useEffect(() => {
+    prevConsistencyRef.current = -1;
+    // Also clear any queued modals that were for the previous date
+    fcModalQueueRef.current = [];
+    setFcModalCurrent(null);
+  }, [date]);
+
   // Consistency milestone fcModals
   useEffect(() => {
     const count = new Set(recentWeights.map(w => w.date.slice(0, 10))).size;
