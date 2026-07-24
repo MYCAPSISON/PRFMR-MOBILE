@@ -165,6 +165,28 @@ interface FoodEntry {
   enteredBasis?: string;
 }
 
+interface MealTemplateItem {
+  id: number;
+  templateId: number;
+  name: string;
+  grams: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fibre: number;
+  sortOrder: number;
+}
+
+interface MealTemplate {
+  id: number;
+  userId: number;
+  name: string;
+  defaultMeal: string | null;
+  createdAt: string;
+  items: MealTemplateItem[];
+}
+
 interface ScheduledSlot {
   stackId: number | null;       // null for direct-reminder supplements (not in a stack)
   stackName: string | null;     // null for direct-reminder supplements
@@ -2726,7 +2748,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700" }}>Amount</Text>
         {unit && (
-          <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: "#1a1e28" }}>
+          <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: "#e5e7eb" }}>
             {(["count", "grams"] as const).map(mode => (
               <TouchableOpacity key={mode}
                 onPress={() => {
@@ -3200,7 +3222,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
               </Text>
               {unit && (
                 <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden",
-                  borderWidth: 1, borderColor: "#2a2e3a" }}>
+                  borderWidth: 1, borderColor: "#e5e7eb" }}>
                   {(["count", "grams"] as const).map(mode => (
                     <TouchableOpacity key={mode} onPress={() => setAmountMode(mode)}
                       style={{ paddingHorizontal: 16, paddingVertical: 7,
@@ -3409,6 +3431,13 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [mealSaveGroup, setMealSaveGroup] = useState<{ key: string; type: string; label: string } | null>(null);
   const [mealSaveName, setMealSaveName] = useState("");
   const [mealSavePending, setMealSavePending] = useState(false);
+  // Saved Meals modal
+  const [showSavedMeals, setShowSavedMeals] = useState(false);
+  const [savedMealsLogTarget, setSavedMealsLogTarget] = useState<MealTemplate | null>(null);
+  const [savedMealsLogDate, setSavedMealsLogDate] = useState(new Date());
+  const [savedMealsLogMeal, setSavedMealsLogMeal] = useState("lunch");
+  const [savedMealsLogPending, setSavedMealsLogPending] = useState(false);
+  const [savedMealsDeletePending, setSavedMealsDeletePending] = useState<number | null>(null);
 
   function openCopyModal(e: FoodEntry) {
     setCopyDate(new Date());
@@ -3520,6 +3549,50 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     queryKey: ["food", date],
     queryFn: () => apiFetch(`/me/food/${date}`),
   });
+
+  const { data: savedTemplates = [], isLoading: templatesLoading } = useQuery<MealTemplate[]>({
+    queryKey: ["/me/meals/templates"],
+    queryFn: () => apiFetch<MealTemplate[]>("/me/meals/templates").catch(() => []),
+    enabled: showSavedMeals,
+    staleTime: 0,
+  });
+
+  async function handleLogTemplate() {
+    if (!savedMealsLogTarget) return;
+    setSavedMealsLogPending(true);
+    try {
+      const y = savedMealsLogDate.getFullYear();
+      const mo = String(savedMealsLogDate.getMonth() + 1).padStart(2, "0");
+      const dy = String(savedMealsLogDate.getDate()).padStart(2, "0");
+      const logDateStr = `${y}-${mo}-${dy}`;
+      const result: any = await apiFetch(`/me/meals/templates/${savedMealsLogTarget.id}/log`, {
+        method: "POST",
+        body: { date: logDateStr, meal: savedMealsLogMeal },
+      });
+      qc.invalidateQueries({ queryKey: ["food", logDateStr] });
+      qc.invalidateQueries({ queryKey: ["amqs-score", logDateStr] });
+      showToast({ title: "Meal logged", description: `${result.count ?? ""} items added` });
+      setSavedMealsLogTarget(null);
+      setShowSavedMeals(false);
+    } catch (e) {
+      showToast({ title: "Log failed", description: getErrorMessage(e), variant: "destructive" });
+    } finally {
+      setSavedMealsLogPending(false);
+    }
+  }
+
+  async function handleDeleteTemplate(id: number) {
+    setSavedMealsDeletePending(id);
+    try {
+      await apiFetch(`/me/meals/templates/${id}`, { method: "DELETE" });
+      qc.invalidateQueries({ queryKey: ["/me/meals/templates"] });
+      showToast({ title: "Template deleted" });
+    } catch (e) {
+      showToast({ title: "Delete failed", description: getErrorMessage(e), variant: "destructive" });
+    } finally {
+      setSavedMealsDeletePending(null);
+    }
+  }
 
   const { data: apiIngredients = [] } = useQuery<any[]>({
     queryKey: ["ingredients"],
@@ -3868,7 +3941,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     <Card style={[styles.outlineCard, styles.mealsCard]}>
       <View style={[styles.rowBetween, { gap: 8 }]}>
         <Text style={[styles.sectionTitle, { color: colors.foreground, flexShrink: 1, fontSize: 16 }]}>Today's Meals</Text>
-        <TouchableOpacity style={styles.savedMealsBtn} onPress={() => Alert.alert("Saved Meals", "Saved meal templates are managed from the food logging flow.")}>
+        <TouchableOpacity style={styles.savedMealsBtn} onPress={() => { setSavedMealsLogTarget(null); setShowSavedMeals(true); }}>
           <Feather name="book-open" size={16} color={colors.foreground} />
           <Text style={styles.savedMealsText} numberOfLines={1}>Saved Meals</Text>
         </TouchableOpacity>
@@ -4044,7 +4117,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             </View>
             <TouchableOpacity onPress={handleCopyMeal} disabled={mealCopyPending}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", marginTop: 4, opacity: mealCopyPending ? 0.7 : 1 }}>
+                backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#e5e7eb",
+                marginTop: 4, opacity: mealCopyPending ? 0.7 : 1 }}>
               {mealCopyPending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy meal</Text>}
@@ -4084,12 +4158,141 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               onPress={handleSaveMealTemplate}
               disabled={mealSavePending || !mealSaveName.trim()}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", opacity: (mealSavePending || !mealSaveName.trim()) ? 0.4 : 1 }}>
+                backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#e5e7eb",
+                opacity: (mealSavePending || !mealSaveName.trim()) ? 0.4 : 1 }}>
               {mealSavePending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Save template</Text>}
             </TouchableOpacity>
           </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Saved Meals Modal ── */}
+      <Modal visible={showSavedMeals} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setShowSavedMeals(false); setSavedMealsLogTarget(null); }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }} edges={["top"]}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+            paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
+            <Text style={{ color: "#eceef2", fontSize: 18, fontWeight: "700" }}>Saved Meals</Text>
+            <TouchableOpacity onPress={() => { setShowSavedMeals(false); setSavedMealsLogTarget(null); }}>
+              <Feather name="x" size={22} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+          <Text style={{ color: "#6b7280", fontSize: 13, textAlign: "center", paddingHorizontal: 24, paddingTop: 10, paddingBottom: 4 }}>
+            Log a saved meal template into any day.
+          </Text>
+
+          {savedMealsLogTarget ? (
+            /* ── Confirm-log view ── */
+            <View style={{ flex: 1, padding: 24, gap: 16 }}>
+              <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700" }}>Log "{savedMealsLogTarget.name}"</Text>
+
+              <View>
+                <Text style={{ color: "#9ca3af", fontSize: 12, fontWeight: "600", marginBottom: 8 }}>DATE</Text>
+                <DateTimePicker
+                  value={savedMealsLogDate}
+                  mode="date"
+                  display="inline"
+                  onChange={(_, d) => { if (d) setSavedMealsLogDate(d); }}
+                  minimumDate={new Date(Date.now() - 90 * 24 * 3600 * 1000)}
+                  maximumDate={new Date(Date.now() + 30 * 24 * 3600 * 1000)}
+                  themeVariant="dark"
+                  accentColor="#ff7a00"
+                  style={{ marginHorizontal: -8 }}
+                />
+              </View>
+
+              <View>
+                <Text style={{ color: "#9ca3af", fontSize: 12, fontWeight: "600", marginBottom: 8 }}>MEAL</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {MEAL_META.map(m => (
+                    <TouchableOpacity key={m.value} onPress={() => setSavedMealsLogMeal(m.value)}
+                      style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 4, borderRadius: 10, alignItems: "center",
+                        backgroundColor: savedMealsLogMeal === m.value ? "#ff7a0018" : "#181c26",
+                        borderWidth: 1.2, borderColor: savedMealsLogMeal === m.value ? "#ff7a00" : "#1a1e28" }}>
+                      <Feather name={m.icon as any} size={15} color={savedMealsLogMeal === m.value ? "#ff7a00" : "#6b7280"} />
+                      <Text style={{ color: savedMealsLogMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 10, fontWeight: "600", marginTop: 3 }}>
+                        {m.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+                <TouchableOpacity onPress={() => setSavedMealsLogTarget(null)}
+                  style={{ flex: 1, height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                    borderWidth: 1.5, borderColor: "#e5e7eb", backgroundColor: "transparent" }}>
+                  <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 15 }}>Back</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleLogTemplate} disabled={savedMealsLogPending}
+                  style={{ flex: 2, height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                    backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#e5e7eb",
+                    opacity: savedMealsLogPending ? 0.7 : 1 }}>
+                  {savedMealsLogPending
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Log Meal</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            /* ── Template list view ── */
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10 }} keyboardShouldPersistTaps="handled">
+              {templatesLoading ? (
+                <View style={{ alignItems: "center", paddingTop: 40 }}>
+                  <ActivityIndicator color="#ff7a00" />
+                  <Text style={{ color: "#6b7280", marginTop: 12 }}>Loading templates…</Text>
+                </View>
+              ) : savedTemplates.length === 0 ? (
+                <View style={{ alignItems: "center", paddingTop: 48, paddingHorizontal: 24, gap: 8 }}>
+                  <Feather name="bookmark" size={36} color="#374151" />
+                  <Text style={{ color: "#6b7280", textAlign: "center", fontSize: 14, lineHeight: 20 }}>
+                    No saved meals yet.{"\n"}Use the bookmark icon next to a meal to save it.
+                  </Text>
+                </View>
+              ) : (
+                savedTemplates.map(t => {
+                  const totalKcal = t.items.reduce((s, i) => s + (i.calories || 0), 0);
+                  const mealBadgeColor = { breakfast: "#f59e0b", lunch: "#22c55e", dinner: "#818cf8", snack: "#ff7a00" }[t.defaultMeal ?? "snack"] ?? "#6b7280";
+                  return (
+                    <View key={t.id} style={{ backgroundColor: "#13161d", borderRadius: 12, padding: 14,
+                      borderWidth: 1, borderColor: "#1a1e28", gap: 8 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <View style={{ flex: 1, gap: 4 }}>
+                          <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 15 }} numberOfLines={1}>{t.name}</Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <View style={{ backgroundColor: mealBadgeColor + "22", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                              <Text style={{ color: mealBadgeColor, fontSize: 10, fontWeight: "700", textTransform: "capitalize" }}>
+                                {t.defaultMeal ?? "snack"}
+                              </Text>
+                            </View>
+                            <Text style={{ color: "#6b7280", fontSize: 12 }}>{t.items.length} items · {Math.round(totalKcal)} kcal</Text>
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginLeft: 8 }}>
+                          <TouchableOpacity
+                            onPress={() => { setSavedMealsLogTarget(t); setSavedMealsLogDate(new Date()); setSavedMealsLogMeal(t.defaultMeal ?? "lunch"); }}
+                            style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8,
+                              borderWidth: 1.5, borderColor: "#e5e7eb", backgroundColor: "transparent" }}>
+                            <Text style={{ color: "#eceef2", fontWeight: "700", fontSize: 13 }}>Log</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteTemplate(t.id)}
+                            disabled={savedMealsDeletePending === t.id}
+                            style={{ width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center",
+                              backgroundColor: "#1a1e28", opacity: savedMealsDeletePending === t.id ? 0.5 : 1 }}>
+                            {savedMealsDeletePending === t.id
+                              ? <ActivityIndicator color="#6b7280" size="small" />
+                              : <Feather name="trash-2" size={15} color="#6b7280" />}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -4255,7 +4458,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                           <Text style={{ color: "#eceef2", fontSize: 16, fontWeight: "700" }}>Amount</Text>
                           {wfUnit && (
-                            <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: "#1a1e28" }}>
+                            <View style={{ flexDirection: "row", borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: "#e5e7eb" }}>
                               {(["count", "grams"] as const).map(mode => (
                                 <TouchableOpacity key={mode} onPress={() => {
                                   setWfEntryMode(mode);
@@ -4755,6 +4958,7 @@ export default function DashboardScreen() {
   const { showToast } = useToast();
   const scrollRef = useRef<ScrollView>(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [showCalPicker, setShowCalPicker] = useState(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -4931,10 +5135,10 @@ export default function DashboardScreen() {
             onPress={() => setSelectedDate(format(subDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
             <Feather name="chevron-left" size={22} color={colors.foreground} />
           </TouchableOpacity>
-          <View style={[styles.dateCenter, { borderColor: colors.border }]}>
+          <TouchableOpacity style={[styles.dateCenter, { borderColor: colors.border }]} onPress={() => setShowCalPicker(true)}>
             <Feather name="calendar" size={20} color={colors.mutedForeground} />
             <Text style={[styles.dateNavText, { color: colors.foreground }]}>{displayDate}</Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity style={[styles.dateSquareBtn, { borderColor: "#e5e7eb" }]}
             onPress={() => setSelectedDate(format(addDays(new Date(selectedDate + "T12:00:00"), 1), "yyyy-MM-dd"))}>
             <Feather name="chevron-right" size={22} color={colors.foreground} />
@@ -5063,6 +5267,31 @@ export default function DashboardScreen() {
           <Feather name="plus" size={26} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {/* Calendar Date Picker Modal */}
+      <Modal visible={showCalPicker} animationType="fade" transparent onRequestClose={() => setShowCalPicker(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 }}
+          onPress={() => setShowCalPicker(false)}>
+          <Pressable onPress={() => {}}>
+            <View style={{ backgroundColor: "#181c26", borderRadius: 16, borderWidth: 1, borderColor: "#e5e7eb", overflow: "hidden" }}>
+              <DateTimePicker
+                value={new Date(selectedDate + "T12:00:00")}
+                mode="date"
+                display="inline"
+                onChange={(_, d) => {
+                  if (d) {
+                    setSelectedDate(format(d, "yyyy-MM-dd"));
+                    setShowCalPicker(false);
+                  }
+                }}
+                themeVariant="dark"
+                accentColor="#ff7a00"
+                style={{ width: 320 }}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Quick Log Modal */}
       {quickLogVisible && (
