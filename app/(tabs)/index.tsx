@@ -4574,7 +4574,12 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { showToast } = useToast();
+  const scrollRef = useRef<ScrollView>(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [selectedDate]);
   const [updateWeightModal, setUpdateWeightModal] = useState(false);
   const [weightVal, setWeightVal] = useState("");
   const [quickLogVisible, setQuickLogVisible] = useState(false);
@@ -4709,6 +4714,7 @@ export default function DashboardScreen() {
       <AppLogoHeader />
 
       <ScrollView
+        ref={scrollRef}
         style={styles.flex}
         contentContainerStyle={styles.scrollPad}
         showsVerticalScrollIndicator={false}
