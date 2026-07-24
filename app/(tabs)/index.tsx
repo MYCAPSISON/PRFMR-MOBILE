@@ -677,7 +677,10 @@ function FightCampHero({ date }: { date: string }) {
   useEffect(() => {
     const count = new Set(recentWeights.map(w => w.date.slice(0, 10))).size;
     const prev = prevConsistencyRef.current;
-    if (prev < 0) { prevConsistencyRef.current = count; return; }
+    // Don't initialise from an empty array (React Query loading state) —
+    // wait for real data so we don't set the baseline to 0 and then
+    // false-fire a milestone when actual entries arrive.
+    if (prev < 0) { if (count > 0) prevConsistencyRef.current = count; return; }
     if (count === prev) return;
     prevConsistencyRef.current = count;
     const latestWeight = recentWeights.sort((a, b) => b.date.localeCompare(a.date))[0]?.weight;

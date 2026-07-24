@@ -1,6 +1,9 @@
 /**
  * FcModal — web/fallback version (no native capture)
  * Native builds use FcModal.native.tsx which has ViewShot + expo-sharing.
+ *
+ * IMPORTANT: always render <Modal visible={!!data}> instead of returning null —
+ * unmounting a visible Modal on iOS leaves an invisible touch-blocking ghost layer.
  */
 import React, { useEffect, useRef } from "react";
 import {
@@ -39,28 +42,35 @@ export function FcModal({ data, onDismiss }: Props) {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [data, onDismiss]);
 
-  if (!data) return null;
+  const accent = data?.isUp ? "#f59e0b" : "#ff7a00";
 
-  const accent = data.isUp ? "#f59e0b" : "#ff7a00";
-
+  // Always render <Modal> — never return null / unmount it.
+  // Unmounting a visible fade Modal on iOS leaves an invisible touch-blocking ghost layer.
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onDismiss}
-      testID="fight-camp-notice-overlay">
+    <Modal
+      visible={!!data}
+      transparent
+      animationType="fade"
+      onRequestClose={onDismiss}
+      testID="fight-camp-notice-overlay"
+    >
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onDismiss}>
-        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-          <View style={[styles.card, { borderColor: accent }]} testID="fight-camp-notice-card">
-            {data.emoji ? <Text style={styles.emoji}>{data.emoji}</Text> : null}
-            <Text style={styles.title}>{data.title}</Text>
-            <Text style={styles.body}>{data.body}</Text>
-            {data.shareable && (
-              <View style={[styles.shareBtn, { borderColor: accent }]}>
-                <Feather name="share-2" size={15} color={accent} />
-                <Text style={[styles.shareBtnText, { color: accent }]}>Share moment</Text>
-              </View>
-            )}
-            <Text style={styles.hint}>Tap outside to dismiss</Text>
-          </View>
-        </TouchableOpacity>
+        {data && (
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={[styles.card, { borderColor: accent }]} testID="fight-camp-notice-card">
+              {data.emoji ? <Text style={styles.emoji}>{data.emoji}</Text> : null}
+              <Text style={styles.title}>{data.title}</Text>
+              <Text style={styles.body}>{data.body}</Text>
+              {data.shareable && (
+                <View style={[styles.shareBtn, { borderColor: accent }]}>
+                  <Feather name="share-2" size={15} color={accent} />
+                  <Text style={[styles.shareBtnText, { color: accent }]}>Share moment</Text>
+                </View>
+              )}
+              <Text style={styles.hint}>Tap outside to dismiss</Text>
+            </View>
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     </Modal>
   );

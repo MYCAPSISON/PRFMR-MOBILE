@@ -1,6 +1,9 @@
 /**
  * FcModal — native version with ViewShot + expo-sharing + background image picker.
  * Metro picks this file over FcModal.tsx on iOS and Android.
+ *
+ * IMPORTANT: always render <Modal visible={!!data}> instead of returning null —
+ * unmounting a visible Modal on iOS leaves an invisible touch-blocking layer.
  */
 import React, { useEffect, useRef, useCallback } from "react";
 import {
@@ -89,60 +92,65 @@ export function FcModal({ data, onDismiss }: Props) {
     }
   }
 
-  if (!data) return null;
+  const accent = data?.isUp ? "#f59e0b" : "#ff7a00";
+  const hasShare = !!(data?.shareable && data?.weightLostKg !== undefined && data.weightLostKg >= 0);
 
-  const accent = data.isUp ? "#f59e0b" : "#ff7a00";
-  const hasShare = data.shareable && data.weightLostKg !== undefined && data.weightLostKg >= 0;
-
+  // Always render <Modal> — never return null / unmount it.
+  // Unmounting a visible fade Modal on iOS leaves an invisible touch-blocking ghost layer.
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={dismiss}
-      testID="fight-camp-notice-overlay">
+    <Modal
+      visible={!!data}
+      transparent
+      animationType="fade"
+      onRequestClose={dismiss}
+      testID="fight-camp-notice-overlay"
+    >
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={dismiss}>
-        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-          <View style={[styles.card, { borderColor: accent }]} testID="fight-camp-notice-card">
-            {data.emoji ? <Text style={styles.emoji}>{data.emoji}</Text> : null}
-            <Text style={styles.title}>{data.title}</Text>
-            <Text style={styles.body}>{data.body}</Text>
+        {data && (
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={[styles.card, { borderColor: accent }]} testID="fight-camp-notice-card">
+              {data.emoji ? <Text style={styles.emoji}>{data.emoji}</Text> : null}
+              <Text style={styles.title}>{data.title}</Text>
+              <Text style={styles.body}>{data.body}</Text>
 
-            {hasShare && (
-              <View style={styles.btnRow}>
-                {/* Share button */}
-                <TouchableOpacity
-                  style={[styles.actionBtn, { borderColor: accent, flex: 1 }]}
-                  onPress={handleShare}
-                  disabled={sharing}
-                  testID="button-share-moment"
-                >
-                  {sharing
-                    ? <ActivityIndicator size="small" color={accent} />
-                    : <Feather name="share-2" size={14} color={accent} />}
-                  <Text style={[styles.actionBtnText, { color: accent }]}>
-                    {sharing ? "Preparing…" : "Share"}
-                  </Text>
-                </TouchableOpacity>
+              {hasShare && (
+                <View style={styles.btnRow}>
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { borderColor: accent, flex: 1 }]}
+                    onPress={handleShare}
+                    disabled={sharing}
+                    testID="button-share-moment"
+                  >
+                    {sharing
+                      ? <ActivityIndicator size="small" color={accent} />
+                      : <Feather name="share-2" size={14} color={accent} />}
+                    <Text style={[styles.actionBtnText, { color: accent }]}>
+                      {sharing ? "Preparing…" : "Share"}
+                    </Text>
+                  </TouchableOpacity>
 
-                {/* Background picker button */}
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.bgBtn]}
-                  onPress={handlePickBackground}
-                  disabled={sharing}
-                  testID="button-change-background"
-                >
-                  <Feather name={bgImageUri ? "image" : "upload"} size={14} color="#6b7280" />
-                  <Text style={styles.bgBtnText}>
-                    {bgImageUri ? "Change bg" : "Add photo bg"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.bgBtn]}
+                    onPress={handlePickBackground}
+                    disabled={sharing}
+                    testID="button-change-background"
+                  >
+                    <Feather name={bgImageUri ? "image" : "upload"} size={14} color="#6b7280" />
+                    <Text style={styles.bgBtnText}>
+                      {bgImageUri ? "Change bg" : "Add photo bg"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
-            <Text style={styles.hint}>Tap outside to dismiss</Text>
-          </View>
-        </TouchableOpacity>
+              <Text style={styles.hint}>Tap outside to dismiss</Text>
+            </View>
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
 
       {/* Hidden ShareCard — captured by ViewShot (off-screen 360×640) */}
-      {hasShare && (
+      {hasShare && data && (
         <ViewShot
           ref={shareCardRef}
           options={{ format: "png", quality: 1.0, width: 360, height: 640 }}
