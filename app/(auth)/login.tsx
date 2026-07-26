@@ -16,22 +16,28 @@ import {
 import { Link, router, useLocalSearchParams } from "expo-router";
 import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+
+// Derive the web-app base URL from the API URL env var (strip trailing /api)
+const WEB_BASE = (process.env.EXPO_PUBLIC_API_URL ?? "https://app.prfmr.link/api")
+  .replace(/\/api\/?$/, "");
 
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { login } = useAuth();
+  const { login, refetchUser } = useAuth();
   const params = useLocalSearchParams<{ error?: string }>();
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const googleAuthFailed = params.error === "google_auth_failed";
-  const loginDisabled = loading || !identifier.trim() || !password.trim();
+  const loginDisabled = loading || googleLoading || !identifier.trim() || !password.trim();
 
   async function handleLogin() {
     if (!identifier.trim() || !password.trim()) {
@@ -50,8 +56,27 @@ export default function LoginScreen() {
     }
   }
 
-  function handleGoogleLogin() {
-    setError("Google sign-in is not available in the mobile app yet. Please use email or username.");
+  async function handleGoogleLogin() {
+    setError(null);
+    setGoogleLoading(true);
+    try {
+      // Open Google OAuth in an in-app browser (SFSafariViewController on iOS).
+      // The server sets connect.sid via Set-Cookie and redirects to /dashboard on
+      // success. When the user closes the browser (or it auto-closes), we re-check
+      // the session — the root layout then routes to tabs automatically.
+      await WebBrowser.openBrowserAsync(`${WEB_BASE}/auth/google`, {
+        dismissButtonStyle: "close",
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
+      });
+      // Browser closed — re-fetch user; if Google auth succeeded the cookie
+      // is now in the native jar and /user/me will return a profile.
+      await refetchUser();
+      // Navigation is handled by RootLayoutNav watching isAuthenticated/user.
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
   }
 
   function handleForgotPassword() {
@@ -116,13 +141,18 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               testID="button-google-login"
-              style={[styles.googleBtn, { borderColor: "#e5e7eb", borderRadius: colors.radius }]}
+              style={[styles.googleBtn, { borderColor: "#e5e7eb", borderRadius: colors.radius, opacity: googleLoading ? 0.65 : 1 }]}
               onPress={handleGoogleLogin}
+              disabled={googleLoading || loading}
               activeOpacity={0.8}
             >
-              <FontAwesome5 name="google" size={16} color={colors.foreground} />
+              {googleLoading ? (
+                <ActivityIndicator size="small" color={colors.foreground} />
+              ) : (
+                <FontAwesome5 name="google" size={16} color={colors.foreground} />
+              )}
               <Text style={[styles.googleBtnText, { color: colors.foreground, fontFamily: colors.fonts.sansBd }]}>
-                Continue with Google
+                {googleLoading ? "Opening…" : "Continue with Google"}
               </Text>
             </TouchableOpacity>
 
