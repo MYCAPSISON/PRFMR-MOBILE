@@ -55,7 +55,7 @@ export default function LoginScreen() {
   }
 
   function handleForgotPassword() {
-    setError("Password reset is not available in the mobile app yet.");
+    router.push("/(auth)/forgot-password");
   }
 
   return (

@@ -83,6 +83,9 @@ function xhrPost(url: string, body: object): Promise<{ data: any; rawHeaders: st
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
     xhr.setRequestHeader("Content-Type", "application/json");
+    // x-app-mode: standalone tells the server to issue 90-day sessions
+    // instead of the default 30-day browser sessions (§34.2).
+    xhr.setRequestHeader("x-app-mode", "standalone");
     // withCredentials lets the native layer also store HttpOnly cookies
     // (connect.sid) into NSHTTPCookieStorage during the login response.
     xhr.withCredentials = true;
@@ -203,6 +206,8 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   const reqHeaders: Record<string, string> = {
     "Content-Type": "application/json",
+    // x-app-mode: standalone → server extends session maxAge to 90 days (§34.2)
+    "x-app-mode": "standalone",
     ...options.headers,
   };
 

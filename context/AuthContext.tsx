@@ -94,7 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(async (email: string, username: string, password: string, inviteCode: string) => {
     await apiFetch<{ user: User }>("/auth/register", {
       method: "POST",
-      body: { email, username, password, inviteCode },
+      // API expects "inviteToken" (§34.4), not "inviteCode"
+      body: { email, username, password, inviteToken: inviteCode },
     });
     await fetchUser();
   }, [fetchUser]);
