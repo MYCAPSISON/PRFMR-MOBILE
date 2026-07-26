@@ -52,10 +52,13 @@ export default function LoginScreen() {
 
   // Native Google Sign-In — uses ASAuthorizationController on iOS (no browser opened).
   // expo-auth-session handles the full OAuth flow and returns an authentication object.
+  // The hook requires a non-undefined clientId at call time (throws on undefined),
+  // so we fall back to a placeholder; the GOOGLE_CONFIGURED gate in handleGoogleLogin
+  // ensures promptAsync() is never called when real IDs aren't configured.
   const [_request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId: IOS_CLIENT_ID,
-    androidClientId: ANDROID_CLIENT_ID,
-    webClientId: WEB_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
+    androidClientId: ANDROID_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
+    webClientId: WEB_CLIENT_ID ?? "not-configured",
   });
 
   const handleGoogleToken = useCallback(async (idToken: string) => {
