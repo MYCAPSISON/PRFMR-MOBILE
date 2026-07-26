@@ -14,10 +14,12 @@
       "backgroundColor": "#0f1117"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "link.prfmr.app"
     },
     "android": {
-      "backgroundColor": "#0f1117"
+      "backgroundColor": "#0f1117",
+      "package": "link.prfmr.app"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
