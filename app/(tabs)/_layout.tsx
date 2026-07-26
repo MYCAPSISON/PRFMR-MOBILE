@@ -1,10 +1,34 @@
 import { Tabs } from "expo-router";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
-import { Platform } from "react-native";
+import { Alert, Platform, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
+import { useAuth } from "@/context/AuthContext";
+
+function LogoutTabButton({ children, style }: { children?: React.ReactNode; style?: any }) {
+  const { logout } = useAuth();
+  const colors = useColors();
+  const safeAreaInsets = useSafeAreaInsets();
+
+  const handleLogout = () => {
+    Alert.alert("Log out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: logout },
+    ]);
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={handleLogout}
+      style={[style, { alignItems: "center", justifyContent: "center" }]}
+      accessibilityLabel="Log out"
+    >
+      <Feather name="log-out" size={22} color={colors.mutedForeground} />
+    </TouchableOpacity>
+  );
+}
 
 function ClassicTabLayout() {
   const colors = useColors();
@@ -95,6 +119,13 @@ function ClassicTabLayout() {
       />
       <Tabs.Screen name="weightcut" options={{ href: null }} />
       <Tabs.Screen name="nutrition" options={{ href: null }} />
+      <Tabs.Screen
+        name="logout"
+        options={{
+          title: "Log out",
+          tabBarButton: (props) => <LogoutTabButton {...props} />,
+        }}
+      />
     </Tabs>
   );
 }
