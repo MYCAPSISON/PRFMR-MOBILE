@@ -97,7 +97,7 @@ export default function SignupScreen() {
               <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>PASSWORD</Text>
               <View style={styles.passwordRow}>
                 <TextInput
-                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
                   value={password}
                   onChangeText={setPassword}
                   placeholder="Create a strong password"
@@ -113,7 +113,7 @@ export default function SignupScreen() {
             <View style={styles.field}>
               <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>INVITE CODE</Text>
               <TextInput
-                style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.primary, borderRadius: colors.radius, fontWeight: "700", letterSpacing: 2, fontFamily: colors.fonts.mono }]}
+                style={[styles.input, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.primary, borderRadius: colors.radius, fontWeight: "700", letterSpacing: 2, fontFamily: colors.fonts.mono }]}
                 value={inviteCode}
                 onChangeText={setInviteCode}
                 placeholder="XXXX-XXXX"
@@ -168,7 +168,7 @@ function Field({ label, value, onChange, placeholder, keyboardType, colors }: {
     <View style={styles.field}>
       <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>{label}</Text>
       <TextInput
-        style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+        style={[styles.input, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}

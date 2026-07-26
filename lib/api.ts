@@ -112,13 +112,8 @@ function xhrPost(url: string, body: object): Promise<{ data: any; rawHeaders: st
   });
 }
 
-export async function loginWithXhr(identifier: string, password: string): Promise<any> {
-  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/login`, { identifier, password });
-
-  // Parse every Set-Cookie header line from the raw header block.
-  // getAllResponseHeaders() returns lines separated by \r\n.
-  // connect.sid (HttpOnly) won't appear here but gets stored in
-  // NSHTTPCookieStorage by the native XHR layer automatically.
+/** Capture Set-Cookie headers from an XHR raw header string into the cookie jar. */
+async function captureCookiesFromXhr(rawHeaders: string): Promise<void> {
   const lines = rawHeaders.split(/\r?\n/);
   let capturedCount = 0;
   for (const line of lines) {
@@ -131,19 +126,28 @@ export async function loginWithXhr(identifier: string, password: string): Promis
       capturedCount++;
     }
   }
-
   if (capturedCount > 0) {
     await saveVisibleCookies();
-    if (__DEV__) {
-      console.log("[auth] Login complete. Visible cookies captured:", Object.keys(visibleCookies).join(", "));
-      console.log("[auth] connect.sid stored in native iOS cookie jar (not accessible from JS).");
-    }
+    if (__DEV__) console.log("[auth] Visible cookies captured:", Object.keys(visibleCookies).join(", "));
   } else {
-    if (__DEV__) {
-      console.warn("[auth] No visible Set-Cookie found. connect.sid is stored in native iOS jar only.");
-    }
+    if (__DEV__) console.warn("[auth] No visible Set-Cookie found. connect.sid stored in native iOS jar.");
   }
+}
 
+export async function loginWithXhr(identifier: string, password: string): Promise<any> {
+  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/login`, { identifier, password });
+  await captureCookiesFromXhr(rawHeaders);
+  return data;
+}
+
+/**
+ * Exchange a Google ID token (obtained via expo-auth-session/providers/google)
+ * for a PRFMR session.  Requires the server to expose POST /api/auth/google/mobile
+ * per §29.12.2 of the replication guide.
+ */
+export async function loginWithGoogleToken(idToken: string): Promise<any> {
+  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/google/mobile`, { idToken });
+  await captureCookiesFromXhr(rawHeaders);
   return data;
 }
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -16,13 +16,24 @@ import {
 import { Link, router, useLocalSearchParams } from "expo-router";
 import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { loginWithGoogleToken } from "@/lib/api";
 
-// Derive the web-app base URL from the API URL env var (strip trailing /api)
-const WEB_BASE = (process.env.EXPO_PUBLIC_API_URL ?? "https://app.prfmr.link/api")
-  .replace(/\/api\/?$/, "");
+// Required: completes any pending auth session redirect on app launch.
+WebBrowser.maybeCompleteAuthSession();
+
+// Google OAuth client IDs — set these in your .env / Replit Secrets:
+//   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID      (iOS OAuth 2.0 client from Google Cloud Console)
+//   EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID  (Android OAuth 2.0 client)
+//   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID      (Web client — same GOOGLE_CLIENT_ID as server)
+// Server also needs POST /api/auth/google/mobile (§29.12.2 of replication guide).
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+const GOOGLE_CONFIGURED = !!(IOS_CLIENT_ID || ANDROID_CLIENT_ID);
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -38,6 +49,46 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const googleAuthFailed = params.error === "google_auth_failed";
   const loginDisabled = loading || googleLoading || !identifier.trim() || !password.trim();
+
+  // Native Google Sign-In — uses ASAuthorizationController on iOS (no browser opened).
+  // expo-auth-session handles the full OAuth flow and returns an authentication object.
+  const [_request, response, promptAsync] = Google.useAuthRequest({
+    iosClientId: IOS_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID,
+    webClientId: WEB_CLIENT_ID,
+  });
+
+  const handleGoogleToken = useCallback(async (idToken: string) => {
+    try {
+      // POST idToken to the server; server verifies with Google, creates session,
+      // returns Set-Cookie. We capture the cookie via XHR (same path as email login).
+      await loginWithGoogleToken(idToken);
+      await refetchUser();
+      // Root layout watches isAuthenticated and routes to tabs automatically.
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [refetchUser]);
+
+  useEffect(() => {
+    if (!response) return;
+    if (response.type === "success") {
+      const token = response.authentication?.idToken ?? "";
+      if (token) {
+        handleGoogleToken(token);
+      } else {
+        setError("Google sign-in returned no token. Please try again.");
+        setGoogleLoading(false);
+      }
+    } else if (response.type === "error") {
+      setError(response.error?.message ?? "Google sign-in failed. Please try again.");
+      setGoogleLoading(false);
+    } else if (response.type === "cancel" || response.type === "dismiss") {
+      setGoogleLoading(false);
+    }
+  }, [response, handleGoogleToken]);
 
   async function handleLogin() {
     if (!identifier.trim() || !password.trim()) {
@@ -57,26 +108,15 @@ export default function LoginScreen() {
   }
 
   async function handleGoogleLogin() {
+    if (!GOOGLE_CONFIGURED) {
+      setError("Google sign-in requires setup — please contact the app administrator.");
+      return;
+    }
     setError(null);
     setGoogleLoading(true);
-    try {
-      // Open Google OAuth in an in-app browser (SFSafariViewController on iOS).
-      // The server sets connect.sid via Set-Cookie and redirects to /dashboard on
-      // success. When the user closes the browser (or it auto-closes), we re-check
-      // the session — the root layout then routes to tabs automatically.
-      await WebBrowser.openBrowserAsync(`${WEB_BASE}/auth/google`, {
-        dismissButtonStyle: "close",
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
-      });
-      // Browser closed — re-fetch user; if Google auth succeeded the cookie
-      // is now in the native jar and /user/me will return a profile.
-      await refetchUser();
-      // Navigation is handled by RootLayoutNav watching isAuthenticated/user.
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Google sign-in failed. Please try again.");
-    } finally {
-      setGoogleLoading(false);
-    }
+    // promptAsync() opens the native Google sign-in sheet (iOS) or account picker (Android).
+    // The result arrives asynchronously via the `response` state, handled by the useEffect above.
+    await promptAsync();
   }
 
   function handleForgotPassword() {
@@ -226,12 +266,12 @@ export default function LoginScreen() {
 
             <View style={styles.signupRow}>
               <Text style={[styles.signupText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
-                New to PRFMR?{" "}
+                Have an invite code?{" "}
               </Text>
               <Link href="/(auth)/signup" asChild>
                 <Pressable testID="link-register">
                   <Text style={[styles.signupLink, { color: colors.primary, fontFamily: colors.fonts.sansBd }]}>
-                    Request an invite
+                    Create account
                   </Text>
                 </Pressable>
               </Link>
