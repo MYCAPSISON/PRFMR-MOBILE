@@ -56,6 +56,11 @@ export default function LoginScreen() {
   // so we fall back to a placeholder; the GOOGLE_CONFIGURED gate in handleGoogleLogin
   // ensures promptAsync() is never called when real IDs aren't configured.
   const [_request, response, promptAsync] = Google.useAuthRequest({
+    // expoClientId: when running in Expo Go, expo-auth-session routes the OAuth
+    // flow through https://auth.expo.io (the Expo proxy) rather than the native
+    // iOS flow. Add https://auth.expo.io to your Web OAuth client's Authorised
+    // Redirect URIs in Google Cloud Console for this to work.
+    expoClientId: WEB_CLIENT_ID ?? "not-configured",
     iosClientId: IOS_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
     androidClientId: ANDROID_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
     webClientId: WEB_CLIENT_ID ?? "not-configured",
