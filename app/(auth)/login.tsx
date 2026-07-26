@@ -116,7 +116,7 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               testID="button-google-login"
-              style={[styles.googleBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+              style={[styles.googleBtn, { borderColor: "#e5e7eb", borderRadius: colors.radius }]}
               onPress={handleGoogleLogin}
               activeOpacity={0.8}
             >
@@ -138,7 +138,7 @@ export default function LoginScreen() {
               </Text>
               <TextInput
                 testID="input-identifier"
-                style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                style={[styles.input, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
                 value={identifier}
                 onChangeText={setIdentifier}
                 placeholder="you@example.com or username"
@@ -156,7 +156,7 @@ export default function LoginScreen() {
               <View style={styles.passwordRow}>
                 <TextInput
                   testID="input-password"
-                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
                   value={password}
                   onChangeText={setPassword}
                   placeholder="••••••••"
@@ -178,7 +178,7 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               testID="button-login"
-              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: loginDisabled ? 0.65 : 1 }]}
+              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, borderWidth: 1.5, borderColor: "#e5e7eb", opacity: loginDisabled ? 0.65 : 1 }]}
               onPress={handleLogin}
               disabled={loginDisabled}
             >
