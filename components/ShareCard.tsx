@@ -180,12 +180,13 @@ const chart = StyleSheet.create({
 function CardHeader({ daysLeft }: { daysLeft?: number }) {
   return (
     <View style={styles.header}>
-      {/* logo-main.png already contains the full brand mark incl. "PRFMR" text */}
-      <Image
-        source={require("../assets/logo-main.png")}
-        style={styles.logoImg}
-        resizeMode="contain"
-      />
+      {/* Logo mark built from Views/Text — always renders reliably in ViewShot */}
+      <View style={styles.logoPill}>
+        <View style={styles.logoBox}>
+          <Text style={styles.logoWave}>∿</Text>
+        </View>
+        <Text style={styles.logoWordmark}>·PRFMR</Text>
+      </View>
       {daysLeft != null && daysLeft > 0 && (
         <View style={styles.daysChip}>
           <Text style={styles.daysText}>🥊 {daysLeft} days to fight day</Text>
@@ -293,8 +294,6 @@ function Type1Content({
 
       {/* Copy */}
       <Text style={styles.copy}>Let's finish camp strong{"\n"}and get this W 💪</Text>
-
-      <CardFooter username={username} />
     </View>
   );
 }
@@ -346,8 +345,6 @@ function Type2Content({
 
       {/* Copy */}
       <Text style={styles.copy}>Let's finish camp strong{"\n"}and get this W 💪</Text>
-
-      <CardFooter username={username} />
     </View>
   );
 }
@@ -431,8 +428,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  // logo-main.png is ~3:1 ratio; render at a size that's legible on the card
-  logoImg: { width: 108, height: 36 },
+  logoPill: { flexDirection: "row", alignItems: "center", gap: 7 },
+  logoBox: {
+    width: 28, height: 28,
+    backgroundColor: "#ff7a00",
+    borderRadius: 7,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  logoWave: { color: "#fff", fontSize: 16, fontWeight: "700", lineHeight: 20 },
+  logoWordmark: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 1.5 },
   daysChip: {
     backgroundColor: "rgba(255,122,0,0.12)",
     borderRadius: 20,
