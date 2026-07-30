@@ -6,3 +6,5 @@
 - [FcModal platform split](fcmodal-platform-split.md) — react-native-view-shot is native-only; use .native.tsx for iOS/Android and .tsx as web fallback or Metro web bundle breaks.
 - [Metro watcher crash fix](metro-watcher-crash.md) — Metro crashes with ENOENT when Replit renames/removes skill dirs; fix is blockList in metro.config.js excluding .local and .agents.
 - [Google OAuth mobile setup](google-oauth-mobile.md) — native flow needs expo-auth-session + iOS/Android client IDs + POST /api/auth/google/mobile on server; Expo Go cannot test it (exp:// redirect rejected by Google).
+- [ShareCard ViewShot image rendering](sharecard-viewshot.md) — hidden off-screen ViewShot cards need a ~350ms delay before capture so bundled Image assets finish rendering; logo-main.png is a wide asset (108×36) with black background, do not shrink to icon size.
+- [Fight camp share card camp-age detection](fc-camp-age.md) — weeklyTargets.length cannot determine camp age (API recomputes from today); use planCreatedAt (primary), then weightHistoryWindowStart heuristic, then history.length fallback.

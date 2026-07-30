@@ -110,6 +110,9 @@ export function FcModal({ data, onDismiss }: Props) {
     try {
       setSharing(true);
       if (timerRef.current) clearTimeout(timerRef.current);
+      // Brief pause so any Image assets in the hidden card finish rendering
+      // before ViewShot captures the frame.
+      await new Promise(resolve => setTimeout(resolve, 350));
       const uri = await (shareCardRef.current as any).capture();
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {

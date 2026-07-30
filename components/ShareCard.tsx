@@ -180,14 +180,12 @@ const chart = StyleSheet.create({
 function CardHeader({ daysLeft }: { daysLeft?: number }) {
   return (
     <View style={styles.header}>
-      <View style={styles.logoPill}>
-        <Image
-          source={require("../assets/logo-main.png")}
-          style={styles.logoIcon}
-          resizeMode="contain"
-        />
-        <Text style={styles.logoText}>PRFMR</Text>
-      </View>
+      {/* logo-main.png already contains the full brand mark incl. "PRFMR" text */}
+      <Image
+        source={require("../assets/logo-main.png")}
+        style={styles.logoImg}
+        resizeMode="contain"
+      />
       {daysLeft != null && daysLeft > 0 && (
         <View style={styles.daysChip}>
           <Text style={styles.daysText}>🥊 {daysLeft} days to fight day</Text>
@@ -329,7 +327,7 @@ function Type2Content({
           </Text>
         ) : (
           <Text style={styles.lostHeadline}>
-            Fight camp <Text style={styles.lostKg}>activated</Text> 🎯
+            Camp is <Text style={styles.lostKg}>underway</Text> 🔥
           </Text>
         )}
       </View>
@@ -424,24 +422,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  logoPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#111318",
-    borderRadius: 24,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 7,
-    borderWidth: 1,
-    borderColor: "#2a2d38",
-  },
-  logoIcon: { width: 22, height: 22 },
-  logoText: {
-    color: "#eceef2",
-    fontSize: 14,
-    fontWeight: "900",
-    letterSpacing: 2,
-  },
+  // logo-main.png is ~3:1 ratio; render at a size that's legible on the card
+  logoImg: { width: 108, height: 36 },
   daysChip: {
     backgroundColor: "rgba(255,122,0,0.12)",
     borderRadius: 20,
