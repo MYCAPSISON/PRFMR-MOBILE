@@ -14,7 +14,12 @@ import { Feather } from "@expo/vector-icons";
 import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as ImagePicker from "expo-image-picker";
+import { Asset } from "expo-asset";
 import { ShareCard } from "./ShareCard";
+
+// Preload the logo asset as soon as this module is imported so it's in the
+// native image cache before any ViewShot capture runs.
+Asset.loadAsync(require("../assets/logo-main.png")).catch(() => {});
 
 export interface FcModalData {
   title: string;

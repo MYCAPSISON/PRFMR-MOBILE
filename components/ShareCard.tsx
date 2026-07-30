@@ -180,13 +180,12 @@ const chart = StyleSheet.create({
 function CardHeader({ daysLeft }: { daysLeft?: number }) {
   return (
     <View style={styles.header}>
-      {/* Logo mark built from Views/Text — always renders reliably in ViewShot */}
-      <View style={styles.logoPill}>
-        <View style={styles.logoBox}>
-          <Text style={styles.logoWave}>∿</Text>
-        </View>
-        <Text style={styles.logoWordmark}>·PRFMR</Text>
-      </View>
+      {/* Logo asset is preloaded by FcModal.native before any capture runs */}
+      <Image
+        source={require("../assets/logo-main.png")}
+        style={styles.logoImg}
+        resizeMode="contain"
+      />
       {daysLeft != null && daysLeft > 0 && (
         <View style={styles.daysChip}>
           <Text style={styles.daysText}>🥊 {daysLeft} days to fight day</Text>
@@ -428,16 +427,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  logoPill: { flexDirection: "row", alignItems: "center", gap: 7 },
-  logoBox: {
-    width: 28, height: 28,
-    backgroundColor: "#ff7a00",
-    borderRadius: 7,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  logoWave: { color: "#fff", fontSize: 16, fontWeight: "700", lineHeight: 20 },
-  logoWordmark: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 1.5 },
+  // logo-main.png: ~635×210px original → 108×36 preserves the 3:1 aspect ratio
+  logoImg: { width: 108, height: 36 },
   daysChip: {
     backgroundColor: "rgba(255,122,0,0.12)",
     borderRadius: 20,
