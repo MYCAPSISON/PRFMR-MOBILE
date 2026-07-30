@@ -4,3 +4,5 @@
 - [PRFMR WeightTrend SVG tap targets](prfmr-svg-taps.md) — react-native-svg circles support onPress; use invisible r=16 transparent circles layered over visible r=3.5 dots for tap areas; pointerEvents="none" on SVG blocks all interaction.
 - [PRFMR guides saved to docs/](prfmr-guides.md) — authoritative spec guides copied to `docs/PRFMR_MOBILE_REPLICATION_GUIDE.md` and `docs/PRFMR_UI_REPLICATION_GUIDE.md`.
 - [FcModal platform split](fcmodal-platform-split.md) — react-native-view-shot is native-only; use .native.tsx for iOS/Android and .tsx as web fallback or Metro web bundle breaks.
+- [Metro watcher crash fix](metro-watcher-crash.md) — Metro crashes with ENOENT when Replit renames/removes skill dirs; fix is blockList in metro.config.js excluding .local and .agents.
+- [Google OAuth mobile setup](google-oauth-mobile.md) — native flow needs expo-auth-session + iOS/Android client IDs + POST /api/auth/google/mobile on server; Expo Go cannot test it (exp:// redirect rejected by Google).
