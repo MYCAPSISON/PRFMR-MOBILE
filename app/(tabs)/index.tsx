@@ -561,6 +561,17 @@ function FightCampHero({ date }: { date: string }) {
     enabled: !!plan,
   });
 
+  // Full camp history for the share card — fetches from plan creation date so
+  // the chart shows every logged weight since fight camp started, not just 7 days.
+  const campWeightsStart = plan?.planCreatedAt
+    ? plan.planCreatedAt.slice(0, 10)
+    : sevenDayStart;
+  const { data: campWeights = [] } = useQuery<Array<{ date: string; weight: number }>>({
+    queryKey: ["weights-camp", campWeightsStart, date],
+    queryFn: () => apiFetch(`/me/weights/range?start=${campWeightsStart}&end=${date}`),
+    enabled: !!plan,
+  });
+
   const weightMut = useMutation({
     mutationFn: (w: number) => {
       const sorted = [...recentWeights].sort((a, b) => b.date.localeCompare(a.date));
@@ -599,7 +610,7 @@ function FightCampHero({ date }: { date: string }) {
           targetWeight: plan?.targetWeight,
           daysLeft: plan?.daysUntil,
           shareTitle: "Share your fight camp progress",
-          weightHistory: [...recentWeights],
+          weightHistory: [...campWeights],
           weeklyTargets: plan?.weeklyTargets,
           fightDate: plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
@@ -630,7 +641,7 @@ function FightCampHero({ date }: { date: string }) {
           currentWeight: variables?.currentWeight,
           targetWeight: variables?.targetWeight,
           shareTitle: "Fight camp activated",
-          weightHistory: [...recentWeights],
+          weightHistory: [...campWeights],
           weeklyTargets: plan?.weeklyTargets,
           fightDate: plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
@@ -728,7 +739,7 @@ function FightCampHero({ date }: { date: string }) {
         targetWeight: plan?.targetWeight,
         daysLeft: plan?.daysUntil,
         shareTitle: "Elite consistency 💪",
-        weightHistory: [...recentWeights],
+        weightHistory: [...campWeights],
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
@@ -745,7 +756,7 @@ function FightCampHero({ date }: { date: string }) {
         targetWeight: plan?.targetWeight,
         daysLeft: plan?.daysUntil,
         shareTitle: "Building real momentum 🥊",
-        weightHistory: [...recentWeights],
+        weightHistory: [...campWeights],
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
@@ -762,7 +773,7 @@ function FightCampHero({ date }: { date: string }) {
         targetWeight: plan?.targetWeight,
         daysLeft: plan?.daysUntil,
         shareTitle: "Building fight camp rhythm 🔥",
-        weightHistory: [...recentWeights],
+        weightHistory: [...campWeights],
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
@@ -1170,7 +1181,7 @@ function FightCampHero({ date }: { date: string }) {
               targetWeight: plan?.targetWeight,
               daysLeft: plan?.daysUntil,
               shareTitle: "Share your fight camp progress",
-              weightHistory: [...recentWeights],
+              weightHistory: [...campWeights],
               weeklyTargets: plan?.weeklyTargets,
               fightDate: plan?.fightDate,
               weightHistoryWindowStart: sevenDayStart,
