@@ -1,0 +1,47 @@
+Fight Camp Share Image Generator
+
+I have attached two PDF templates that define the intended layout for the Fight Camp share images. These templates should be treated as design references only. The final shareable assets must be exported as JPG images.
+
+Background
+
+By default, use the existing Fight Camp background colour/theme that has already been used for the current share image designs.
+
+In addition, give users the option to customise the background by either:
+
+* Uploading an image from their device.
+* Taking a new photo using their camera.
+
+This should behave similarly to the background customisation available in Strava’s share cards, while ensuring that text remains highly legible (e.g. by applying an overlay or gradient where appropriate).
+
+Template Selection
+
+There are two share templates:
+
+Type 1
+
+* Use this template when the current Fight Camp is less than 7 days old.
+
+Type 2
+
+* Use this template when the current Fight Camp is 7 days old or older.
+
+The template should be selected automatically based on the age of the active Fight Camp.
+
+Placeholder Conventions
+
+The templates contain placeholder markers with the following meanings:
+
+* Text enclosed between // ... // represents implementation instructions only. These should not appear in the final generated image.
+* Values enclosed between /// ... /// represent dynamic placeholders. These must be replaced with the appropriate values from the user’s current Fight Camp and weight cut state at the time the image is generated.
+
+Design Expectations
+
+The attached PDFs are rough wireframes intended to communicate the overall structure and content. They are not pixel-perfect mock-ups.
+
+Please use your best judgement to create a polished, modern, and visually engaging design that is consistent with the existing PRFMR branding and share image style. Focus on:
+
+* Clean visual hierarchy.
+* Appropriate typography and spacing.
+* Professional alignment and layout.
+* High readability over both the default and custom image backgrounds.
+* Consistent branding with the rest of the application.

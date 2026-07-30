@@ -598,6 +598,8 @@ function FightCampHero({ date }: { date: string }) {
           daysLeft: plan?.daysUntil,
           shareTitle: "Share your fight camp progress",
           weightHistory: [...recentWeights],
+          weeklyTargets: plan?.weeklyTargets,
+          fightDate: plan?.fightDate,
         });
       }
     },
@@ -625,6 +627,8 @@ function FightCampHero({ date }: { date: string }) {
           targetWeight: variables?.targetWeight,
           shareTitle: "Fight camp activated",
           weightHistory: [...recentWeights],
+          weeklyTargets: plan?.weeklyTargets,
+          fightDate: plan?.fightDate,
         });
       } else {
         showToast({ title: "Fight camp plan updated 🎯" });
@@ -719,6 +723,8 @@ function FightCampHero({ date }: { date: string }) {
         daysLeft: plan?.daysUntil,
         shareTitle: "Elite consistency 💪",
         weightHistory: [...recentWeights],
+        weeklyTargets: plan?.weeklyTargets,
+        fightDate: plan?.fightDate,
       });
     } else if (count >= 5 && prev < 5) {
       enqueueFcModal({
@@ -732,6 +738,8 @@ function FightCampHero({ date }: { date: string }) {
         daysLeft: plan?.daysUntil,
         shareTitle: "Building real momentum 🥊",
         weightHistory: [...recentWeights],
+        weeklyTargets: plan?.weeklyTargets,
+        fightDate: plan?.fightDate,
       });
     } else if (count >= 3 && prev < 3) {
       enqueueFcModal({
@@ -745,6 +753,8 @@ function FightCampHero({ date }: { date: string }) {
         daysLeft: plan?.daysUntil,
         shareTitle: "Building fight camp rhythm 🔥",
         weightHistory: [...recentWeights],
+        weeklyTargets: plan?.weeklyTargets,
+        fightDate: plan?.fightDate,
       });
     }
   }, [recentWeights]);
@@ -1148,6 +1158,8 @@ function FightCampHero({ date }: { date: string }) {
               targetWeight: plan?.targetWeight,
               daysLeft: plan?.daysUntil,
               shareTitle: "Share your fight camp progress",
+              weeklyTargets: plan?.weeklyTargets,
+              fightDate: plan?.fightDate,
             });
           }}
           activeOpacity={0.7}

@@ -17,6 +17,10 @@ interface Props {
   daysLeft?: number;
   weightHistory?: WeightPoint[];
   backgroundImageUri?: string;
+  /** 1 = camp < 7 days (show projected plan). 2 = camp ≥ 7 days (show real trend). */
+  cardType?: 1 | 2;
+  weeklyTargets?: Array<{ week: number; targetWeight: number }>;
+  fightDate?: string;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -26,11 +30,29 @@ function fmtDate(dateStr: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function motivationalCopy(kg: number): string {
-  if (kg <= 0) return "Let's finish camp strong\nand get this W";
-  if (kg >= 5) return `${kg.toFixed(1)} kg shed — the discipline\nis showing. This is fight camp.`;
-  if (kg >= 2) return `${kg.toFixed(1)} kg down and feeling it.\nLet's get this W.`;
-  return "Let's finish camp strong\nand get this W";
+/** Build projected WeightPoints from weeklyTargets for the Type 1 card. */
+function buildProjectedPoints(
+  currentWeight: number,
+  weeklyTargets: Array<{ week: number; targetWeight: number }>,
+  fightDate: string,
+): WeightPoint[] {
+  if (!weeklyTargets.length) return [];
+
+  const fightMs = Date.parse(fightDate.slice(0, 10) + "T12:00:00");
+  const totalWeeks = weeklyTargets.length;
+
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const points: WeightPoint[] = [{ date: todayISO, weight: currentWeight }];
+
+  const sorted = [...weeklyTargets].sort((a, b) => a.week - b.week);
+  for (const wt of sorted) {
+    const weekMs = fightMs - (totalWeeks - wt.week) * 7 * 86_400_000;
+    points.push({
+      date: new Date(weekMs).toISOString().slice(0, 10),
+      weight: wt.targetWeight,
+    });
+  }
+  return points;
 }
 
 // ─── weight chart ─────────────────────────────────────────────────────────────
@@ -44,7 +66,9 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
   if (points.length < 2) {
     return (
       <View style={chart.empty}>
-        <Text style={chart.emptyText}>Logging started — chart builds as you weigh in daily</Text>
+        <Text style={chart.emptyText}>
+          Logging started — chart builds as you weigh in daily
+        </Text>
       </View>
     );
   }
@@ -57,17 +81,12 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
   const minW = rawMin - padding;
   const maxW = rawMax + padding;
   const range = maxW - minW;
-
   const n = sorted.length;
   const innerW = CHART_W - 2 * PAD_X;
   const innerH = CHART_H - 2 * PAD_Y;
 
-  function toX(i: number) {
-    return PAD_X + (i / (n - 1)) * innerW;
-  }
-  function toY(w: number) {
-    return PAD_Y + ((maxW - w) / range) * innerH;
-  }
+  function toX(i: number) { return PAD_X + (i / (n - 1)) * innerW; }
+  function toY(w: number) { return PAD_Y + ((maxW - w) / range) * innerH; }
 
   const polyPts = sorted.map((p, i) => `${toX(i)},${toY(p.weight)}`).join(" ");
 
@@ -75,7 +94,7 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
     <Svg width={CHART_W} height={CHART_H}>
       <Defs>
         <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-          <Stop offset="0" stopColor="#ff7a00" stopOpacity="0.6" />
+          <Stop offset="0" stopColor="#ff7a00" stopOpacity="0.5" />
           <Stop offset="1" stopColor="#ff7a00" stopOpacity="1" />
         </LinearGradient>
       </Defs>
@@ -109,7 +128,6 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
             <Circle cx={x} cy={y} r={3.5} fill="#ff7a00" />
             {showLabel && (
               <>
-                {/* weight reading above dot */}
                 <SvgText
                   x={x} y={y - 7}
                   fontSize={7} fill="#9ca3af"
@@ -117,7 +135,6 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
                 >
                   {p.weight.toFixed(1)}
                 </SvgText>
-                {/* date below baseline */}
                 <SvgText
                   x={x} y={PAD_Y + innerH + 10}
                   fontSize={7} fill="#6b7280"
@@ -139,44 +156,146 @@ const chart = StyleSheet.create({
     width: CHART_W, height: CHART_H,
     alignItems: "center", justifyContent: "center",
   },
-  emptyText: {
-    color: "#374151", fontSize: 11, textAlign: "center",
-  },
+  emptyText: { color: "#374151", fontSize: 11, textAlign: "center" },
 });
 
-// ─── main card ────────────────────────────────────────────────────────────────
+// ─── shared sub-components ────────────────────────────────────────────────────
 
-export function ShareCard({
-  weightLostKg, username, currentWeight, targetWeight,
-  daysLeft, weightHistory = [], backgroundImageUri,
-}: Props) {
-  const remaining = (currentWeight != null && targetWeight != null)
-    ? Math.max(0, currentWeight - targetWeight)
-    : null;
-
-  const content = (
-    <View style={[styles.inner, backgroundImageUri ? styles.innerOverBg : null]}>
-      {/* Header row */}
-      <View style={styles.header}>
-        {/* PRFMR logo pill */}
-        <View style={styles.logoPill}>
-          <Image
-            source={require("../assets/logo-main.png")}
-            style={styles.logoIcon}
-            resizeMode="contain"
-          />
-          <Text style={styles.logoText}>PRFMR</Text>
+function CardHeader({ daysLeft }: { daysLeft?: number }) {
+  return (
+    <View style={styles.header}>
+      <View style={styles.logoPill}>
+        <Image
+          source={require("../assets/logo-main.png")}
+          style={styles.logoIcon}
+          resizeMode="contain"
+        />
+        <Text style={styles.logoText}>PRFMR</Text>
+      </View>
+      {daysLeft != null && daysLeft > 0 && (
+        <View style={styles.daysChip}>
+          <Text style={styles.daysText}>🥊 {daysLeft} days to fight day</Text>
         </View>
+      )}
+    </View>
+  );
+}
 
-        {/* Days chip */}
-        {daysLeft != null && daysLeft > 0 && (
-          <View style={styles.daysChip}>
-            <Text style={styles.daysText}>🥊 {daysLeft} days to fight day</Text>
-          </View>
-        )}
+function StatsRow({
+  currentWeight,
+  targetWeight,
+  label = "kg to go",
+}: {
+  currentWeight?: number;
+  targetWeight?: number;
+  label?: string;
+}) {
+  const remaining =
+    currentWeight != null && targetWeight != null
+      ? Math.max(0, currentWeight - targetWeight)
+      : null;
+
+  if (currentWeight == null && remaining == null && targetWeight == null) return null;
+
+  return (
+    <View style={styles.statsRow}>
+      {currentWeight != null && (
+        <View style={styles.statCell}>
+          <Text style={styles.statValue}>{currentWeight.toFixed(1)}</Text>
+          <Text style={styles.statUnit}>kg</Text>
+          <Text style={styles.statLabel}>current{"\n"}weight</Text>
+        </View>
+      )}
+      {remaining != null && (
+        <View style={[styles.statCell, styles.statCellCenter]}>
+          <Text style={[styles.statValue, { color: "#ff7a00" }]}>
+            {remaining.toFixed(1)}
+          </Text>
+          <Text style={[styles.statUnit, { color: "#ff7a00" }]}>kg</Text>
+          <Text style={[styles.statLabel, { color: "#ff7a00", textAlign: "center" }]}>
+            {label}
+          </Text>
+          <Text style={styles.arrowIcon}>↘</Text>
+        </View>
+      )}
+      {targetWeight != null && (
+        <View style={[styles.statCell, styles.statCellRight]}>
+          <Text style={styles.statValue}>{targetWeight.toFixed(1)}</Text>
+          <Text style={styles.statUnit}>kg</Text>
+          <Text style={styles.statLabel}>fight{"\n"}weight</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function CardFooter({ username }: { username?: string }) {
+  return (
+    <View style={styles.footer}>
+      {username ? <Text style={styles.username}>— {username}</Text> : null}
+      <Text style={styles.appName}>PRFMR · Fight Camp Tracker</Text>
+    </View>
+  );
+}
+
+// ─── Type 1 card (camp < 7 days) ─────────────────────────────────────────────
+
+function Type1Content({
+  currentWeight, targetWeight, daysLeft,
+  weeklyTargets = [], fightDate, username, innerStyle,
+}: Pick<Props, "currentWeight" | "targetWeight" | "daysLeft" | "weeklyTargets" | "fightDate" | "username"> & { innerStyle?: object }) {
+  const projectedPoints =
+    currentWeight != null && fightDate
+      ? buildProjectedPoints(currentWeight, weeklyTargets, fightDate)
+      : [];
+
+  return (
+    <View style={[styles.inner, innerStyle]}>
+      <CardHeader daysLeft={daysLeft} />
+
+      {/* Projected chart */}
+      <View style={styles.chartSection}>
+        <Text style={styles.chartLabel}>Your projected weight cut</Text>
+        <View style={styles.chartBox}>
+          {projectedPoints.length >= 2 ? (
+            <WeightChart points={projectedPoints} />
+          ) : (
+            <View style={chart.empty}>
+              <Text style={chart.emptyText}>Set fight date to see projection</Text>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* Chart section */}
+      {/* Stats */}
+      <View style={styles.statsSection}>
+        <Text style={styles.statsSectionLabel}>Target each week</Text>
+        <StatsRow
+          currentWeight={currentWeight}
+          targetWeight={targetWeight}
+          label="to go"
+        />
+      </View>
+
+      {/* Copy */}
+      <Text style={styles.copy}>Let's finish camp strong{"\n"}and get this W 💪</Text>
+
+      <CardFooter username={username} />
+    </View>
+  );
+}
+
+// ─── Type 2 card (camp ≥ 7 days) ─────────────────────────────────────────────
+
+function Type2Content({
+  weightLostKg, currentWeight, targetWeight, daysLeft,
+  weightHistory = [], username, innerStyle,
+}: Pick<Props, "weightLostKg" | "currentWeight" | "targetWeight" | "daysLeft" | "weightHistory" | "username"> & { innerStyle?: object }) {
+  return (
+    <View style={[styles.inner, innerStyle]}>
+      <CardHeader daysLeft={daysLeft} />
+
+      {/* Real trend chart */}
       <View style={styles.chartSection}>
         <Text style={styles.chartLabel}>Trend since fight camp started</Text>
         <View style={styles.chartBox}>
@@ -184,60 +303,63 @@ export function ShareCard({
         </View>
       </View>
 
-      {/* "You've lost X kg so far" */}
+      {/* You've lost X kg */}
       <View style={styles.lostRow}>
-        {weightLostKg > 0 ? (
+        {(weightLostKg ?? 0) > 0 ? (
           <Text style={styles.lostHeadline}>
             You've lost{" "}
-            <Text style={styles.lostKg}>{weightLostKg.toFixed(1)} kg</Text>
+            <Text style={styles.lostKg}>{(weightLostKg ?? 0).toFixed(1)} kg</Text>
             {" "}so far
           </Text>
         ) : (
-          <Text style={styles.lostHeadline}>Fight camp <Text style={styles.lostKg}>activated</Text> 🎯</Text>
+          <Text style={styles.lostHeadline}>
+            Fight camp <Text style={styles.lostKg}>activated</Text> 🎯
+          </Text>
         )}
       </View>
 
-      {/* Stats row */}
-      {(currentWeight != null || remaining != null || targetWeight != null) && (
-        <View style={styles.statsRow}>
-          {currentWeight != null && (
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{currentWeight.toFixed(1)}</Text>
-              <Text style={styles.statUnit}>kg</Text>
-              <Text style={styles.statLabel}>current{"\n"}weight</Text>
-            </View>
-          )}
+      {/* Stats */}
+      <StatsRow currentWeight={currentWeight} targetWeight={targetWeight} />
 
-          {remaining != null && (
-            <View style={[styles.statCell, styles.statCellCenter]}>
-              <Text style={[styles.statValue, { color: "#ff7a00" }]}>{remaining.toFixed(1)}</Text>
-              <Text style={[styles.statUnit, { color: "#ff7a00" }]}>kg</Text>
-              <Text style={[styles.statLabel, { color: "#ff7a00", textAlign: "center" }]}>to go</Text>
-              {/* down-right arrow */}
-              <Text style={styles.arrowIcon}>↘</Text>
-            </View>
-          )}
+      {/* Copy */}
+      <Text style={styles.copy}>Let's finish camp strong{"\n"}and get this W 💪</Text>
 
-          {targetWeight != null && (
-            <View style={[styles.statCell, styles.statCellRight]}>
-              <Text style={styles.statValue}>{targetWeight.toFixed(1)}</Text>
-              <Text style={styles.statUnit}>kg</Text>
-              <Text style={styles.statLabel}>fight{"\n"}weight</Text>
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* Motivational copy */}
-      <Text style={styles.copy}>{motivationalCopy(weightLostKg)}</Text>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        {username && <Text style={styles.username}>— {username}</Text>}
-        <Text style={styles.appName}>PRFMR · Fight Camp Tracker</Text>
-      </View>
+      <CardFooter username={username} />
     </View>
   );
+}
+
+// ─── main card ────────────────────────────────────────────────────────────────
+
+export function ShareCard({
+  weightLostKg, username, currentWeight, targetWeight,
+  daysLeft, weightHistory = [], backgroundImageUri,
+  cardType = 2, weeklyTargets = [], fightDate,
+}: Props) {
+  const innerStyle = backgroundImageUri ? styles.innerOverBg : undefined;
+
+  const content =
+    cardType === 1 ? (
+      <Type1Content
+        currentWeight={currentWeight}
+        targetWeight={targetWeight}
+        daysLeft={daysLeft}
+        weeklyTargets={weeklyTargets}
+        fightDate={fightDate}
+        username={username}
+        innerStyle={innerStyle}
+      />
+    ) : (
+      <Type2Content
+        weightLostKg={weightLostKg}
+        currentWeight={currentWeight}
+        targetWeight={targetWeight}
+        daysLeft={daysLeft}
+        weightHistory={weightHistory}
+        username={username}
+        innerStyle={innerStyle}
+      />
+    );
 
   if (backgroundImageUri) {
     return (
@@ -338,7 +460,17 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
 
-  // "You've lost"
+  // Stats section (Type 1 has a heading)
+  statsSection: { gap: 6 },
+  statsSectionLabel: {
+    color: "#6b7280",
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+
+  // "You've lost" (Type 2)
   lostRow: { alignItems: "center" },
   lostHeadline: {
     color: "#eceef2",
@@ -352,7 +484,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
-  // Stats
+  // Stats row
   statsRow: {
     flexDirection: "row",
     justifyContent: "space-between",

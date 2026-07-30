@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useCallback } from "react";
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet,
-  Dimensions, ActivityIndicator,
+  Dimensions, ActivityIndicator, Alert,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import ViewShot from "react-native-view-shot";
@@ -29,6 +29,10 @@ export interface FcModalData {
   daysLeft?: number;
   shareTitle?: string;
   weightHistory?: Array<{ date: string; weight: number }>;
+  /** Fight camp weekly targets — used to determine card type and build projected chart. */
+  weeklyTargets?: Array<{ week: number; targetWeight: number }>;
+  /** ISO fight date string — used for the projected chart in Type 1. */
+  fightDate?: string;
 }
 
 interface Props {
@@ -37,6 +41,26 @@ interface Props {
 }
 
 const AUTO_DISMISS_MS = 4500;
+
+/**
+ * Determine which share card template to use.
+ * Type 1 = camp is less than 7 days old → show projected weight cut chart.
+ * Type 2 = camp is 7+ days old → show real trend.
+ *
+ * Camp days elapsed = (totalWeeks * 7) - daysUntilFight.
+ * Falls back to weightHistory length if weeklyTargets is unavailable.
+ */
+function resolveCardType(data: FcModalData): 1 | 2 {
+  const totalWeeks = data.weeklyTargets?.length ?? 0;
+  const daysUntil = data.daysLeft ?? 0;
+
+  const campDaysElapsed =
+    totalWeeks > 0
+      ? totalWeeks * 7 - daysUntil
+      : (data.weightHistory?.length ?? 0);
+
+  return campDaysElapsed < 7 ? 1 : 2;
+}
 
 export function FcModal({ data, onDismiss }: Props) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,7 +92,7 @@ export function FcModal({ data, onDismiss }: Props) {
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(uri, {
-          mimeType: "image/png",
+          mimeType: "image/jpeg",
           dialogTitle: data.shareTitle ?? "Share your progress",
         });
       }
@@ -81,22 +105,63 @@ export function FcModal({ data, onDismiss }: Props) {
   }
 
   async function handlePickBackground() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [9, 16],
-      quality: 0.85,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setBgImageUri(result.assets[0].uri);
-    }
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    Alert.alert(
+      "Background photo",
+      "Choose a source for your share card background",
+      [
+        {
+          text: "Camera",
+          onPress: async () => {
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ["images"],
+              allowsEditing: true,
+              aspect: [9, 16],
+              quality: 0.85,
+            });
+            if (!result.canceled && result.assets[0]) {
+              setBgImageUri(result.assets[0].uri);
+            }
+            timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
+          },
+        },
+        {
+          text: "Photo library",
+          onPress: async () => {
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ["images"],
+              allowsEditing: true,
+              aspect: [9, 16],
+              quality: 0.85,
+            });
+            if (!result.canceled && result.assets[0]) {
+              setBgImageUri(result.assets[0].uri);
+            }
+            timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
+          },
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => {
+            timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
+          },
+        },
+      ],
+    );
   }
 
   const accent = data?.isUp ? "#f59e0b" : "#ff7a00";
-  const hasShare = !!(data?.shareable && data?.weightLostKg !== undefined && data.weightLostKg >= 0);
+  const hasShare = !!(
+    data?.shareable &&
+    data?.weightLostKg !== undefined &&
+    data.weightLostKg >= 0
+  );
+
+  const cardType = data ? resolveCardType(data) : 2;
 
   // Always render <Modal> — never return null / unmount it.
-  // Unmounting a visible fade Modal on iOS leaves an invisible touch-blocking ghost layer.
   return (
     <Modal
       visible={!!data}
@@ -108,8 +173,13 @@ export function FcModal({ data, onDismiss }: Props) {
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={dismiss}>
         {data && (
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-            <View style={[styles.card, { borderColor: accent }]} testID="fight-camp-notice-card">
-              {data.emoji ? <Text style={styles.emoji}>{data.emoji}</Text> : null}
+            <View
+              style={[styles.card, { borderColor: accent }]}
+              testID="fight-camp-notice-card"
+            >
+              {data.emoji ? (
+                <Text style={styles.emoji}>{data.emoji}</Text>
+              ) : null}
               <Text style={styles.title}>{data.title}</Text>
               <Text style={styles.body}>{data.body}</Text>
 
@@ -121,9 +191,11 @@ export function FcModal({ data, onDismiss }: Props) {
                     disabled={sharing}
                     testID="button-share-moment"
                   >
-                    {sharing
-                      ? <ActivityIndicator size="small" color={accent} />
-                      : <Feather name="share-2" size={14} color={accent} />}
+                    {sharing ? (
+                      <ActivityIndicator size="small" color={accent} />
+                    ) : (
+                      <Feather name="share-2" size={14} color={accent} />
+                    )}
                     <Text style={[styles.actionBtnText, { color: accent }]}>
                       {sharing ? "Preparing…" : "Share"}
                     </Text>
@@ -135,7 +207,11 @@ export function FcModal({ data, onDismiss }: Props) {
                     disabled={sharing}
                     testID="button-change-background"
                   >
-                    <Feather name={bgImageUri ? "image" : "upload"} size={14} color="#6b7280" />
+                    <Feather
+                      name={bgImageUri ? "image" : "camera"}
+                      size={14}
+                      color="#6b7280"
+                    />
                     <Text style={styles.bgBtnText}>
                       {bgImageUri ? "Change bg" : "Add photo bg"}
                     </Text>
@@ -149,11 +225,11 @@ export function FcModal({ data, onDismiss }: Props) {
         )}
       </TouchableOpacity>
 
-      {/* Hidden ShareCard — captured by ViewShot (off-screen 360×640) */}
+      {/* Hidden ShareCard — captured by ViewShot as JPG (360×640) */}
       {hasShare && data && (
         <ViewShot
           ref={shareCardRef}
-          options={{ format: "png", quality: 1.0, width: 360, height: 640 }}
+          options={{ format: "jpg", quality: 0.92, width: 360, height: 640 }}
           style={styles.hiddenCard}
         >
           <ShareCard
@@ -164,6 +240,9 @@ export function FcModal({ data, onDismiss }: Props) {
             daysLeft={data.daysLeft}
             weightHistory={data.weightHistory ?? []}
             backgroundImageUri={bgImageUri ?? undefined}
+            cardType={cardType}
+            weeklyTargets={data.weeklyTargets ?? []}
+            fightDate={data.fightDate}
           />
         </ViewShot>
       )}
@@ -175,19 +254,40 @@ const W = Dimensions.get("window").width;
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.78)",
-    alignItems: "center", justifyContent: "center", padding: 28,
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.78)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 28,
   },
   card: {
-    width: W - 56, backgroundColor: "#0f1117",
-    borderRadius: 20, borderWidth: 1.5, padding: 28,
-    alignItems: "center", gap: 10,
-    shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 }, elevation: 12,
+    width: W - 56,
+    backgroundColor: "#0f1117",
+    borderRadius: 20,
+    borderWidth: 1.5,
+    padding: 28,
+    alignItems: "center",
+    gap: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
   },
   emoji: { fontSize: 42, marginBottom: 4 },
-  title: { color: "#eceef2", fontSize: 20, fontWeight: "800", textAlign: "center", letterSpacing: -0.3 },
-  body: { color: "#9ca3af", fontSize: 14, textAlign: "center", lineHeight: 20 },
+  title: {
+    color: "#eceef2",
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: -0.3,
+  },
+  body: {
+    color: "#9ca3af",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
   btnRow: {
     flexDirection: "row",
     gap: 8,
@@ -195,9 +295,13 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   actionBtn: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    borderWidth: 1.5, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     justifyContent: "center",
   },
   actionBtnText: { fontSize: 14, fontWeight: "700" },
@@ -208,7 +312,11 @@ const styles = StyleSheet.create({
   bgBtnText: { color: "#6b7280", fontSize: 13, fontWeight: "600" },
   hint: { color: "#4b5563", fontSize: 11, marginTop: 6 },
   hiddenCard: {
-    position: "absolute", left: -9999, top: 0,
-    width: 360, height: 640, overflow: "hidden",
+    position: "absolute",
+    left: -9999,
+    top: 0,
+    width: 360,
+    height: 640,
+    overflow: "hidden",
   },
 });
