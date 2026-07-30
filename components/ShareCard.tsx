@@ -305,6 +305,15 @@ function Type2Content({
   weightLostKg, currentWeight, targetWeight, daysLeft,
   weightHistory = [], username, innerStyle,
 }: Pick<Props, "weightLostKg" | "currentWeight" | "targetWeight" | "daysLeft" | "weightHistory" | "username"> & { innerStyle?: object }) {
+  // Use the first logged camp weight as the baseline. If the current weight is
+  // lower than that, the athlete has genuinely lost weight since camp started.
+  const sorted = [...weightHistory].sort((a, b) => a.date.localeCompare(b.date));
+  const campStartWeight = sorted[0]?.weight ?? null;
+  const actualLostKg =
+    campStartWeight != null && currentWeight != null
+      ? campStartWeight - currentWeight
+      : (weightLostKg ?? 0);
+
   return (
     <View style={[styles.inner, innerStyle]}>
       <CardHeader daysLeft={daysLeft} />
@@ -319,10 +328,10 @@ function Type2Content({
 
       {/* You've lost X kg */}
       <View style={styles.lostRow}>
-        {(weightLostKg ?? 0) > 0 ? (
+        {actualLostKg > 0 ? (
           <Text style={styles.lostHeadline}>
             You've lost{" "}
-            <Text style={styles.lostKg}>{(weightLostKg ?? 0).toFixed(1)} kg</Text>
+            <Text style={styles.lostKg}>{actualLostKg.toFixed(1)} kg</Text>
             {" "}so far
           </Text>
         ) : (
