@@ -600,6 +600,7 @@ function FightCampHero({ date }: { date: string }) {
           weightHistory: [...recentWeights],
           weeklyTargets: plan?.weeklyTargets,
           fightDate: plan?.fightDate,
+          weightHistoryWindowStart: sevenDayStart,
         });
       }
     },
@@ -629,6 +630,7 @@ function FightCampHero({ date }: { date: string }) {
           weightHistory: [...recentWeights],
           weeklyTargets: plan?.weeklyTargets,
           fightDate: plan?.fightDate,
+          weightHistoryWindowStart: sevenDayStart,
         });
       } else {
         showToast({ title: "Fight camp plan updated 🎯" });
@@ -725,6 +727,7 @@ function FightCampHero({ date }: { date: string }) {
         weightHistory: [...recentWeights],
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
+        weightHistoryWindowStart: sevenDayStart,
       });
     } else if (count >= 5 && prev < 5) {
       enqueueFcModal({
@@ -740,6 +743,7 @@ function FightCampHero({ date }: { date: string }) {
         weightHistory: [...recentWeights],
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
+        weightHistoryWindowStart: sevenDayStart,
       });
     } else if (count >= 3 && prev < 3) {
       enqueueFcModal({
@@ -755,6 +759,7 @@ function FightCampHero({ date }: { date: string }) {
         weightHistory: [...recentWeights],
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
+        weightHistoryWindowStart: sevenDayStart,
       });
     }
   }, [recentWeights]);
@@ -1160,6 +1165,7 @@ function FightCampHero({ date }: { date: string }) {
               shareTitle: "Share your fight camp progress",
               weeklyTargets: plan?.weeklyTargets,
               fightDate: plan?.fightDate,
+              weightHistoryWindowStart: sevenDayStart,
             });
           }}
           activeOpacity={0.7}

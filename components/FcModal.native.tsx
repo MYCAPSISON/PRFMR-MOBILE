@@ -29,10 +29,16 @@ export interface FcModalData {
   daysLeft?: number;
   shareTitle?: string;
   weightHistory?: Array<{ date: string; weight: number }>;
-  /** Fight camp weekly targets — used to determine card type and build projected chart. */
+  /** Fight camp weekly targets — used to build the projected chart in Type 1. */
   weeklyTargets?: Array<{ week: number; targetWeight: number }>;
   /** ISO fight date string — used for the projected chart in Type 1. */
   fightDate?: string;
+  /**
+   * The ISO start date of the weightHistory window (e.g. "2026-07-24").
+   * If any weightHistory entry falls on or before this date the camp has
+   * been running for at least 7 days → use the Type 2 real-trend card.
+   */
+  weightHistoryWindowStart?: string;
 }
 
 interface Props {
@@ -44,22 +50,30 @@ const AUTO_DISMISS_MS = 4500;
 
 /**
  * Determine which share card template to use.
- * Type 1 = camp is less than 7 days old → show projected weight cut chart.
- * Type 2 = camp is 7+ days old → show real trend.
+ * Type 1 = camp < 7 days old → show projected weight cut chart.
+ * Type 2 = camp ≥ 7 days old → show real trend.
  *
- * Camp days elapsed = (totalWeeks * 7) - daysUntilFight.
- * Falls back to weightHistory length if weeklyTargets is unavailable.
+ * Strategy: if any weight log exists on or before the start of the 7-day
+ * history window, the camp was already active before the window opened,
+ * meaning at least 7 days have elapsed.
+ *
+ * Note: weeklyTargets.length cannot be used because the API recomputes
+ * targets from today — so length ≈ daysUntil/7, making the elapsed formula
+ * always evaluate to ~0.
  */
 function resolveCardType(data: FcModalData): 1 | 2 {
-  const totalWeeks = data.weeklyTargets?.length ?? 0;
-  const daysUntil = data.daysLeft ?? 0;
+  const windowStart = data.weightHistoryWindowStart;
+  const history = data.weightHistory ?? [];
 
-  const campDaysElapsed =
-    totalWeeks > 0
-      ? totalWeeks * 7 - daysUntil
-      : (data.weightHistory?.length ?? 0);
+  if (windowStart && history.length > 0) {
+    const hasEntryAtOrBeforeWindowStart = history.some(
+      w => w.date.slice(0, 10) <= windowStart
+    );
+    return hasEntryAtOrBeforeWindowStart ? 2 : 1;
+  }
 
-  return campDaysElapsed < 7 ? 1 : 2;
+  // Fallback: if history fills the full 7-day window the camp is likely old enough
+  return history.length >= 7 ? 2 : 1;
 }
 
 export function FcModal({ data, onDismiss }: Props) {

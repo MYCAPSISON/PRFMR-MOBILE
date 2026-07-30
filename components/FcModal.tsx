@@ -24,10 +24,12 @@ export interface FcModalData {
   daysLeft?: number;
   shareTitle?: string;
   weightHistory?: Array<{ date: string; weight: number }>;
-  /** Fight camp weekly targets — used to determine card type and build projected chart. */
+  /** Fight camp weekly targets — used to build the projected chart in Type 1. */
   weeklyTargets?: Array<{ week: number; targetWeight: number }>;
   /** ISO fight date string — used for the projected chart in Type 1. */
   fightDate?: string;
+  /** Start of the weightHistory window — used to determine Type 1 vs Type 2. */
+  weightHistoryWindowStart?: string;
 }
 
 interface Props {
