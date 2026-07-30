@@ -35,10 +35,11 @@ export interface FcModalData {
   fightDate?: string;
   /**
    * The ISO start date of the weightHistory window (e.g. "2026-07-24").
-   * If any weightHistory entry falls on or before this date the camp has
-   * been running for at least 7 days → use the Type 2 real-trend card.
+   * Used as a fallback for camp-age detection when planCreatedAt is absent.
    */
   weightHistoryWindowStart?: string;
+  /** ISO datetime when this fight camp plan was created — the authoritative camp-age signal. */
+  planCreatedAt?: string;
 }
 
 interface Props {
@@ -53,18 +54,25 @@ const AUTO_DISMISS_MS = 4500;
  * Type 1 = camp < 7 days old → show projected weight cut chart.
  * Type 2 = camp ≥ 7 days old → show real trend.
  *
- * Strategy: if any weight log exists on or before the start of the 7-day
- * history window, the camp was already active before the window opened,
- * meaning at least 7 days have elapsed.
- *
- * Note: weeklyTargets.length cannot be used because the API recomputes
- * targets from today — so length ≈ daysUntil/7, making the elapsed formula
- * always evaluate to ~0.
+ * Priority order:
+ * 1. planCreatedAt — exact camp creation date from the API (most reliable).
+ * 2. weightHistoryWindowStart — heuristic: if any log falls on the window
+ *    boundary the camp was active ≥ 7 days ago.
+ * 3. weightHistory.length fallback.
  */
 function resolveCardType(data: FcModalData): 1 | 2 {
+  // 1. Use planCreatedAt if available
+  if (data.planCreatedAt) {
+    const createdMs = Date.parse(data.planCreatedAt);
+    if (!isNaN(createdMs)) {
+      const campAgeMs = Date.now() - createdMs;
+      return campAgeMs >= 7 * 24 * 60 * 60 * 1000 ? 2 : 1;
+    }
+  }
+
+  // 2. Heuristic: weight log on or before the window start → camp ≥ 7 days old
   const windowStart = data.weightHistoryWindowStart;
   const history = data.weightHistory ?? [];
-
   if (windowStart && history.length > 0) {
     const hasEntryAtOrBeforeWindowStart = history.some(
       w => w.date.slice(0, 10) <= windowStart
@@ -72,7 +80,7 @@ function resolveCardType(data: FcModalData): 1 | 2 {
     return hasEntryAtOrBeforeWindowStart ? 2 : 1;
   }
 
-  // Fallback: if history fills the full 7-day window the camp is likely old enough
+  // 3. Last resort: full 7-day window filled
   return history.length >= 7 ? 2 : 1;
 }
 

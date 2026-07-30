@@ -54,6 +54,8 @@ interface WeightCutData {
   weighInTiming: "same_day" | "day_before";
   manualTempReductionKg: number | null;
   bodyweightSource?: "log" | "profile";
+  /** ISO datetime when this fight camp plan was created. */
+  planCreatedAt?: string;
 }
 
 interface MorningStatus {
@@ -601,6 +603,7 @@ function FightCampHero({ date }: { date: string }) {
           weeklyTargets: plan?.weeklyTargets,
           fightDate: plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
+          planCreatedAt: plan?.planCreatedAt,
         });
       }
     },
@@ -631,6 +634,7 @@ function FightCampHero({ date }: { date: string }) {
           weeklyTargets: plan?.weeklyTargets,
           fightDate: plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
+          planCreatedAt: plan?.planCreatedAt,
         });
       } else {
         showToast({ title: "Fight camp plan updated 🎯" });
@@ -728,6 +732,7 @@ function FightCampHero({ date }: { date: string }) {
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
+        planCreatedAt: plan?.planCreatedAt,
       });
     } else if (count >= 5 && prev < 5) {
       enqueueFcModal({
@@ -744,6 +749,7 @@ function FightCampHero({ date }: { date: string }) {
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
+        planCreatedAt: plan?.planCreatedAt,
       });
     } else if (count >= 3 && prev < 3) {
       enqueueFcModal({
@@ -760,6 +766,7 @@ function FightCampHero({ date }: { date: string }) {
         weeklyTargets: plan?.weeklyTargets,
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
+        planCreatedAt: plan?.planCreatedAt,
       });
     }
   }, [recentWeights]);
@@ -1163,9 +1170,11 @@ function FightCampHero({ date }: { date: string }) {
               targetWeight: plan?.targetWeight,
               daysLeft: plan?.daysUntil,
               shareTitle: "Share your fight camp progress",
+              weightHistory: [...recentWeights],
               weeklyTargets: plan?.weeklyTargets,
               fightDate: plan?.fightDate,
               weightHistoryWindowStart: sevenDayStart,
+              planCreatedAt: plan?.planCreatedAt,
             });
           }}
           activeOpacity={0.7}

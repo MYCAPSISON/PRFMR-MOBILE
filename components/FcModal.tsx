@@ -28,8 +28,10 @@ export interface FcModalData {
   weeklyTargets?: Array<{ week: number; targetWeight: number }>;
   /** ISO fight date string — used for the projected chart in Type 1. */
   fightDate?: string;
-  /** Start of the weightHistory window — used to determine Type 1 vs Type 2. */
+  /** Start of the weightHistory window — used as fallback for camp-age detection. */
   weightHistoryWindowStart?: string;
+  /** ISO datetime when this fight camp plan was created — the authoritative camp-age signal. */
+  planCreatedAt?: string;
 }
 
 interface Props {

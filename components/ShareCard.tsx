@@ -30,15 +30,25 @@ function fmtDate(dateStr: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** Build projected WeightPoints from weeklyTargets for the Type 1 card. */
+/**
+ * Build projected WeightPoints from weeklyTargets for the Type 1 card.
+ *
+ * weeklyTargets from the API only covers the fat-loss phase; the final
+ * entry may be above fightWeight (which is after the temp cut). We always
+ * append the real fightWeight at fightDate as the last point so the line
+ * ends at the actual goal, and we drop any weeklyTarget that would land ON
+ * fightDate to avoid a duplicate plotted there.
+ */
 function buildProjectedPoints(
   currentWeight: number,
+  fightWeight: number,
   weeklyTargets: Array<{ week: number; targetWeight: number }>,
   fightDate: string,
 ): WeightPoint[] {
-  if (!weeklyTargets.length) return [];
+  if (!weeklyTargets.length && fightWeight == null) return [];
 
-  const fightMs = Date.parse(fightDate.slice(0, 10) + "T12:00:00");
+  const fightDateISO = fightDate.slice(0, 10);
+  const fightMs = Date.parse(fightDateISO + "T12:00:00");
   const totalWeeks = weeklyTargets.length;
 
   const todayISO = new Date().toISOString().slice(0, 10);
@@ -47,11 +57,17 @@ function buildProjectedPoints(
   const sorted = [...weeklyTargets].sort((a, b) => a.week - b.week);
   for (const wt of sorted) {
     const weekMs = fightMs - (totalWeeks - wt.week) * 7 * 86_400_000;
-    points.push({
-      date: new Date(weekMs).toISOString().slice(0, 10),
-      weight: wt.targetWeight,
-    });
+    const weekISO = new Date(weekMs).toISOString().slice(0, 10);
+    // Skip any target that lands on the fight date — we'll add fightWeight there
+    if (weekISO === fightDateISO) continue;
+    points.push({ date: weekISO, weight: wt.targetWeight });
   }
+
+  // Always end at the actual fight weight on fight day
+  if (fightWeight != null) {
+    points.push({ date: fightDateISO, weight: fightWeight });
+  }
+
   return points;
 }
 
@@ -245,8 +261,8 @@ function Type1Content({
   weeklyTargets = [], fightDate, username, innerStyle,
 }: Pick<Props, "currentWeight" | "targetWeight" | "daysLeft" | "weeklyTargets" | "fightDate" | "username"> & { innerStyle?: object }) {
   const projectedPoints =
-    currentWeight != null && fightDate
-      ? buildProjectedPoints(currentWeight, weeklyTargets, fightDate)
+    currentWeight != null && targetWeight != null && fightDate
+      ? buildProjectedPoints(currentWeight, targetWeight, weeklyTargets, fightDate)
       : [];
 
   return (
