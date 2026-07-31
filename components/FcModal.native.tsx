@@ -155,7 +155,8 @@ export function FcModal({ data, onDismiss }: Props) {
               mediaTypes: ["images"],
               allowsEditing: true,
               aspect: [9, 16],
-              quality: 0.85,
+              quality: 0.3,
+              exif: false,
             });
             if (!result.canceled && result.assets[0]) {
               setBgImageUri(result.assets[0].uri);
@@ -176,7 +177,8 @@ export function FcModal({ data, onDismiss }: Props) {
               mediaTypes: ["images"],
               allowsEditing: true,
               aspect: [9, 16],
-              quality: 0.85,
+              quality: 0.3,
+              exif: false,
             });
             if (!result.canceled && result.assets[0]) {
               setBgImageUri(result.assets[0].uri);
