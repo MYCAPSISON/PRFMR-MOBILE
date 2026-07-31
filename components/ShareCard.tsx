@@ -267,7 +267,8 @@ function Type1Content({
 
   return (
     <View style={[styles.inner, innerStyle]}>
-      <CardHeader daysLeft={daysLeft} />
+      {/* Type 1 never shows the days chip — the layout is cleaner without it */}
+      <CardHeader />
 
       {/* Headline */}
       {cardTitle ? (

@@ -16,6 +16,7 @@ import * as Sharing from "expo-sharing";
 import * as ImagePicker from "expo-image-picker";
 import { Asset } from "expo-asset";
 import { ShareCard } from "./ShareCard";
+import { calculateWeightCutPlan } from "@/lib/weightCutPlan";
 
 // Preload the logo asset as soon as this module is imported so it's in the
 // native image cache before any ViewShot capture runs.
@@ -269,7 +270,13 @@ export function FcModal({ data, onDismiss }: Props) {
             weightHistory={data.weightHistory ?? []}
             backgroundImageUri={bgImageUri ?? undefined}
             cardType={cardType}
-            weeklyTargets={data.weeklyTargets ?? []}
+            weeklyTargets={
+              // For Type 1 always compute locally so the staircase matches
+              // onboarding exactly, regardless of server week numbering.
+              cardType === 1 && data.currentWeight && data.targetWeight && data.fightDate
+                ? calculateWeightCutPlan(data.currentWeight, data.targetWeight, data.fightDate).weeklyTargets
+                : (data.weeklyTargets ?? [])
+            }
             fightDate={data.fightDate}
             cardTitle={cardType === 1 ? data.title : undefined}
           />
