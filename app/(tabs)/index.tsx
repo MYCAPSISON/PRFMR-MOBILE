@@ -3085,7 +3085,8 @@ function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, s
       ))}
       <TouchableOpacity onPress={onAdd} disabled={!canAdd || isPending}
         style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 4,
-          backgroundColor: canAdd ? "#ff7a00" : "#181c26" }}>
+          backgroundColor: canAdd ? "#ff7a00" : "#181c26",
+          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
         {isPending
           ? <ActivityIndicator color="#fff" />
           : <Text style={{ color: canAdd ? "#fff" : "#6b7280", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
@@ -4582,7 +4583,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                             {[50, 100, 150, 200].map(q => (
                               <TouchableOpacity key={q} onPress={() => setWfGrams(String(q))}
                                 style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
-                                  justifyContent: "center", borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#181c26" }}>
+                                  justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "#181c26" }}>
                                 <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
                               </TouchableOpacity>
                             ))}
@@ -4799,7 +4800,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           {[50, 100, 150, 200].map(q => (
                             <TouchableOpacity key={q} onPress={() => setBarcodeGrams(String(q))}
                               style={{ flex: 1, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center",
-                                borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#181c26" }}>
+                                borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "#181c26" }}>
                               <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>{q}g</Text>
                             </TouchableOpacity>
                           ))}
@@ -4811,7 +4812,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           <Text style={{ color: "#ff7a00", fontSize: 18, fontWeight: "800" }}>{bcCal} kcal</Text>
                         </View>
                         <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
-                          borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb", padding: 14 }}>
+                          borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 14 }}>
                           {[
                             { l: "Prot", v: bcProt, green: false },
                             { l: "Carb", v: bcCarb, green: false },
@@ -4826,7 +4827,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         </View>
 
                         {/* Micros Source — 3 states: mapped / skipped / unmapped */}
-                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb",
+                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)",
                           backgroundColor: "#13161d", padding: 14, gap: 10 }}>
                           {/* Header row */}
                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -4926,7 +4927,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           onPress={() => addMut.mutate(buildPayload(barcodeResult!, barcodeGrams))}
                           disabled={addMut.isPending}
                           style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12,
-                            alignItems: "center", justifyContent: "center" }}>
+                            alignItems: "center", justifyContent: "center",
+                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
                           {addMut.isPending
                             ? <ActivityIndicator color="#fff" />
                             : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add to Log</Text>}
