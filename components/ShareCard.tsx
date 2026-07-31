@@ -21,6 +21,8 @@ interface Props {
   cardType?: 1 | 2;
   weeklyTargets?: Array<{ week: number; targetWeight: number }>;
   fightDate?: string;
+  /** Optional headline shown on the Type 1 card (e.g. "Fight camp activated 🎯") */
+  cardTitle?: string;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -256,8 +258,8 @@ function CardFooter({ username }: { username?: string }) {
 
 function Type1Content({
   currentWeight, targetWeight, daysLeft,
-  weeklyTargets = [], fightDate, username, innerStyle,
-}: Pick<Props, "currentWeight" | "targetWeight" | "daysLeft" | "weeklyTargets" | "fightDate" | "username"> & { innerStyle?: object }) {
+  weeklyTargets = [], fightDate, username, cardTitle, innerStyle,
+}: Pick<Props, "currentWeight" | "targetWeight" | "daysLeft" | "weeklyTargets" | "fightDate" | "username" | "cardTitle"> & { innerStyle?: object }) {
   const projectedPoints =
     currentWeight != null && targetWeight != null && fightDate
       ? buildProjectedPoints(currentWeight, targetWeight, weeklyTargets, fightDate)
@@ -266,6 +268,11 @@ function Type1Content({
   return (
     <View style={[styles.inner, innerStyle]}>
       <CardHeader daysLeft={daysLeft} />
+
+      {/* Headline */}
+      {cardTitle ? (
+        <Text style={styles.cardTitle}>{cardTitle}</Text>
+      ) : null}
 
       {/* Projected chart */}
       <View style={styles.chartSection}>
@@ -353,7 +360,7 @@ function Type2Content({
 export function ShareCard({
   weightLostKg, username, currentWeight, targetWeight,
   daysLeft, weightHistory = [], backgroundImageUri,
-  cardType = 2, weeklyTargets = [], fightDate,
+  cardType = 2, weeklyTargets = [], fightDate, cardTitle,
 }: Props) {
   const innerStyle = backgroundImageUri ? styles.innerOverBg : undefined;
 
@@ -366,6 +373,7 @@ export function ShareCard({
         weeklyTargets={weeklyTargets}
         fightDate={fightDate}
         username={username}
+        cardTitle={cardTitle}
         innerStyle={innerStyle}
       />
     ) : (
@@ -531,6 +539,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     marginTop: 2,
+  },
+
+  // Card headline (e.g. "Fight camp activated 🎯")
+  cardTitle: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: 2,
+    letterSpacing: 0.2,
   },
 
   // Copy

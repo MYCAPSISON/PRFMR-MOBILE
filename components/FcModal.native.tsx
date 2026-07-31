@@ -271,6 +271,7 @@ export function FcModal({ data, onDismiss }: Props) {
             cardType={cardType}
             weeklyTargets={data.weeklyTargets ?? []}
             fightDate={data.fightDate}
+            cardTitle={cardType === 1 ? data.title : undefined}
           />
         </ViewShot>
       )}

@@ -57,8 +57,11 @@ export function calculateWeightCutPlan(
 
   const numWeeks = Math.ceil(weeksForFatLoss);
   const weeklyTargets: Array<{ week: number; targetWeight: number }> = [];
-  for (let w = numWeeks; w >= 1; w--) {
-    const projected = currentWeight - recommendedWeeklyRate * (numWeeks - w + 1);
+  // week 1 = earliest (smallest loss, highest weight); week N = latest (most loss, lowest weight).
+  // This matches buildProjectedPoints in ShareCard which maps week → date via:
+  //   weekMs = fightMs - (totalWeeks - wt.week) * 7 days
+  for (let w = 1; w <= numWeeks; w++) {
+    const projected = currentWeight - recommendedWeeklyRate * w;
     weeklyTargets.push({ week: w, targetWeight: Math.max(preFinal, Math.round(projected * 10) / 10) });
   }
 
