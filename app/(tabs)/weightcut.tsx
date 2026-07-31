@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
   View,
   Modal,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,6 +37,7 @@ export default function WeightCutScreen() {
   const [targetWeight, setTargetWeight] = useState("");
   const [currentWeight, setCurrentWeight] = useState("");
   const [fightDate, setFightDate] = useState("");
+  const [showFightDatePicker, setShowFightDatePicker] = useState(false);
   const [weighInTiming, setWeighInTiming] = useState<"same_day" | "day_before">("same_day");
 
   const { data: plan, isLoading } = useQuery<any>({
@@ -267,7 +270,6 @@ export default function WeightCutScreen() {
             {[
               { label: "Current Weight (kg)", value: currentWeight, set: setCurrentWeight, kb: "decimal-pad" as const },
               { label: "Target Weight (kg)", value: targetWeight, set: setTargetWeight, kb: "decimal-pad" as const },
-              { label: "Fight Date (YYYY-MM-DD)", value: fightDate, set: setFightDate, kb: "default" as const },
             ].map(f => (
               <View key={f.label}>
                 <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6, letterSpacing: 0.5 }}>{f.label.toUpperCase()}</Text>
@@ -279,6 +281,37 @@ export default function WeightCutScreen() {
                 />
               </View>
             ))}
+            {/* Fight Date — calendar picker */}
+            <View>
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6, letterSpacing: 0.5 }}>FIGHT DATE</Text>
+              <TouchableOpacity
+                onPress={() => setShowFightDatePicker(true)}
+                style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, justifyContent: "center" }]}>
+                <Text style={{ color: fightDate ? colors.foreground : colors.mutedForeground, fontSize: 15 }}>
+                  {fightDate
+                    ? new Date(fightDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                    : "Select fight date"}
+                </Text>
+              </TouchableOpacity>
+              {showFightDatePicker && (
+                <DateTimePicker
+                  value={fightDate ? new Date(fightDate + "T00:00:00") : new Date(Date.now() + 30 * 86400000)}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  minimumDate={new Date(Date.now() + 7 * 86400000)}
+                  themeVariant="dark"
+                  onChange={(_, date) => {
+                    setShowFightDatePicker(Platform.OS === "ios");
+                    if (date) setFightDate(date.toISOString().split("T")[0]);
+                  }}
+                />
+              )}
+              {Platform.OS === "ios" && showFightDatePicker && (
+                <TouchableOpacity onPress={() => setShowFightDatePicker(false)} style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 14 }}>
+                  <Text style={{ color: colors.primary, fontWeight: "600" }}>Done</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <View>
               <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6, letterSpacing: 0.5 }}>WEIGH-IN TIMING</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>

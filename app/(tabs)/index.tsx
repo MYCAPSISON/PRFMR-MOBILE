@@ -518,6 +518,7 @@ function FightCampHero({ date }: { date: string }) {
   const [formCW, setFormCW] = useState("");
   const [formTW, setFormTW] = useState("");
   const [formDate, setFormDate] = useState("");
+  const [showFightDatePicker, setShowFightDatePicker] = useState(false);
   const [formTiming, setFormTiming] = useState<"same_day" | "day_before">("same_day");
   const [formManualTemp, setFormManualTemp] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -642,8 +643,8 @@ function FightCampHero({ date }: { date: string }) {
           targetWeight: variables?.targetWeight,
           shareTitle: "Fight camp activated",
           weightHistory: [...campWeights],
-          weeklyTargets: plan?.weeklyTargets,
-          fightDate: plan?.fightDate,
+          weeklyTargets: plan?.weeklyTargets ?? [],
+          fightDate: variables?.fightDate ?? plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
           planCreatedAt: plan?.planCreatedAt,
         });
@@ -828,15 +829,35 @@ function FightCampHero({ date }: { date: string }) {
               onChangeText={setFormTW}
             />
             {/* Fight Date */}
-            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Date (YYYY-MM-DD)</Text>
-            <TextInput
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>Fight Date</Text>
+            <TouchableOpacity
+              onPress={() => setShowFightDatePicker(true)}
               style={{ backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 10,
-                color: colors.foreground, padding: 12, fontSize: 15, marginBottom: 14 }}
-              placeholder="2025-09-15"
-              placeholderTextColor={colors.mutedForeground}
-              value={formDate}
-              onChangeText={setFormDate}
-            />
+                padding: 12, justifyContent: "center", marginBottom: 14 }}>
+              <Text style={{ color: formDate ? colors.foreground : colors.mutedForeground, fontSize: 15 }}>
+                {formDate
+                  ? new Date(formDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                  : "Select fight date"}
+              </Text>
+            </TouchableOpacity>
+            {showFightDatePicker && (
+              <DateTimePicker
+                value={formDate ? new Date(formDate + "T00:00:00") : new Date(Date.now() + 30 * 86400000)}
+                mode="date"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                minimumDate={new Date(Date.now() + 7 * 86400000)}
+                themeVariant="dark"
+                onChange={(_, date) => {
+                  setShowFightDatePicker(Platform.OS === "ios");
+                  if (date) setFormDate(date.toISOString().split("T")[0]);
+                }}
+              />
+            )}
+            {Platform.OS === "ios" && showFightDatePicker && (
+              <TouchableOpacity onPress={() => setShowFightDatePicker(false)} style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 14 }}>
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Done</Text>
+              </TouchableOpacity>
+            )}
             {/* Weigh-In Timing */}
             <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Weigh-In Timing</Text>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 6 }}>
@@ -993,7 +1014,7 @@ function FightCampHero({ date }: { date: string }) {
               Set a fight date to start your camp plan — track your cut and stay on pace.
             </Text>
             <TouchableOpacity onPress={openCreate}
-              style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 }}>
+              style={{ borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Set a fight date</Text>
             </TouchableOpacity>
           </View>
@@ -1472,8 +1493,8 @@ function MorningCheckInGate({ date }: { date: string }) {
         {/* Continue button */}
         <TouchableOpacity
           onPress={markSeen}
-          style={{ backgroundColor: colors.primary, borderRadius: 8, padding: 13,
-            alignItems: "center", marginTop: 16 }}>
+          style={{ borderRadius: 8, padding: 13, alignItems: "center", marginTop: 16,
+            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
           <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
         </TouchableOpacity>
       </View>
