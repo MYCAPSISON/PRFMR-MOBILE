@@ -1014,7 +1014,7 @@ function FightCampHero({ date }: { date: string }) {
               Set a fight date to start your camp plan — track your cut and stay on pace.
             </Text>
             <TouchableOpacity onPress={openCreate}
-              style={{ borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+              style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Set a fight date</Text>
             </TouchableOpacity>
           </View>
@@ -1493,7 +1493,7 @@ function MorningCheckInGate({ date }: { date: string }) {
         {/* Continue button */}
         <TouchableOpacity
           onPress={markSeen}
-          style={{ borderRadius: 8, padding: 13, alignItems: "center", marginTop: 16,
+          style={{ backgroundColor: colors.primary, borderRadius: 8, padding: 13, alignItems: "center", marginTop: 16,
             borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
           <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
         </TouchableOpacity>
