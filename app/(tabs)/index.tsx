@@ -617,6 +617,8 @@ function FightCampHero({ date }: { date: string }) {
           fightDate: plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
           planCreatedAt: plan?.planCreatedAt,
+          weighInTiming: plan?.weighInTiming,
+          manualTempReductionKg: plan?.manualTempReductionKg,
         });
       }
     },
@@ -651,6 +653,8 @@ function FightCampHero({ date }: { date: string }) {
           fightDate: variables?.fightDate ?? plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
           planCreatedAt: plan?.planCreatedAt,
+          weighInTiming: variables?.weighInTiming ?? plan?.weighInTiming,
+          manualTempReductionKg: variables?.manualTempReductionKg ?? plan?.manualTempReductionKg,
         });
       } else {
         showToast({ title: "Fight camp plan updated 🎯" });
@@ -749,6 +753,8 @@ function FightCampHero({ date }: { date: string }) {
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
         planCreatedAt: plan?.planCreatedAt,
+        weighInTiming: plan?.weighInTiming,
+        manualTempReductionKg: plan?.manualTempReductionKg,
       });
     } else if (count >= 5 && prev < 5) {
       enqueueFcModal({
@@ -766,6 +772,8 @@ function FightCampHero({ date }: { date: string }) {
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
         planCreatedAt: plan?.planCreatedAt,
+        weighInTiming: plan?.weighInTiming,
+        manualTempReductionKg: plan?.manualTempReductionKg,
       });
     } else if (count >= 3 && prev < 3) {
       enqueueFcModal({
@@ -783,6 +791,8 @@ function FightCampHero({ date }: { date: string }) {
         fightDate: plan?.fightDate,
         weightHistoryWindowStart: sevenDayStart,
         planCreatedAt: plan?.planCreatedAt,
+        weighInTiming: plan?.weighInTiming,
+        manualTempReductionKg: plan?.manualTempReductionKg,
       });
     }
   }, [recentWeights]);
@@ -1215,6 +1225,8 @@ function FightCampHero({ date }: { date: string }) {
               fightDate: plan?.fightDate,
               weightHistoryWindowStart: sevenDayStart,
               planCreatedAt: plan?.planCreatedAt,
+              weighInTiming: plan?.weighInTiming,
+              manualTempReductionKg: plan?.manualTempReductionKg,
             });
           }}
           activeOpacity={0.7}

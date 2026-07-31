@@ -46,6 +46,10 @@ export interface FcModalData {
   weightHistoryWindowStart?: string;
   /** ISO datetime when this fight camp plan was created — the authoritative camp-age signal. */
   planCreatedAt?: string;
+  /** Weigh-in timing from the fight camp plan — affects the temp-cut buffer size. */
+  weighInTiming?: "same_day" | "day_before";
+  /** Manual temp-reduction override (kg) from the fight camp plan advanced options. */
+  manualTempReductionKg?: number | null;
 }
 
 interface Props {
@@ -274,7 +278,13 @@ export function FcModal({ data, onDismiss }: Props) {
               // For Type 1 always compute locally so the staircase matches
               // onboarding exactly, regardless of server week numbering.
               cardType === 1 && data.currentWeight && data.targetWeight && data.fightDate
-                ? calculateWeightCutPlan(data.currentWeight, data.targetWeight, data.fightDate).weeklyTargets
+                ? calculateWeightCutPlan(
+                    data.currentWeight,
+                    data.targetWeight,
+                    data.fightDate,
+                    data.weighInTiming ?? "same_day",
+                    data.manualTempReductionKg ?? undefined,
+                  ).weeklyTargets
                 : (data.weeklyTargets ?? [])
             }
             fightDate={data.fightDate}
