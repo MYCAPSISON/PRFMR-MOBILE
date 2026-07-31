@@ -1024,6 +1024,21 @@ function FightCampHero({ date }: { date: string }) {
           </View>
         </View>
 
+        {/* Edit / Delete plan — below the status badge */}
+        <View style={{ flexDirection: "row", gap: 20, paddingTop: 4, paddingBottom: 2 }}>
+          <TouchableOpacity onPress={openEdit} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Feather name="edit-2" size={13} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600" }}>Edit plan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => Alert.alert("Delete plan", "Remove this fight camp plan?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
+          ])} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Feather name="trash-2" size={13} color="#f87171" />
+            <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "600" }}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Countdown */}
         <View style={styles.fightCountdownRow}>
           <Feather name="calendar" size={21} color={colors.primary} />
@@ -1114,21 +1129,6 @@ function FightCampHero({ date }: { date: string }) {
             <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
           </TouchableOpacity>
         )}
-
-        {/* Edit / Delete plan — placed below the timeline message */}
-        <View style={{ flexDirection: "row", gap: 20, paddingTop: 2, paddingBottom: 2 }}>
-          <TouchableOpacity onPress={openEdit} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <Feather name="edit-2" size={13} color={colors.mutedForeground} />
-            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600" }}>Edit plan</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => Alert.alert("Delete plan", "Remove this fight camp plan?", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
-          ])} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <Feather name="trash-2" size={13} color="#f87171" />
-            <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "600" }}>Delete</Text>
-          </TouchableOpacity>
-        </View>
 
         {/* This week's target */}
         {thisWeekTarget && (
@@ -2857,7 +2857,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
           {[50, 100, 150, 200].map(q => (
             <TouchableOpacity key={q} onPress={() => onGramsChange(String(q))}
               style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
-                justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "#181c26" }}>
+                justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.30)", backgroundColor: "#181c26" }}>
               <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
             </TouchableOpacity>
           ))}
@@ -2885,7 +2885,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
       </View>
 
       {/* Micros Source (for AMQS) */}
-      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
+      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.30)",
         backgroundColor: "#13161d", padding: 14, gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
@@ -4097,11 +4097,12 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             <View style={{ flexDirection: "row", gap: 8 }}>
               {MEAL_META.map(m => (
                 <TouchableOpacity key={m.value} onPress={() => setCopyMeal(m.value)}
-                  style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 10, alignItems: "center",
+                  style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 4, borderRadius: 10, alignItems: "center",
                     backgroundColor: copyMeal === m.value ? "#ff7a0018" : "#181c26",
                     borderWidth: 1.2, borderColor: copyMeal === m.value ? "#ff7a00" : "#1a1e28" }}>
                   <Feather name={m.icon as any} size={16} color={copyMeal === m.value ? "#ff7a00" : "#6b7280"} />
-                  <Text style={{ color: copyMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 11, fontWeight: "600", marginTop: 4 }}>
+                  <Text style={{ color: copyMeal === m.value ? "#ff7a00" : "#6b7280", fontSize: 10, fontWeight: "600", marginTop: 4 }}
+                    numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
                     {m.label}
                   </Text>
                 </TouchableOpacity>
@@ -4594,7 +4595,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           <Text style={{ color: "#ff7a00", fontSize: 22, fontWeight: "800" }}>{wfCal} kcal</Text>
                         </View>
                         <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
-                          borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb", padding: 14 }}>
+                          borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 14 }}>
                           {[
                             { l: "Prot", v: wfProt, green: false },
                             { l: "Carb", v: wfCarbs, green: false },
@@ -4612,7 +4613,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           onPress={() => addMut.mutate(buildPayload(wfSelectedFood!, wfGrams))}
                           disabled={addMut.isPending}
                           style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                            borderWidth: 1.5, borderColor: "#e5e7eb" }}>
+                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
                           {addMut.isPending
                             ? <ActivityIndicator color="#fff" />
                             : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
