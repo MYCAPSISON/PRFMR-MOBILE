@@ -2857,7 +2857,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
           {[50, 100, 150, 200].map(q => (
             <TouchableOpacity key={q} onPress={() => onGramsChange(String(q))}
               style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
-                justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.30)", backgroundColor: "#181c26" }}>
+                justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.7)", backgroundColor: "#181c26" }}>
               <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
             </TouchableOpacity>
           ))}
@@ -2885,7 +2885,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
       </View>
 
       {/* Micros Source (for AMQS) */}
-      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.30)",
+      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.7)",
         backgroundColor: "#13161d", padding: 14, gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
@@ -2951,7 +2951,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
 
       <TouchableOpacity onPress={() => onConfirm(mapIngredient?.index)} disabled={isPending}
         style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
+          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
         {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
       </TouchableOpacity>
       <TouchableOpacity onPress={onBack} style={{ alignItems: "center", padding: 12 }}>
@@ -3086,7 +3086,7 @@ function MealCustomTab({ name, setName, grams, setGrams, cal, setCal, protein, s
       <TouchableOpacity onPress={onAdd} disabled={!canAdd || isPending}
         style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 4,
           backgroundColor: canAdd ? "#ff7a00" : "#181c26",
-          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
+          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
         {isPending
           ? <ActivityIndicator color="#fff" />
           : <Text style={{ color: canAdd ? "#fff" : "#6b7280", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
@@ -3384,7 +3384,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
             <TouchableOpacity
               style={{ height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
                 backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, marginTop: 4,
-                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}
+                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}
               disabled={!canSave} onPress={() => patchMut.mutate()}>
               {patchMut.isPending
                 ? <ActivityIndicator color="#fff" size="small" />
@@ -4113,7 +4113,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             <TouchableOpacity onPress={handleCopyItem} disabled={copyPending}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
                 backgroundColor: "#ff7a00", marginTop: 4, opacity: copyPending ? 0.7 : 1,
-                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
+                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
               {copyPending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy item</Text>}
@@ -4583,7 +4583,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                             {[50, 100, 150, 200].map(q => (
                               <TouchableOpacity key={q} onPress={() => setWfGrams(String(q))}
                                 style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
-                                  justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "#181c26" }}>
+                                  justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.7)", backgroundColor: "#181c26" }}>
                                 <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
                               </TouchableOpacity>
                             ))}
@@ -4614,7 +4614,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           onPress={() => addMut.mutate(buildPayload(wfSelectedFood!, wfGrams))}
                           disabled={addMut.isPending}
                           style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
+                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
                           {addMut.isPending
                             ? <ActivityIndicator color="#fff" />
                             : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
@@ -4800,7 +4800,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           {[50, 100, 150, 200].map(q => (
                             <TouchableOpacity key={q} onPress={() => setBarcodeGrams(String(q))}
                               style={{ flex: 1, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center",
-                                borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "#181c26" }}>
+                                borderWidth: 1, borderColor: "rgba(255,255,255,0.7)", backgroundColor: "#181c26" }}>
                               <Text style={{ color: "#eceef2", fontSize: 13, fontWeight: "600" }}>{q}g</Text>
                             </TouchableOpacity>
                           ))}
@@ -4827,7 +4827,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                         </View>
 
                         {/* Micros Source — 3 states: mapped / skipped / unmapped */}
-                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)",
+                        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.7)",
                           backgroundColor: "#13161d", padding: 14, gap: 10 }}>
                           {/* Header row */}
                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -4928,7 +4928,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           disabled={addMut.isPending}
                           style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12,
                             alignItems: "center", justifyContent: "center",
-                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
+                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
                           {addMut.isPending
                             ? <ActivityIndicator color="#fff" />
                             : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add to Log</Text>}
