@@ -385,7 +385,7 @@ export function ShareCard({
       <ImageBackground
         source={{ uri: backgroundImageUri }}
         style={styles.card}
-        imageStyle={{ opacity: 0 }}
+        imageStyle={{ opacity: 1 }}
         resizeMode="cover"
       >
         <View style={styles.bgOverlay} />
