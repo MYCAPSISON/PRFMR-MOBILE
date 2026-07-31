@@ -52,8 +52,6 @@ interface Props {
   onDismiss: () => void;
 }
 
-const AUTO_DISMISS_MS = 4500;
-
 /**
  * Determine which share card template to use.
  * Type 1 = camp < 7 days old → show projected weight cut chart.
@@ -90,13 +88,11 @@ function resolveCardType(data: FcModalData): 1 | 2 {
 }
 
 export function FcModal({ data, onDismiss }: Props) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareCardRef = useRef<ViewShot>(null);
   const [sharing, setSharing] = React.useState(false);
   const [bgImageUri, setBgImageUri] = React.useState<string | null>(null);
 
   const dismiss = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
     onDismiss();
   }, [onDismiss]);
 
@@ -106,15 +102,12 @@ export function FcModal({ data, onDismiss }: Props) {
       return;
     }
     setSharing(false);
-    timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [data, dismiss]);
+  }, [data]);
 
   async function handleShare() {
     if (!shareCardRef.current || !data) return;
     try {
       setSharing(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
       // Pause so Image assets (and background photo) finish rendering before
       // ViewShot captures. Use a longer delay when a bg photo is set since
       // the ImageBackground source needs more time to paint from a file:// URI.
@@ -131,13 +124,10 @@ export function FcModal({ data, onDismiss }: Props) {
       console.warn("[FcModal] share error", e);
     } finally {
       setSharing(false);
-      timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
     }
   }
 
   async function handlePickBackground() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-
     Alert.alert(
       "Background photo",
       "Choose a source for your share card background",
@@ -148,7 +138,6 @@ export function FcModal({ data, onDismiss }: Props) {
             const cam = await ImagePicker.requestCameraPermissionsAsync();
             if (!cam.granted) {
               Alert.alert("Camera access needed", "Please enable camera access in Settings to take a background photo.");
-              timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
               return;
             }
             const result = await ImagePicker.launchCameraAsync({
@@ -161,7 +150,6 @@ export function FcModal({ data, onDismiss }: Props) {
             if (!result.canceled && result.assets[0]) {
               setBgImageUri(result.assets[0].uri);
             }
-            timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
           },
         },
         {
@@ -170,7 +158,6 @@ export function FcModal({ data, onDismiss }: Props) {
             const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (!lib.granted) {
               Alert.alert("Photo library access needed", "Please enable photo library access in Settings to choose a background.");
-              timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
               return;
             }
             const result = await ImagePicker.launchImageLibraryAsync({
@@ -183,15 +170,11 @@ export function FcModal({ data, onDismiss }: Props) {
             if (!result.canceled && result.assets[0]) {
               setBgImageUri(result.assets[0].uri);
             }
-            timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
           },
         },
         {
           text: "Cancel",
           style: "cancel",
-          onPress: () => {
-            timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
-          },
         },
       ],
     );
