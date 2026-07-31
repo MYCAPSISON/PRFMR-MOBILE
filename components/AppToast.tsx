@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
   },
   toastDefault: {
     backgroundColor: "#0b0f16",
-    borderColor: "#242a36",
+    borderColor: "rgba(255,255,255,0.22)",
   },
   toastDestructive: {
     backgroundColor: "#7f1d1d",

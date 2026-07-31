@@ -1129,8 +1129,8 @@ export default function TrainingScreen() {
           </View>
         )}
 
-        {/* Training Load Insight */}
-        {loadData && (() => {
+        {/* Training Load Insight — hidden on rest days (nothing burned) */}
+        {loadData && !morning?.isRestDay && (() => {
           const cs = clsStyle(loadData.effectiveClassification);
           const kcalDisplay = Math.round(totalCal || loadData.totalKcal || 0);
           return (

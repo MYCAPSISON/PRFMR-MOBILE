@@ -1017,21 +1017,10 @@ function FightCampHero({ date }: { date: string }) {
           <View style={styles.row}>
             {statusColor && (
               <View style={{ backgroundColor: statusColor.bg, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3,
-                borderWidth: 1, borderColor: statusColor.border, marginRight: 8 }}>
+                borderWidth: 1, borderColor: statusColor.border }}>
                 <Text style={{ color: statusColor.text, fontWeight: "700", fontSize: 12, fontFamily: "Inter_700Bold" }}>{getWeightCutStatusLabel(plan)}</Text>
               </View>
             )}
-            <TouchableOpacity onPress={openEdit} style={{ marginRight: 10 }}>
-              <Feather name="edit-2" size={14} color={colors.mutedForeground} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => {
-              Alert.alert("Delete plan", "Remove this fight camp plan?", [
-                { text: "Cancel", style: "cancel" },
-                { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
-              ]);
-            }}>
-              <Feather name="trash-2" size={14} color={colors.mutedForeground} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -1125,6 +1114,21 @@ function FightCampHero({ date }: { date: string }) {
             <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
           </TouchableOpacity>
         )}
+
+        {/* Edit / Delete plan — placed below the timeline message */}
+        <View style={{ flexDirection: "row", gap: 20, paddingTop: 2, paddingBottom: 2 }}>
+          <TouchableOpacity onPress={openEdit} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Feather name="edit-2" size={13} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: "600" }}>Edit plan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => Alert.alert("Delete plan", "Remove this fight camp plan?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Delete", style: "destructive", onPress: () => deleteMut.mutate() },
+          ])} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Feather name="trash-2" size={13} color="#f87171" />
+            <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "600" }}>Delete</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* This week's target */}
         {thisWeekTarget && (
@@ -1344,9 +1348,11 @@ function MorningCheckInGate({ date }: { date: string }) {
                     {[1, 2, 3, 4, 5].map(q => (
                       <TouchableOpacity key={q} onPress={() => setGateSlQ(q)}
                         style={{ flex: 1, alignItems: "center", padding: 6 }}>
-                        <Text style={{ fontSize: 20 }}>
-                          {(gateSlQ ?? 0) >= q ? "⭐" : "☆"}
-                        </Text>
+                        <Feather
+                          name="star"
+                          size={22}
+                          color={(gateSlQ ?? 0) >= q ? "#ff7a00" : "#4b5563"}
+                        />
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -2844,14 +2850,14 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
       ) : (
         <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
           <TextInput
-            style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+            style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
               backgroundColor: "#181c26", paddingHorizontal: 14, fontSize: 18, color: "#eceef2" }}
             value={grams} onChangeText={onGramsChange} keyboardType="numeric" selectTextOnFocus
           />
           {[50, 100, 150, 200].map(q => (
             <TouchableOpacity key={q} onPress={() => onGramsChange(String(q))}
               style={{ height: 48, paddingHorizontal: 10, borderRadius: 8, alignItems: "center",
-                justifyContent: "center", borderWidth: 1, borderColor: "#1a1e28", backgroundColor: "#181c26" }}>
+                justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "#181c26" }}>
               <Text style={{ color: "#eceef2", fontSize: 12, fontWeight: "600" }}>{q}g</Text>
             </TouchableOpacity>
           ))}
@@ -2864,7 +2870,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
         <Text style={{ color: "#ff7a00", fontSize: 22, fontWeight: "800" }}>{cal} kcal</Text>
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-around", backgroundColor: "#13161d",
-        borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28", padding: 14 }}>
+        borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", padding: 14 }}>
         {[
           { l: "Prot", v: prot, green: false },
           { l: "Carb", v: carbs, green: false },
@@ -2879,13 +2885,13 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
       </View>
 
       {/* Micros Source (for AMQS) */}
-      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "#1a1e28",
+      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
         backgroundColor: "#13161d", padding: 14, gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ color: "#6b7280", fontSize: 12 }}>Micros Source (for AMQS)</Text>
           <TouchableOpacity onPress={() => { setShowMapPicker(p => !p); setMapSearch(""); }}>
             <Text style={{ color: "#ff7a00", fontSize: 12, fontWeight: "600" }}>
-              {showMapPicker ? "Done" : "Change"}
+              {showMapPicker ? "Done" : mapIngredient ? "Change" : "Manual select"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -2944,7 +2950,8 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
       </View>
 
       <TouchableOpacity onPress={() => onConfirm(mapIngredient?.index)} disabled={isPending}
-        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+        style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
+          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
         {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
       </TouchableOpacity>
       <TouchableOpacity onPress={onBack} style={{ alignItems: "center", padding: 12 }}>
@@ -3202,7 +3209,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}>
         {/* Header */}
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
           paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
@@ -3224,7 +3231,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
                 onPress={() => setMealOpen(o => !o)}
                 style={{ flexDirection: "row", alignItems: "center", gap: 10,
                   height: 48, borderRadius: 10, borderWidth: 2,
-                  borderColor: mealOpen ? "#ff7a00" : "#2a2e3a",
+                  borderColor: "#ff7a00",
                   backgroundColor: "#181c26", paddingHorizontal: 14 }}>
                 <Feather name={currentMeal.icon as any} size={16} color="#ff7a00" />
                 <Text style={{ flex: 1, color: "#eceef2", fontWeight: "600", fontSize: 15 }}>
@@ -3375,7 +3382,8 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
 
             <TouchableOpacity
               style={{ height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, marginTop: 4 }}
+                backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, marginTop: 4,
+                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}
               disabled={!canSave} onPress={() => patchMut.mutate()}>
               {patchMut.isPending
                 ? <ActivityIndicator color="#fff" size="small" />
@@ -3412,7 +3420,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [snackSlot, setSnackSlot] = useState<"new" | number>("new");
   const [snackSlotOpen, setSnackSlotOpen] = useState(false);
   const previousMealTypeRef = React.useRef(mealType);
-  const [activeTab, setActiveTab] = useState<TabId>("search");
+  const [activeTab, setActiveTab] = useState<TabId>("wholefood");
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [grams, setGrams] = useState("100");
   const [mealDropdownOpen, setMealDropdownOpen] = useState(false);
@@ -4050,7 +4058,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
       {/* ── Copy Food Modal ── */}
       <Modal visible={!!copyEntry} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setCopyEntry(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117" }} edges={["top"]}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0f1117", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }} edges={["top"]}>
           {/* Header */}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center",
             paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: "#1a1e28" }}>
@@ -4102,7 +4110,8 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
 
             <TouchableOpacity onPress={handleCopyItem} disabled={copyPending}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", marginTop: 4, opacity: copyPending ? 0.7 : 1 }}>
+                backgroundColor: "#ff7a00", marginTop: 4, opacity: copyPending ? 0.7 : 1,
+                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)" }}>
               {copyPending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy item</Text>}

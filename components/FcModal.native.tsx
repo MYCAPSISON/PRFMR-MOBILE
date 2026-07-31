@@ -115,9 +115,10 @@ export function FcModal({ data, onDismiss }: Props) {
     try {
       setSharing(true);
       if (timerRef.current) clearTimeout(timerRef.current);
-      // Brief pause so any Image assets in the hidden card finish rendering
-      // before ViewShot captures the frame.
-      await new Promise(resolve => setTimeout(resolve, 350));
+      // Pause so Image assets (and background photo) finish rendering before
+      // ViewShot captures. Use a longer delay when a bg photo is set since
+      // the ImageBackground source needs more time to paint from a file:// URI.
+      await new Promise(resolve => setTimeout(resolve, bgImageUri ? 900 : 350));
       const uri = await (shareCardRef.current as any).capture();
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
@@ -144,6 +145,12 @@ export function FcModal({ data, onDismiss }: Props) {
         {
           text: "Camera",
           onPress: async () => {
+            const cam = await ImagePicker.requestCameraPermissionsAsync();
+            if (!cam.granted) {
+              Alert.alert("Camera access needed", "Please enable camera access in Settings to take a background photo.");
+              timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
+              return;
+            }
             const result = await ImagePicker.launchCameraAsync({
               mediaTypes: ["images"],
               allowsEditing: true,
@@ -159,6 +166,12 @@ export function FcModal({ data, onDismiss }: Props) {
         {
           text: "Photo library",
           onPress: async () => {
+            const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!lib.granted) {
+              Alert.alert("Photo library access needed", "Please enable photo library access in Settings to choose a background.");
+              timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
+              return;
+            }
             const result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ["images"],
               allowsEditing: true,
