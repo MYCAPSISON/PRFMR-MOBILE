@@ -106,14 +106,7 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
   function toX(i: number) { return PAD_X + (i / (n - 1)) * innerW; }
   function toY(w: number) { return PAD_Y + ((maxW - w) / range) * innerH; }
 
-  // Build staircase path: horizontal run to next x at current weight,
-  // then vertical drop to next weight — gives the step-function look.
-  const stairPts: string[] = [`${toX(0)},${toY(sorted[0].weight)}`];
-  for (let i = 1; i < n; i++) {
-    stairPts.push(`${toX(i)},${toY(sorted[i - 1].weight)}`); // horizontal
-    stairPts.push(`${toX(i)},${toY(sorted[i].weight)}`);     // vertical drop
-  }
-  const polyPts = stairPts.join(" ");
+  const polyPts = sorted.map((p, i) => `${toX(i)},${toY(p.weight)}`).join(" ");
 
   return (
     <Svg width={CHART_W} height={CHART_H}>
@@ -261,6 +254,81 @@ function CardFooter({ username }: { username?: string }) {
   );
 }
 
+// ─── Projected bar chart (onboarding-style descending columns) ───────────────
+
+function ProjectedBarChart({ points }: { points: WeightPoint[] }) {
+  if (points.length < 2) {
+    return (
+      <View style={chart.empty}>
+        <Text style={chart.emptyText}>Set fight date to see projection</Text>
+      </View>
+    );
+  }
+
+  const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
+  const n = sorted.length;
+  const todayISO = sorted[0].date;
+
+  const minW = sorted[n - 1].weight; // fight weight (lowest)
+  const maxW = sorted[0].weight;     // current weight (highest)
+  const range = Math.max(maxW - minW, 0.1);
+
+  // Map weight → bar height percentage: fight weight = 14%, current = 82%
+  const toBarPct = (w: number) => Math.round(((w - minW) / range) * 68 + 14);
+
+  function weekLabel(dateISO: string, idx: number): string {
+    if (idx === 0) return "Today";
+    if (idx === n - 1) return "Fight";
+    const todayMs = Date.parse(todayISO + "T12:00:00");
+    const dateMs = Date.parse(dateISO + "T12:00:00");
+    const weekNum = Math.round((dateMs - todayMs) / (7 * 86_400_000));
+    return `Wk ${weekNum}`;
+  }
+
+  return (
+    <View style={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 }}>
+      {/* Bars */}
+      <View style={{ flexDirection: "row", alignItems: "flex-end", height: 86, gap: 4 }}>
+        {sorted.map((pt, i) => {
+          const isLast = i === n - 1;
+          const pct = toBarPct(pt.weight);
+          return (
+            <View key={pt.date + i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end" }}>
+              <Text style={{
+                color: isLast ? "#ff7a00" : "#71717a",
+                fontSize: 7.5,
+                fontWeight: "600",
+                marginBottom: 3,
+              }}>
+                {pt.weight.toFixed(1)}
+              </Text>
+              <View style={{
+                height: `${pct}%` as any,
+                width: "80%",
+                borderRadius: 4,
+                backgroundColor: isLast ? "rgba(255,122,0,0.45)" : "rgba(255,122,0,0.15)",
+              }} />
+            </View>
+          );
+        })}
+      </View>
+      {/* Week labels */}
+      <View style={{ flexDirection: "row", gap: 4, marginTop: 5 }}>
+        {sorted.map((pt, i) => (
+          <Text key={pt.date + i + "lbl"} style={{
+            flex: 1,
+            color: "#52525b",
+            fontSize: 7,
+            textAlign: "center",
+          }}>
+            {weekLabel(pt.date, i)}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ─── Type 1 card (camp < 7 days) ─────────────────────────────────────────────
 
 function Type1Content({
@@ -286,13 +354,7 @@ function Type1Content({
       <View style={styles.chartSection}>
         <Text style={styles.chartLabel}>Your projected weight cut</Text>
         <View style={styles.chartBox}>
-          {projectedPoints.length >= 2 ? (
-            <WeightChart points={projectedPoints} />
-          ) : (
-            <View style={chart.empty}>
-              <Text style={chart.emptyText}>Set fight date to see projection</Text>
-            </View>
-          )}
+          <ProjectedBarChart points={projectedPoints} />
         </View>
       </View>
 
