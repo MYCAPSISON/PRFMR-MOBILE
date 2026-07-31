@@ -106,7 +106,14 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
   function toX(i: number) { return PAD_X + (i / (n - 1)) * innerW; }
   function toY(w: number) { return PAD_Y + ((maxW - w) / range) * innerH; }
 
-  const polyPts = sorted.map((p, i) => `${toX(i)},${toY(p.weight)}`).join(" ");
+  // Build staircase path: horizontal run to next x at current weight,
+  // then vertical drop to next weight — gives the step-function look.
+  const stairPts: string[] = [`${toX(0)},${toY(sorted[0].weight)}`];
+  for (let i = 1; i < n; i++) {
+    stairPts.push(`${toX(i)},${toY(sorted[i - 1].weight)}`); // horizontal
+    stairPts.push(`${toX(i)},${toY(sorted[i].weight)}`);     // vertical drop
+  }
+  const polyPts = stairPts.join(" ");
 
   return (
     <Svg width={CHART_W} height={CHART_H}>
