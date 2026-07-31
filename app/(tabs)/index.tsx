@@ -14,6 +14,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError, apiFetch } from "@/lib/api";
+import { calculateWeightCutPlan } from "@/lib/weightCutPlan";
 import { useRouter } from "expo-router";
 import Svg, { Path as SvgPath, Polyline, Polygon as SvgPolygon, Circle as SvgCircle, Line as SvgLine, Text as SvgText, Rect as SvgRect } from "react-native-svg";
 import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
@@ -633,6 +634,9 @@ function FightCampHero({ date }: { date: string }) {
       const wasCreate = dialogMode === "create";
       setDialogMode(null);
       if (wasCreate) {
+        const localPlan = (variables?.currentWeight && variables?.targetWeight && variables?.fightDate)
+          ? calculateWeightCutPlan(variables.currentWeight, variables.targetWeight, variables.fightDate, variables.weighInTiming ?? "same_day")
+          : null;
         enqueueFcModal({
           title: "Fight camp activated 🎯",
           body: "Your personalised weight cut plan is live. Train hard, eat right, and trust the numbers.",
@@ -643,7 +647,7 @@ function FightCampHero({ date }: { date: string }) {
           targetWeight: variables?.targetWeight,
           shareTitle: "Fight camp activated",
           weightHistory: [...campWeights],
-          weeklyTargets: plan?.weeklyTargets ?? [],
+          weeklyTargets: localPlan?.weeklyTargets ?? plan?.weeklyTargets ?? [],
           fightDate: variables?.fightDate ?? plan?.fightDate,
           weightHistoryWindowStart: sevenDayStart,
           planCreatedAt: plan?.planCreatedAt,
