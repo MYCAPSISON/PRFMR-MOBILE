@@ -1,0 +1,142 @@
+Fix the remaining PRFMR mobile dashboard/training bugs by matching the working web app and the Mobile Replication Guide. The web app/backend are the source of truth. Do not change backend behavior unless you first prove the mobile app is using the correct endpoint and payload.
+
+Current issues:
+1. Fight Camp pace badge only shows “Aggressive pace” / “Steady pace”.
+   - Check the web app WeightCutHero and backend/weight-cut outputs.
+   - The mobile card should show the same guidance message as web, e.g. “Quite fast — consider extending timeline”.
+   - This message/badge should be tappable.
+   - On tap, open a plan breakdown dialog/modal showing the same breakdown as web: total drop, fat loss drop, temporary cut if applicable, weekly rate, risk/warnings, weekly targets, calorie deficit, and explanation.
+
+2. Morning Check-In card is incomplete.
+   - Match the web app MorningCheckIn behavior.
+   - It must allow sleep assessment: hours slept + sleep quality.
+   - It must allow morning weight logging.
+   - It must allow adding/planning training and should navigate/jump to the Training page when the user chooses to add training.
+   - Use existing endpoints:
+     GET /api/me/morning-status/:date
+     PUT /api/me/sleep/:date
+     POST /api/logs or the exact weight endpoint used by web
+     POST/DELETE /api/me/rest-day/:date
+   - Do not hide sleep assessment if it is incomplete.
+
+3. Micronutrient Score card is not tappable.
+   - Match web behavior.
+   - Tapping the card should open/navigate to a micronutrient breakdown.
+   - Breakdown must include:
+     - General/Baseline score
+     - Performance/Athlete score
+     - Top nutrient gaps
+     - 7-day trend
+     - Quick wins
+   - Use the existing AMQS endpoints:
+     GET /api/me/amqs/score/:date
+     GET /api/me/amqs/micros/:date
+     GET /api/me/amqs/trend/:date
+     GET /api/me/amqs/score-range/:startDate/:endDate
+   - Check the Mobile Replication Guide sections 6, 16, 17, and 23.
+
+4. Dashboard Training card buttons do not work like web.
+   - The “Manual” and “Log” buttons should match web TodaysTraining behavior.
+   - “Log” should create/open a real workout session for the selected date/time and navigate/open the Training page.
+   - “Manual” should open a manual burn/log dialog using the correct web endpoint:
+     POST /api/me/training/manual-burn
+   - Do not create fake session IDs.
+   - If a session must be created before adding activities, first POST /api/workouts/sessions and use the returned session id.
+
+5. Weight Trend should be a graph, not just rows/bars.
+   - Match web dashboard chart behavior.
+   - Use /api/me/weights/range?start=&end=
+   - Render a proper line/area chart using react-native-svg or the existing chart library available in the Expo project.
+   - Show last 7 recorded entries or appropriate 4-week range like web.
+
+6. Add Food Search should show Open Food Facts images.
+   - Inspect the web Add Food modal and /api/foods/search response.
+   - Display product image/thumbnail when available.
+   - Preserve fallback UI if no image exists.
+   - Do not break adding search results.
+
+7. Whole Food/Core Foods section is incomplete.
+   - Use the full CORE_FOODS list from the Mobile Replication Guide section 12 / web dashboard.tsx.
+   - Add a search input for whole foods.
+   - Filter the full core food list by name.
+   - Tapping a whole food should allow custom grams or log default grams, matching web behavior.
+   - Payload must match successful web POST /api/food payload.
+
+8. Training page needs 28-day load trend.
+   - Match web /load-trend page.
+   - Add 28-day load trend with:
+     - ACWR
+     - acute 7-day load
+     - chronic/baseline 28-day load
+     - high-stress days
+     - absolute load chart
+     - relative load / ACWR chart if web has it
+     - explanation of ACWR risk bands:
+       <0.8 undertraining
+       0.8–1.3 optimal
+       1.3–1.5 caution
+       >1.5 overtraining risk
+   - Use:
+     GET /api/me/training-load/:date
+     GET /api/me/training/load-history/:date
+
+9. Fix POST /food 400 Validation failed.
+   - The web app can add food successfully, so compare the exact web payload with mobile.
+   - Check all mobile Add Food paths: search/OFF, whole food/core food, barcode, custom/manual.
+   - Make mobile use the exact same endpoint and body shape as web.
+   - Required fields likely include:
+     date, meal, name, grams, calories, protein, carbs, fat, fibre,
+     sourceType, macroSource, microSource, ingredientIndex, offBarcode,
+     enteredBasis, isRawWeight, snackIndex where applicable.
+   - Do not send userId unless web sends it.
+   - Add temporary logging of full payload and full backend error body.
+   - Remove noisy logs after fixed.
+
+10. Fix POST training errors / “Session not found”.
+   - Current error shows POST /workouts/sessions/341/activities 404 Session not found.
+   - Investigate why mobile is using stale/fake session id 341.
+   - Correct flow:
+     a. Create or fetch the real workout session for selected date/time.
+     b. Only after successful session creation, use returned session.id.
+     c. Then POST activities/exercises to /api/workouts/sessions/:sessionId/activities or /exercises.
+   - Match the working web training flow exactly.
+   - Invalidate queries after creation:
+     ["sessions", date]
+     ["training-load", date]
+     ["targets", date]
+     ["morning-status", date]
+
+Important implementation rules:
+- The web app/backend are correct. Mobile must adapt to them.
+- Before changing any payload, inspect the web implementation and copy the working contract.
+- Do not rewrite unrelated UI.
+- Do not create placeholder/fake data for real features.
+- Avoid hardcoded IDs.
+- Add clear temporary debug logs while fixing:
+  [food payload]
+  [food error body]
+  [training session create result]
+  [activity payload]
+  [training error body]
+- After the fix, keep only useful error logs.
+
+Validation checklist:
+1. Today’s food logs show exactly as in web for the same date.
+2. Custom/manual food can be added.
+3. Search/OFF food can be added.
+4. Whole food/core food can be added.
+5. Barcode lookup works or clearly explains scanner package/config if camera scanning is not implemented yet.
+6. Morning sleep check-in can be saved.
+7. Morning training action navigates/opens Training page.
+8. AMQS card opens full breakdown.
+9. Fight Camp guidance is tappable and opens plan breakdown.
+10. Dashboard training Log/Manual buttons work.
+11. Training page load trend appears.
+12. TypeScript check passes.
+
+At the end, report:
+- Root causes found
+- Files changed
+- Exact endpoints used
+- Final payload examples for food and training
+- Any remaining limitations

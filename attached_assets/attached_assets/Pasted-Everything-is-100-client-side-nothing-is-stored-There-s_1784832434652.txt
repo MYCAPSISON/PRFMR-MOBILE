@@ -1,0 +1,34 @@
+Everything is 100% client-side — nothing is stored. There's no database table, no server endpoint, no persistence of any kind. Here's exactly how it works:
+
+The display mechanism — fcModal, not a toast
+
+These are not standard shadcn toasts. There's a custom modal system inside WeightCutHero.tsx using useState<FcModalData | null>. It renders as a full-screen overlay with a centred card — title, body text, and optionally a chart. It auto-dismisses after 4,500ms or on tap. A queue (fcModalQueue) prevents two from stacking — if one is already showing, the next one waits 350ms after dismissal before appearing.
+
+Three triggers
+
+1. Logging a weight (any weight)
+Fires every time the user submits a weight from the hero card. Compares the new value against the most recent prior reading:
+
+Weight went up → "Weight naturally fluctuates" modal (amber border, isUp: true flag)
+Weight went down or equal → "On trend ↓" modal
+2. Consistency milestones
+Watches consistencyCount (number of distinct dates with a weight log in the last 7 days) via a useEffect. Fires only when the count crosses a threshold (not on every render), and only when weightWentUpRef.current === false (suppressed on up-days):
+
+Crosses 3 → "Building rhythm 🔥"
+Crosses 5 → "Great momentum 🥊"
+Crosses 6 → "Excellent 💪"
+3. Creating a new fight camp plan
+On POST /api/me/weight-cut success (create mode only, not edit) → "Fight camp set 🎯" modal, which also includes the projected weekly cut chart and opens the share sheet.
+
+fireCelebration(emoji)
+Called alongside the consistency modals and on plan creation — this is a separate confetti/particle burst, purely visual, no state.
+
+The consistency badge (displayed inline on the card, separate from the modals)
+
+getConsistencyLabel(count) returns a label + colour class:
+
+≥ 6 → "Great momentum" (green)
+≥ 4 → "Building rhythm" (yellow)
+≥ 2 → "Getting started" (muted)
+< 2 → null (no badge shown)
+For mobile replication: Since none of this is stored, you compute it entirely from data you already have — the weight log for the last 7 days (from your weights endpoint) and the mutation result. No extra API calls needed. The threshold-crossing logic needs a "previous count" ref to avoid firing on every render — that's the only tricky part.

@@ -1,0 +1,63 @@
+Build a production-ready React Native + Expo mobile app called PRFMR
+This mobile app connects to an existing Express/PostgreSQL backend (already deployed) and reuses all of its business logic via API calls. Do NOT build a new backend — all data comes from API calls.
+
+I am attaching the zip file of the main a which is a Vite web app. Just remake the UI int oa mobile React Native + Expo mobile app. Business logic and backend should be exactly the same and I want the UI to look exactly the same as the web app, just replicated as a native mobile app. 
+Design
+	•	Dark, premium, performance-focused UI
+	•	Background: near-black (#0f1117 / hsl 220 20% 7%)
+	•	Primary accent: orange (#ff6600 / hsl 24 100% 50%)
+	•	Cards: dark slate (#141820 / hsl 220 16% 11%)
+	•	Text: off-white (#f0f2f5 / hsl 210 10% 95%)
+	•	Font: System font (SF Pro / Roboto), large tap targets, stacked scrollable layouts
+	•	Simple tab navigation at the bottom
+Authentication
+	•	The backend uses session-based auth via cookies (express-session)
+	•	Screens: Login (email + password) and Signup (email, username, password, invite code required)
+	•	Store the session cookie in SecureStore and send it with every request
+	•	After login, fetch /api/user/me to get the current user
+Screens (Tab Navigation), do not remake the business logic of these, just listing them here for completeness
+	1	Dashboard (Home tab) — 
+	⁃	Weight Cut Planner tab — Target weight + fight date, daily weight entry, projected vs actual chart, daily calorie targets, water cut guidance,
+	⁃	today's calorie ring, training load card (ACWR), readiness score, morning check-in prompt, quick-log shortcuts
+	⁃	Nutrition tab — Daily macro summary, food diary grouped by meal, add food (search or barcode), AMQS badge
+	3	Training tab — Log workout (sets/reps/weight/RPE), log activity (cardio + MET calories), session history, training load chart
+4 Supplements 
+5 Playbook
+
+6 Profile / Settings tab — User stats, edit profile
+7 Feedback 
+API Base URL Use EXPO_PUBLIC_API_URL env var. All endpoints under /api/...
+Key API Endpoints
+	•	POST /api/auth/login — { email, password }
+	•	POST /api/auth/register — { email, username, password, inviteCode }
+	•	GET /api/user/me
+	•	GET /api/me/food/:date — food diary
+	•	POST /api/me/food/:date — log food entry
+	•	GET /api/foods/search?q=...
+	•	GET /api/food/barcode/:code
+	•	GET /api/workouts/sessions
+	•	POST /api/workouts/sessions
+	•	GET /api/me/training/load
+	•	GET /api/me/readiness/:date
+	•	GET /api/me/weight-cut
+	•	GET /api/me/supplements
+	•	GET /api/exercises
+Tech Stack
+	•	Expo SDK 51+ with Expo Router (file-based routing)
+	•	React Native core components only (View, Text, ScrollView, Pressable, TextInput, FlatList)
+	•	@tanstack/react-query for data fetching
+	•	expo-secure-store for session token
+	•	expo-camera or expo-barcode-scanner for barcode scanning
+	•	react-native-chart-kit or Victory Native for charts
+	•	@expo/vector-icons for icons
+File Structure
+mobile/
+app/
+(auth)/login.tsx, signup.tsx
+(tabs)/index.tsx, nutrition.tsx, training.tsx, weightcut.tsx, profile.tsx
+_layout.tsx
+components/MacroRing.tsx, FoodEntry.tsx, WorkoutCard.tsx, ReadinessCard.tsx, StatCard.tsx
+lib/api.ts, auth.ts, queryClient.ts
+app.json, package.json
+
+Build all 5 screens end-to-end with real API integration. Use skeleton states for loading. Handle errors gracefully. The app should work in Expo Go.

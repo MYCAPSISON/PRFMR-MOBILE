@@ -1,0 +1,32 @@
+Account deletion — mobile implementation (uses existing backend)
+
+Add an account deletion option to the Profile screen. This is required for App Store and Play Store compliance. The backend handles all data deletion; the mobile app only needs to confirm intent and call one endpoint.
+
+Endpoint
+DELETE /api/me/account
+
+Requires auth (session cookie)
+Rate limited: 3 attempts per day
+Request body:
+{ "confirmation": "DELETE MY ACCOUNT" }
+
+Success: 204 No Content — session is destroyed server-side
+On 204: clear local session/storage, navigate to the login/welcome screen
+On 429: show "Too many attempts, please try again later"
+On 500: show "Deletion failed, please contact support at team@prfmr.link"
+The server deletes all user data (food logs, weights, workouts, supplements, weight cut plans, sleep logs, etc.) in a single transaction, then destroys the session. A goodbye email is sent to the user's email address automatically.
+
+UI flow (Profile screen)
+Add a "Delete account" option at the bottom of the Profile screen, clearly separated from other settings — red text, destructive styling
+Tapping it opens a confirmation bottom sheet / modal with:
+Title: "Delete your account?"
+Body: "This will permanently delete your account and all data — food logs, workouts, weight history, supplements, and everything else. This cannot be undone."
+Two buttons: "Cancel" (dismiss) and "Delete account" (destructive/red)
+Tapping "Delete account" in the modal fires the API call with { confirmation: "DELETE MY ACCOUNT" } in the body
+Show a loading state during the request
+On 204: clear any local AsyncStorage/SecureStore session data, reset navigation to the auth/welcome screen
+On error: dismiss the modal and show an error toast/alert
+Notes
+Do not ask the user to type anything — the confirmation string "DELETE MY ACCOUNT" is sent by the app automatically on button press; it is a server-side safeguard, not a user-facing typing requirement
+After a 204 the session cookie is invalidated server-side — subsequent API calls will 401, so clearing local state and redirecting to login is sufficient
+Apple requires this feature to be discoverable without logging in (i.e. accessible from the app, not hidden behind a website). Placing it in the Profile tab satisfies this

@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "PRFMR",
+    "slug": "prfmr-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/app-icon.png",
+    "scheme": "prfmr-mobile",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "jsEngine": "jsc",
+    "splash": {
+      "image": "./assets/images/icon-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f1117"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "link.prfmr.app",
+      "icon": "./assets/images/app-icon.png"
+    },
+    "android": {
+      "backgroundColor": "#0f1117",
+      "package": "link.prfmr.app",
+      "versionCode": 4,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon-foreground.png",
+        "backgroundColor": "#f47726"
+      },
+      "permissions": [
+        "com.android.vending.BILLING",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/icon-logo.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#ff7a00",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "PRFMR needs camera access to scan food barcodes.",
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c0dd9973-ac0f-4999-8adf-7b516aadf4e6"
+      }
+    },
+    "owner": "mycapsison"
+  }
+}

@@ -1,0 +1,265 @@
+### Live plan result — the calculation engine
+
+> **Where the code lives:** `shared/weight-cut.ts` — `calculateWeightCutPlan()`.
+> This is a **shared module** imported by both the frontend (onboarding wizard) and the backend (weight-cut API endpoint). The exact same function runs in both places — there is no separate "server version". In the onboarding wizard it runs **100% client-side in the browser** the moment the user finishes typing. No network call is made during step 22.
+
+The result card animates in with Framer Motion (`opacity 0→1, height 0→auto`) the instant `targetWeight` and `fightDate` are both valid.
+
+---
+
+#### What the engine calculates — step by step
+
+The function signature:
+```ts
+calculateWeightCutPlan(
+  currentWeight: number,        // from step 9 (kg)
+  targetWeight: number,         // demoTargetWeight input
+  fightDateStr: string,         // demoFightDate (ISO date)
+  weighInTiming: "same_day" | "day_before",  // default "same_day"
+  todayStr?: string,            // omitted in browser → uses new Date()
+  manualTempReductionKg?: number | null      // demoManualTempReduction or null
+): WeightCutPlanResult
+```
+
+**Step 1 — Early exit checks**
+
+Before any maths, two instant short-circuit returns:
+- `daysUntil <= 0` → status `"past_date"`, statusLabel `"Fight date has passed"`, all rates = 0
+- `totalToLose <= 0` (already at or below target) → status `"complete"`, statusLabel `"Already at or below target"`, all rates = 0
+
+**Step 2 — Split into two flows by weigh-in timing**
+
+The engine has two separate code paths because they represent fundamentally different rehydration windows:
+
+| Timing | Acute cut window | Pre-final bodyweight target field |
+|---|---|---|
+| `same_day` | 4 days before fight | `predictedDayMinus4Weight` |
+| `day_before` | 7 days before fight (the week before) | `predictedWeekMinus1Weight` |
+
+---
+
+#### Same-day flow (most common)
+
+**Pre-final bodyweight target** — the weight the athlete must be at 4 days before fight day (before the final acute dehydration):
+
+- *Automatic (no manual override):* `targetWeight / (1 − 0.01)` → assumes 1% BW fluid loss is achievable in 4 days
+- *Manual override:* user's kg value capped at `targetWeight × 2%` (safety cap) → `targetWeight + cappedTemp`
+
+Example: target = 70 kg, no override → `70 / 0.99 = 70.71 kg` (day-minus-4 bodyweight)
+
+**Fat loss required** = `currentWeight − predictedDayMinus4Weight` (the weight that must come off via actual dieting, not water)
+
+**Weeks available for fat loss** = `(daysUntil − 4) / 7` (4 days reserved for acute cut), minimum 0.5 weeks
+
+**Required weekly rate** = `fatLossRequired / weeksForFatLoss`
+
+**Recommended weekly rate** = `min(requiredWeeklyRate, currentWeight × 0.01)` — hard-capped at 1% of bodyweight per week (the science-backed safe maximum for athletes)
+
+**Suggested daily calorie deficit** = `recommendedWeeklyRate × 7700 / 7` kcal/day
+(7700 kcal ≈ 1 kg of fat)
+
+**Temp cut** = `predictedDayMinus4Weight − targetWeight` (the fluid-only gap handled by dehydration)
+
+---
+
+#### Day-before flow
+
+Same logic, but with a larger acute window:
+
+**Pre-final bodyweight target** (7 days out):
+- *Automatic:* `targetWeight / (1 − 0.06)` → assumes up to 6% BW fluid loss is achievable in a week-long cut
+- *Manual override:* capped at `targetWeight × 10%` (larger window allows more)
+
+**Weeks available for fat loss** = `(daysUntil − 7) / 7` (7 days reserved)
+
+---
+
+#### Status classification (`deriveStatus`)
+
+Based purely on `requiredWeeklyRatePct` (required rate as % of bodyweight):
+
+| Required rate | Status | Status label |
+|---|---|---|
+| ≤ 0.5% BW/wk | `on_track` | `Steady pace` |
+| 0.5–1.0% BW/wk | `on_track` | `On track` |
+| 1.0–1.5% BW/wk | `aggressive` | `Quite aggressive — consider extending timeline` |
+| 1.5–2.0% BW/wk | `very_aggressive` | `Very aggressive — adjust target or date` |
+| > 2.0% BW/wk | `unrealistic` | `Timeline too tight — adjust target or date` |
+
+The 1% BW/week ceiling is the published sports-science safe maximum for weight-class athletes. The engine **displays** the required rate but **caps the recommended rate** at 1% — so the daily deficit shown is achievable without destroying performance.
+
+---
+
+#### Weekly targets array (`buildWeeklyTargets`)
+
+Used to draw the projected cut chart in step 23. For each full week of the fat-loss phase, the engine projects:
+
+```
+projected = currentWeight − (recommendedWeeklyRate × weekNumber)
+targetWeight[week] = max(floorTarget, projected)
+```
+
+Where `floorTarget` = `predictedDayMinus4Weight` (same_day) or `predictedWeekMinus1Weight` (day_before). The array is in **countdown order**: week N = furthest out, week 1 = closest to fight.
+
+---
+
+#### Full output object (`WeightCutPlanResult`)
+
+| Field | What it is |
+|---|---|
+| `totalToLose` | `currentWeight − targetWeight` |
+| `weeksUntil` | Total weeks to fight date |
+| `daysUntil` | Calendar days to fight |
+| `fatLossRequired` | kg to lose via dieting (excludes fluid cut) |
+| `tempCut` | kg assigned to acute dehydration |
+| `tempCutDisplayed` | Same as tempCut but only shown when fight is ≤ 5 days away (same_day) or ≤ 10 days away (day_before) |
+| `requiredWeeklyRate` | What the timeline demands (may exceed safe limit) |
+| `requiredWeeklyRatePct` | Above as % of BW — drives status colour |
+| `recommendedWeeklyRate` | Capped at 1% BW/week — what the app actually uses |
+| `suggestedDeficitKcal` | `recommendedWeeklyRate × 7700 / 7` kcal/day |
+| `predictedDayMinus4Weight` | Pre-acute bodyweight target (same_day flow only) |
+| `predictedWeekMinus1Weight` | Pre-acute bodyweight target (day_before flow only) |
+| `status` | `"on_track"` / `"aggressive"` / `"very_aggressive"` / `"unrealistic"` / `"complete"` / `"past_date"` |
+| `statusLabel` | Human-readable string (shown in badge) |
+| `weeklyTargets` | `[{ week, targetWeight }]` array — drives the chart |
+| `manualTempReductionKg` | Echoes back the manual override value (or null) |
+
+---
+
+#### How the result is displayed in the onboarding
+
+The entire result block is wrapped in `<AnimatePresence>` and only mounts when `allValid === true` (target + date both valid):
+
+```tsx
+<AnimatePresence>
+  {plan && (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      className="overflow-hidden space-y-3"
+    >
+      {/* Status badge, stats grid, pre-final row, warning */}
+    </motion.div>
+  )}
+</AnimatePresence>
+```
+
+**Status badge** — `rounded-xl border p-3 flex items-center gap-3` + colour by status:
+
+| Status | Full class set |
+|---|---|
+| `on_track` | `text-green-400 border-green-400/30 bg-green-400/5` |
+| `aggressive` | `text-yellow-400 border-yellow-400/30 bg-yellow-400/5` |
+| `very_aggressive` | `text-orange-400 border-orange-400/30 bg-orange-400/5` |
+| `unrealistic` | `text-destructive border-destructive/30 bg-destructive/5` |
+| `complete` / `past_date` | `text-muted-foreground border-border bg-secondary/20` |
+
+Left: `TrendingDown` icon (same colour class). Right: two lines of text:
+- Line 1: `plan.statusLabel` — e.g. `"On track"` or `"Quite aggressive — consider extending timeline"`
+- Line 2 (muted, 11px): `"{plan.requiredWeeklyRatePct.toFixed(1)}% BW/week required"` + when not on_track: `" — safe ceiling is 1%"`
+
+**Stats 2×3 grid** — each cell is `rounded-lg bg-secondary/40 border border-border/30 p-2.5 text-center`:
+
+| Value rendered | Label rendered |
+|---|---|
+| `{plan.totalToLose.toFixed(1)} kg` | `total to lose` |
+| `{plan.weeksUntil.toFixed(1)} wks` | `until fight` |
+| `{plan.fatLossRequired.toFixed(1)} kg` | `fat loss phase` |
+| `{plan.tempCut > 0 ? plan.tempCut.toFixed(1) + " kg" : "minimal"}` | `temp cut (fluids)` |
+| `{plan.recommendedWeeklyRate.toFixed(2)} kg/wk` | `safe weekly rate` |
+| `−{plan.suggestedDeficitKcal} kcal` | `daily deficit` |
+
+**Pre-final target row** — `rounded-lg border border-border/40 bg-secondary/20 px-3 py-2.5 flex justify-between`:
+- Same-day: label `T−4 target (bodyweight)`, value `plan.predictedDayMinus4Weight kg`
+- Day-before: label `T−7 target (bodyweight)`, value `plan.predictedWeekMinus1Weight kg`
+
+Only renders when the relevant field is non-null.
+
+**Aggressive warning box** — `rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2.5 text-xs text-yellow-200/80` — only shown when `status === "aggressive" || "very_aggressive" || "unrealistic"`:
+- `unrealistic`: `"⚠️ This timeline is very tight. Moving your fight date or adjusting your target weight will give PRFMR more time to work with."`
+- `aggressive` / `very_aggressive`: `"⚠️ Your pace is above the safe 1% BW/week threshold. PRFMR will cap your daily deficit to protect performance — you may need more time or a slightly higher target weight."`
+
+**Placeholder** (shown when inputs not yet complete): `Enter your target weight and fight date to build your plan.` — `text-xs text-muted-foreground text-center`
+
+---
+
+#### After onboarding — when does the server use this?
+
+Once the user submits (step 29), if they entered fight camp data, the client POSTs to `POST /api/me/weight-cut`:
+
+```json
+{
+  "currentWeight": 76.5,
+  "targetWeight": 70,
+  "fightDate": "2025-09-01",
+  "weighInTiming": "same_day",
+  "manualTempReductionKg": null
+}
+```
+
+The server runs the **identical** `calculateWeightCutPlan()` from `shared/weight-cut.ts`, persists the plan to the `weight_cut_plans` table, and the dashboard then reads it via `GET /api/me/weight-cut`. The numbers on the dashboard will always match what the user saw in the onboarding preview.
+
+### Non-fight-prep alternative section
+
+Bottom of step 22, always visible:
+
+**Callout text:** `Not currently in fight prep — or not focused on losing weight right now?`
+
+Three pill buttons:
+
+| Value | Label |
+|---|---|
+| `fat_loss` | General fat loss |
+| `maintenance` | Maintenance |
+| `weight_gain` | Weight gain |
+
+Selecting one fills orange solid (`bg-primary text-white`). Deselecting toggles off.
+
+**Confirmation text** (shown when one is selected):
+- `maintenance`: `"You'll start in Maintenance mode. You can switch to Fight Camp anytime from your dashboard once you have a fight booked."`
+- `weight_gain`: `"You'll start in Weight Gain mode — calories set above TDEE to support muscle building. You can switch to Fight Camp anytime from your dashboard."`
+- `fat_loss`: `"You'll start in General Fat Loss mode. You can switch to Fight Camp anytime from your dashboard once you have a fight booked."`
+
+**If `nonFightPrepMode` is selected, step 22 "Next" jumps directly to step 24 (skips projected cut chart).**
+
+**Gate:** Valid target weight + fight date, OR `nonFightPrepMode` is set.
+
+---
+
+## Step 23 — Projected Cut Chart (Skipped if nonFightPrepMode)
+
+**Heading:** `Your projected cut.`
+**Subheading:** `Based on the plan you just built.`
+
+**Engine:** Calls `calculateWeightCutPlan()` again with same inputs as step 22. Pure SVG + CSS chart — no charting library.
+
+### Chart construction
+
+1. Build `trend` array: `[{ weight: current, label: "Today" }, ...up to 5 sampled interior weekly targets..., { weight: target, label: "Fight" }]`
+2. Interior points: sampled evenly from `plan.weeklyTargets` (at most 5 points). Each gets a date label like `"14 Jul"`.
+3. `toBarH(w) = round(((w − minW) / range) × 68 + 14)` — bar height as a 14–82% range
+4. SVG `viewBox="0 0 100 100"`, x = `((i + 0.5) / trend.length) × 100`, y = `100 − toBarH(w)` (inverted)
+
+### Rendering
+
+**Background bars** (one per trend point):
+- Last bar: `bg-primary/40`; others: `bg-primary/15`
+- Framer Motion `initial={{ height: 0, opacity: 0 }}` → `animate={{ height: "{h}%", opacity: 1 }}`
+- Bars are absolutely positioned bottom-aligned
+
+**SVG polyline overlay** (on top of bars, `preserveAspectRatio="none"`):
+- Stroke: `rgb(249,115,22)` (orange), `strokeWidth="2.5"`, `vectorEffect="non-scaling-stroke"`, `fill="none"`
+- Each point is a `<circle r="3">` — last point: `fill="rgb(249,115,22)"`, others: `fill="#0a0a0a" stroke="rgb(249,115,22)"`
+
+**Weight labels** (below each bar):
+- Last: `text-primary font-bold text-[11px]`
+- Others: `text-muted-foreground text-[11px]`
+
+**Date labels** (below weight labels, `text-[9px] text-muted-foreground/60`)
+
+**Stats row below chart (2 columns):**
+- Left: `−{totalDrop.toFixed(1)} kg` projected loss, label `Projected loss`
+- Right: `{weeklyRate.toFixed(2)} kg` per week, label `Per week (fat loss phase)`
+
+---

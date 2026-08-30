@@ -1,0 +1,263 @@
+Implement RevenueCat paywall routing and founding-member purchase handling in my Expo/React Native PRFMR mobile app.
+
+Existing setup:
+
+RevenueCat entitlement:
+- `PRFMR Pro`
+
+RevenueCat offerings:
+- `default`
+- `founding`
+
+RevenueCat packages in BOTH offerings:
+- `$rc_monthly`
+- `$rc_annual`
+
+iOS products:
+- Monthly: `prfmr_pro_monthly`
+- Annual: `prfmr_pro_annual`
+
+Android products/base plans:
+- Monthly: `prfmr_monthly:monthly`
+- Annual: `prfmr_yearly:yearly`
+
+Google Play founding offers:
+- Monthly offer ID: `founding-monthly`
+- Annual offer ID: `founding-yearly`
+
+The Google founding offers are already configured as developer-determined offers:
+- monthly = 25% off for 12 monthly billing periods, then normal price
+- annual = 30% off for the first annual period, then normal price
+
+Apple founding discounts use Offer Codes attached to the NORMAL iOS products:
+- `prfmr_pro_monthly`
+- `prfmr_pro_annual`
+
+The Apple monthly founding Offer Code offer gives 25% off for 12 months.
+The Apple annual founding Offer Code offer gives 30% off for the first year.
+Production one-time Apple codes cannot be generated until App Review approval, so Sandbox Offer Codes will be used during testing.
+
+Database:
+- authentication/user table is `users_auth`
+- column `is_founding` is boolean
+- `true` means the account is a Founding Fighter
+- do NOT use email to determine founding eligibility
+- use the authenticated user's stable user ID for RevenueCat customer identity
+
+GOAL
+
+At the appropriate point in onboarding, after the user has completed the value-building/profile/fight setup portion and before entering the paid app, determine which RevenueCat paywall to show.
+
+Routing:
+
+If:
+`users_auth.is_founding === true`
+then use RevenueCat offering:
+`founding`
+
+Otherwise use:
+`default`
+
+Do not use RevenueCat's current/default offering implicitly for founders. Explicitly fetch the correct offering by identifier.
+
+REVENUECAT INITIALIZATION
+
+Use:
+- `react-native-purchases`
+- `react-native-purchases-ui`
+
+Configure RevenueCat once at app startup using the correct public SDK key per platform.
+
+Use platform-specific public SDK keys from Expo/Replit environment variables:
+- `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`
+- `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`
+
+Never put a RevenueCat secret key or Google service-account JSON in the mobile app.
+
+After authentication, identify the RevenueCat user with:
+`Purchases.logIn(user.id)`
+
+Do not use email as the RevenueCat App User ID.
+
+Before showing any paywall, check:
+`customerInfo.entitlements.active['PRFMR Pro']`
+
+If `PRFMR Pro` is already active:
+- do not show a paywall
+- continue into the app
+
+PAYWALL ROUTING
+
+Fetch offerings with:
+`Purchases.getOfferings()`
+
+For founders:
+use:
+`offerings.all['founding']`
+
+For non-founders:
+use:
+`offerings.all['default']`
+
+Handle missing offerings safely:
+- log a clear error
+- do not crash
+- show a user-friendly retry state
+
+Present the selected RevenueCat paywall using RevenueCatUI and explicitly pass the selected offering.
+
+ANDROID FOUNDERS
+
+For Android founders, the `founding` RevenueCat paywall is already configured to use the Google Play promotional offer IDs:
+- `founding-monthly`
+- `founding-yearly`
+
+Do not manually calculate discount prices in the app.
+Do not hard-code £/$ prices.
+Let Google Play + RevenueCat supply localized pricing and purchase data.
+
+Make sure the installed RevenueCat React Native SDK version supports Play Store promotional offers in RevenueCat Paywalls.
+
+iOS FOUNDERS
+
+iOS is different.
+
+The `founding` RevenueCat offering still uses the normal iOS products:
+- `prfmr_pro_monthly`
+- `prfmr_pro_annual`
+
+Do NOT create or reference a separate `prfmr_founding_monthly` product.
+
+For an iOS user with `is_founding === true`, the founding paywall must NOT imply that pressing the normal Subscribe button automatically gives the founder discount, because Apple founding discounts are implemented using Offer Codes.
+
+Implement an iOS-specific founding redemption flow.
+
+On iOS founding paywall:
+- show a clear CTA such as `Redeem Founding Offer`
+- use RevenueCat/StoreKit-supported Apple offer-code redemption functionality
+- open Apple's native Offer Code redemption sheet
+- do not ask the user to type their code into a custom PRFMR text field unless Apple specifically requires it
+- do not store Apple redemption codes in plaintext in the app
+
+During development/testing:
+- use Apple Sandbox Offer Codes
+
+After redemption completes:
+- refresh RevenueCat customer info
+- check `customerInfo.entitlements.active['PRFMR Pro']`
+- if active, unlock the app
+- otherwise keep the paywall/retry state
+
+Do not expose the founding iOS redemption flow to users where `is_founding !== true`.
+
+NORMAL iOS USERS
+
+Non-founders should get the normal `default` paywall and normal iOS purchase flow.
+
+RESTORE PURCHASES
+
+Ensure Restore Purchases remains available.
+
+After restore:
+- refresh customer info
+- if `PRFMR Pro` is active, unlock the app
+
+ONBOARDING LOCATION
+
+First inspect the existing onboarding code and identify the current final transition into the main app.
+
+Insert the paywall gating at the final onboarding step, after the user has completed the meaningful setup/value-building steps but before full app access.
+
+Do not put the paywall at the very start of onboarding.
+
+Do not duplicate onboarding screens or break existing navigation.
+
+SUBSCRIPTION ACCESS
+
+Centralize subscription access in a reusable helper/hook/service.
+
+The rest of the app should only care about:
+`isPro`
+
+where:
+`isPro = customerInfo.entitlements.active['PRFMR Pro'] !== undefined`
+
+Do not gate features based directly on:
+- product IDs
+- monthly vs annual
+- trial state
+- platform
+- founding status
+
+Founding status only determines which acquisition/paywall path is shown.
+
+ERROR HANDLING
+
+Handle:
+- RevenueCat initialization failure
+- missing API key
+- offerings not loading
+- `founding` offering missing
+- `default` offering missing
+- purchase cancelled by user
+- purchase error
+- restore failure
+- offer-code redemption cancelled
+- entitlement refresh failure
+- offline/network failure
+
+Do not unlock Pro merely because a purchase UI returned success. Always verify the `PRFMR Pro` entitlement afterward.
+
+LOGGING
+
+Keep RevenueCat DEBUG logging enabled for development/test builds.
+
+Log:
+- platform
+- authenticated RevenueCat App User ID
+- `is_founding`
+- selected offering identifier
+- whether `PRFMR Pro` is active
+- purchase/restore/redemption result
+
+Never log:
+- secret API keys
+- Apple offer codes
+- payment information
+- Google credentials
+
+IMPORTANT
+
+Do not replace or rewrite the whole subscription system blindly.
+
+First inspect the existing RevenueCat integration, onboarding navigation, auth state, and `users_auth` access.
+
+Reuse existing architecture where possible.
+
+Do not change the database schema unless genuinely necessary.
+
+Do not create new subscription products.
+
+Do not change the current RevenueCat entitlement identifier `PRFMR Pro`.
+
+Do not remove the current paywalls.
+
+Do not implement the Apple founding discount as a hard-coded reduced price.
+
+When finished, report:
+1. files changed
+2. exact onboarding location where paywall gating was added
+3. how `is_founding` is read
+4. how `default` vs `founding` is selected
+5. how Android founder purchases work
+6. how iOS founder Offer Code redemption works
+7. SDK versions used
+8. environment variables required
+9. anything I still need to configure manually in RevenueCat/App Store Connect/Google Play
+10. exact test plan for:
+   - normal iOS user
+   - founding iOS user with sandbox code
+   - normal Android user
+   - founding Android user
+   - restore purchases
+   - existing Pro user

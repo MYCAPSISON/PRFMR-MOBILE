@@ -1,0 +1,65 @@
+Feedback feature — mobile implementation (uses existing backend)
+
+Implement a user feedback submission flow. All data is stored and emailed server-side — the mobile app only needs to POST to the existing endpoints. Do not build any backend; use the web app's API exactly as described below.
+
+Endpoints
+1. POST /api/feedback/upload-url (optional — only needed if attaching a screenshot) Generates a pre-signed upload URL for an image attachment.
+
+Request body:
+
+{ "name": "screenshot.png", "contentType": "image/png", "size": 102400 }
+
+Response:
+
+{ "uploadURL": "https://...", "objectPath": "/objects/uploads/...", "metadata": { ... } }
+
+Allowed types: image/png, image/jpeg, image/webp
+Max size: 5 MB
+Upload the file via HTTP PUT to uploadURL with the matching Content-Type header
+2. POST /api/feedback (main submit) Request body:
+
+{
+  "category": "bug",
+  "message": "Something went wrong on the weight entry screen",
+  "route": "/dashboard",
+  "userAgent": "PRFMR/1.0 (iOS 17.4; iPhone)",
+  "viewport": "390x844",
+  "appVersion": "1.0.0",
+  "attachments": [
+    {
+      "url": "/objects/uploads/abc123",
+      "filename": "screenshot.png",
+      "mimeType": "image/png",
+      "size": 102400
+    }
+  ]
+}
+
+attachments is optional — pass an empty array or omit if no screenshot
+category options: "bug", "feature", "general" (check with the web app's feedback form for the full list from the schema)
+route should be the current screen name or route path
+userAgent — construct from Platform.OS, device model, OS version
+viewport — from Dimensions.get('window'), formatted as {width}x{height}
+appVersion — from expo-constants (Constants.expoConfig.version)
+Rate limited to 5 submissions per user per hour; handle 429 gracefully
+Response on success: 201 with { id, category, message, ... }
+
+3. GET /api/feedback/mine Returns the last 10 feedback items the logged-in user has submitted. Useful for a "your recent feedback" history list.
+
+Flow
+Without attachment:
+
+Show form (category picker + message text area)
+POST /api/feedback with empty attachments: []
+Show confirmation
+With screenshot attachment:
+
+User picks image from library (expo-image-picker, launchImageLibraryAsync, MEDIA_LIBRARY permission — do NOT use camera)
+POST /api/feedback/upload-url with filename, contentType, size
+PUT uploadURL with the image binary + Content-Type header
+POST /api/feedback with attachments: [{ url: objectPath, filename, mimeType, size }]
+Show confirmation
+Notes
+All endpoints require the user to be authenticated (session cookie must be present — standard for all API calls in this app)
+The backend handles all email notification; the mobile client does nothing special after the 201 response
+Max 3 attachments per submission (server enforces this; just validate on the client too)

@@ -1,0 +1,429 @@
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  ImageBackground,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Link, router, useLocalSearchParams } from "expo-router";
+import { Feather, FontAwesome5 } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
+import { useAuth } from "@/context/AuthContext";
+import { useColors } from "@/hooks/useColors";
+import { loginWithGoogleToken } from "@/lib/api";
+
+// Required: completes any pending auth session redirect on app launch.
+WebBrowser.maybeCompleteAuthSession();
+
+// Google OAuth client IDs — set these in your .env / Replit Secrets:
+//   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID      (iOS OAuth 2.0 client from Google Cloud Console)
+//   EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID  (Android OAuth 2.0 client)
+//   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID      (Web client — same GOOGLE_CLIENT_ID as server)
+// Server also needs POST /api/auth/google/mobile (§29.12.2 of replication guide).
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+const GOOGLE_CONFIGURED = !!(IOS_CLIENT_ID || ANDROID_CLIENT_ID);
+
+export default function LoginScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { login, refetchUser } = useAuth();
+  const params = useLocalSearchParams<{ error?: string }>();
+
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const googleAuthFailed = params.error === "google_auth_failed";
+  const loginDisabled = loading || googleLoading || !identifier.trim() || !password.trim();
+
+  // Native Google Sign-In — uses ASAuthorizationController on iOS (no browser opened).
+  // expo-auth-session handles the full OAuth flow and returns an authentication object.
+  // The hook requires a non-undefined clientId at call time (throws on undefined),
+  // so we fall back to a placeholder; the GOOGLE_CONFIGURED gate in handleGoogleLogin
+  // ensures promptAsync() is never called when real IDs aren't configured.
+  const [_request, response, promptAsync] = Google.useAuthRequest({
+    // expoClientId: when running in Expo Go, expo-auth-session routes the OAuth
+    // flow through https://auth.expo.io (the Expo proxy) rather than the native
+    // iOS flow. Add https://auth.expo.io to your Web OAuth client's Authorised
+    // Redirect URIs in Google Cloud Console for this to work.
+    expoClientId: WEB_CLIENT_ID ?? "not-configured",
+    iosClientId: IOS_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
+    androidClientId: ANDROID_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
+    webClientId: WEB_CLIENT_ID ?? "not-configured",
+  });
+
+  const handleGoogleToken = useCallback(async (idToken: string) => {
+    try {
+      // POST idToken to the server; server verifies with Google, creates session,
+      // returns Set-Cookie. We capture the cookie via XHR (same path as email login).
+      await loginWithGoogleToken(idToken);
+      await refetchUser();
+      // Root layout watches isAuthenticated and routes to tabs automatically.
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [refetchUser]);
+
+  useEffect(() => {
+    if (!response) return;
+    if (response.type === "success") {
+      const token = response.authentication?.idToken ?? "";
+      if (token) {
+        handleGoogleToken(token);
+      } else {
+        setError("Google sign-in returned no token. Please try again.");
+        setGoogleLoading(false);
+      }
+    } else if (response.type === "error") {
+      setError(response.error?.message ?? "Google sign-in failed. Please try again.");
+      setGoogleLoading(false);
+    } else if (response.type === "cancel" || response.type === "dismiss") {
+      setGoogleLoading(false);
+    }
+  }, [response, handleGoogleToken]);
+
+  async function handleLogin() {
+    if (!identifier.trim() || !password.trim()) {
+      setError("Email or username and password are required");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await login(identifier.trim(), password);
+      router.replace("/(tabs)");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    if (!GOOGLE_CONFIGURED) {
+      setError("Google sign-in requires setup — please contact the app administrator.");
+      return;
+    }
+    setError(null);
+    setGoogleLoading(true);
+    // promptAsync() opens the native Google sign-in sheet (iOS) or account picker (Android).
+    // The result arrives asynchronously via the `response` state, handled by the useEffect above.
+    await promptAsync();
+  }
+
+  function handleForgotPassword() {
+    router.push("/(auth)/forgot-password");
+  }
+
+  return (
+    <ImageBackground
+      source={require("@/assets/stock-images/fight_action_1.jpg")}
+      style={{ flex: 1 }}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay} />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <ScrollView
+          contentContainerStyle={[
+            styles.container,
+            { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 32 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Image
+              source={require("@/assets/logo-main.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={[styles.tagline, { color: "rgba(255,255,255,0.6)" }]}>
+              Make weight. Peak on fight night. No guessing.
+            </Text>
+          </View>
+
+          <View style={[styles.card, { backgroundColor: "rgba(13,16,23,0.92)", borderColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.foreground, fontFamily: colors.fonts.display }]}>
+              Welcome back
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
+              Sign in to continue tracking your nutrition and training.
+            </Text>
+
+            {googleAuthFailed ? (
+              <View
+                testID="text-google-error"
+                style={[styles.errorBox, { backgroundColor: colors.destructive + "22", borderColor: colors.destructive + "44" }]}
+              >
+                <Feather name="alert-circle" size={14} color={colors.destructive} />
+                <Text style={[styles.errorText, { color: colors.destructive, fontFamily: colors.fonts.sans }]}>
+                  Google sign-in failed. Please try again or sign in with email.
+                </Text>
+              </View>
+            ) : null}
+
+            {error ? (
+              <View style={[styles.errorBox, { backgroundColor: colors.destructive + "22", borderColor: colors.destructive + "44" }]}>
+                <Feather name="alert-circle" size={14} color={colors.destructive} />
+                <Text style={[styles.errorText, { color: colors.destructive, fontFamily: colors.fonts.sans }]}>{error}</Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              testID="button-google-login"
+              style={[styles.googleBtn, { borderColor: "#e5e7eb", borderRadius: colors.radius, opacity: googleLoading ? 0.65 : 1 }]}
+              onPress={handleGoogleLogin}
+              disabled={googleLoading || loading}
+              activeOpacity={0.8}
+            >
+              {googleLoading ? (
+                <ActivityIndicator size="small" color={colors.foreground} />
+              ) : (
+                <FontAwesome5 name="google" size={16} color={colors.foreground} />
+              )}
+              <Text style={[styles.googleBtnText, { color: colors.foreground, fontFamily: colors.fonts.sansBd }]}>
+                {googleLoading ? "Opening…" : "Continue with Google"}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>or</Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                Email or Username
+              </Text>
+              <TextInput
+                testID="input-identifier"
+                style={[styles.input, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                value={identifier}
+                onChangeText={setIdentifier}
+                placeholder="you@example.com or username"
+                placeholderTextColor={colors.mutedForeground}
+                keyboardType="default"
+                autoCapitalize="none"
+                autoComplete="username"
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: colors.fonts.sansSb }]}>
+                PASSWORD
+              </Text>
+              <View style={styles.passwordRow}>
+                <TextInput
+                  testID="input-password"
+                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.input, borderColor: "#e5e7eb", color: colors.foreground, borderRadius: colors.radius, fontFamily: colors.fonts.sans }]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.mutedForeground}
+                  secureTextEntry={!showPassword}
+                  autoComplete="password"
+                />
+                <Pressable testID="button-toggle-password" onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                  <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+            </View>
+
+            <Pressable testID="link-forgot-password" onPress={handleForgotPassword} style={styles.forgotLink}>
+              <Text style={[styles.signupLink, { color: colors.primary, fontFamily: colors.fonts.sansBd }]}>
+                Forgot password?
+              </Text>
+            </Pressable>
+
+            <TouchableOpacity
+              testID="button-login"
+              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, borderWidth: 1.5, borderColor: "#e5e7eb", opacity: loginDisabled ? 0.65 : 1 }]}
+              onPress={handleLogin}
+              disabled={loginDisabled}
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.primaryForeground} />
+              ) : (
+                <View style={styles.btnContent}>
+                  <Text style={[styles.btnText, { color: colors.primaryForeground, fontFamily: colors.fonts.sansBd }]}>
+                    Sign In
+                  </Text>
+                  <Feather name="arrow-right" size={18} color={colors.primaryForeground} />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.signupRow}>
+              <Text style={[styles.signupText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
+                Have an invite code?{" "}
+              </Text>
+              <Link href="/(auth)/signup" asChild>
+                <Pressable testID="link-register">
+                  <Text style={[styles.signupLink, { color: colors.primary, fontFamily: colors.fonts.sansBd }]}>
+                    Create account
+                  </Text>
+                </Pressable>
+              </Link>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ImageBackground>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    justifyContent: "center",
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: 36,
+  },
+  logo: {
+    height: 44,
+    width: 160,
+    marginBottom: 12,
+  },
+  tagline: {
+    fontSize: 13,
+    letterSpacing: 1,
+  },
+  card: {
+    padding: 24,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 13,
+    flex: 1,
+  },
+  field: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  input: {
+    height: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    fontSize: 15,
+  },
+  passwordRow: {
+    position: "relative",
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  eyeBtn: {
+    position: "absolute",
+    right: 14,
+    top: 14,
+  },
+  btn: {
+    height: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  btnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  btnContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  googleBtn: {
+    height: 48,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginBottom: 18,
+  },
+  googleBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 18,
+  },
+  dividerLine: {
+    height: StyleSheet.hairlineWidth,
+    flex: 1,
+  },
+  dividerText: {
+    fontSize: 13,
+  },
+  forgotLink: {
+    alignSelf: "flex-end",
+    marginTop: -4,
+    marginBottom: 14,
+  },
+  signupRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  signupText: {
+    fontSize: 14,
+  },
+  signupLink: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+});

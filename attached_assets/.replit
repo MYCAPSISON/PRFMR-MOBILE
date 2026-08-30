@@ -1,0 +1,47 @@
+modules = ["nodejs-24", "python-base-3.13"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+integrations = ["github:1.0.0"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 25455
+externalPort = 3000
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+REVENUECAT_GOOGLE_PLAY_STORE_APP_ID = "link.prfmr.app"
+REVENUECAT_APPLE_APP_STORE_APP_ID = "link.prfmr.app"
+REVENUECAT_TEST_STORE_APP_ID = "test_SJtFCEkOSLBCDvGGRjovzldfJeO"
+REVENUECAT_PROJECT_ID = "projde0a8a55"
+EXPO_PUBLIC_REVENUECAT_TEST_API_KEY = "test_SJtFCEkOSLBCDvGGRjovzldfJeO"
+EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY = "goog_izwUQAVtwgAqfIcBFjfclpKikvQ"
+EXPO_PUBLIC_REVENUECAT_IOS_API_KEY = "appl_qwKRmiPskTTSUhfEenWYzwcSRul"

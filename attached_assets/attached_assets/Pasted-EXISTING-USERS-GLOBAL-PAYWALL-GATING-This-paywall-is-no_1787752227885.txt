@@ -1,0 +1,151 @@
+EXISTING USERS / GLOBAL PAYWALL GATING
+
+This paywall is not only for new users going through onboarding.
+
+I also want ALL existing users who have already completed onboarding to be forced through the subscription gate the next time they use the app, unless they already have an active `PRFMR Pro` entitlement.
+
+Required behaviour:
+
+1. On app startup / authenticated app entry, after RevenueCat has been initialized and the authenticated user has been identified with `Purchases.logIn(user.id)`, fetch `CustomerInfo`.
+
+2. Determine:
+`isPro = customerInfo.entitlements.active['PRFMR Pro'] !== undefined`
+
+3. If the user has already completed onboarding:
+
+- If `isPro === true`
+  → allow normal access to the app.
+
+- If `isPro === false`
+  → do NOT allow access to the main application.
+  → immediately route/present the correct RevenueCat paywall according to `users_auth.is_founding`.
+  → founders get the `founding` offering/paywall.
+  → non-founders get the `default` offering/paywall.
+
+The user must not be able to dismiss the paywall and continue using paid parts of the app.
+
+If the RevenueCat paywall itself contains a close/X button, ensure that closing it does NOT bypass the subscription gate for a non-Pro user. Closing it may return to a locked subscription-required screen, but must never navigate into the main app.
+
+The subscription gate must also survive:
+- app restart
+- background/foreground
+- navigation reset
+- deep links
+- logout/login
+- manually navigating to main app routes
+
+Do not rely only on showing the paywall once.
+Protect the authenticated main-app navigation/root so that any onboarded user without `PRFMR Pro` cannot enter the paid app.
+
+4. For NEW users who have NOT completed onboarding:
+
+Allow them to complete the existing onboarding experience normally.
+
+At the FINAL step of onboarding, before navigating into the main application:
+
+- fetch/refresh RevenueCat customer info
+- if `PRFMR Pro` is active → continue into app
+- otherwise choose the correct offering from `is_founding`
+- present the corresponding paywall
+- only permit entry into the main application once `PRFMR Pro` becomes active
+
+Do NOT put the paywall at the beginning of onboarding.
+
+The intended new-user flow is:
+
+sign up/login
+→ onboarding/profile/fight/training setup
+→ final onboarding step
+→ RevenueCat subscription gate
+→ successful subscription/restoration/redemption
+→ verify `PRFMR Pro`
+→ enter main app
+
+The intended existing-user flow is:
+
+existing authenticated user
+→ app loads
+→ onboarding already completed
+→ check `PRFMR Pro`
+→ if active, enter app
+→ if inactive, subscription gate immediately
+→ cannot enter app until entitlement becomes active
+
+5. IMPORTANT MIGRATION BEHAVIOUR
+
+This change is being introduced into an app that already has existing onboarded users.
+
+Do NOT grandfather existing users merely because they completed onboarding before RevenueCat/paywalls were implemented.
+
+Existing users must be treated exactly like this:
+
+`onboarding_completed === true && isPro === false`
+→ require subscription
+
+Do not modify their onboarding completion status just to trigger the paywall.
+Do not force them to redo onboarding.
+Simply intercept access to the existing app and show the subscription gate.
+
+6. ACCESS CONTROL
+
+Implement this as a centralized authenticated subscription gate rather than scattering checks throughout individual screens.
+
+Ideal architecture:
+
+Unauthenticated
+→ auth flow
+
+Authenticated + onboarding incomplete
+→ onboarding
+
+Authenticated + onboarding complete + `isPro === false`
+→ subscription gate
+
+Authenticated + onboarding complete + `isPro === true`
+→ main application
+
+This should be the authoritative navigation decision.
+
+There must be no temporary flash of protected app content before the RevenueCat entitlement check completes.
+
+Show a loading/splash state while auth + onboarding + entitlement state are being resolved.
+
+7. PURCHASE SUCCESS
+
+After any:
+- subscription purchase
+- Apple offer-code redemption
+- restore purchase
+
+immediately call/refresh `Purchases.getCustomerInfo()`.
+
+Only navigate into the main app if:
+
+`customerInfo.entitlements.active['PRFMR Pro'] !== undefined`
+
+If the purchase UI reports success but the entitlement is not active yet:
+- do not unlock the app
+- refresh/retry briefly
+- provide a user-friendly retry state if needed
+
+8. EXISTING ACTIVE USERS
+
+If an existing user already has an active `PRFMR Pro` entitlement:
+- never show the acquisition paywall unnecessarily
+- allow normal app access immediately after entitlement state resolves
+
+If their entitlement later expires/cancels:
+- the next entitlement refresh/app entry must return them to the subscription gate
+
+9. LOGOUT
+
+On logout:
+- call the appropriate RevenueCat logout/reset flow if consistent with the existing authentication architecture
+- clear local subscription/access state
+- do not let the previous account's Pro state leak into the next logged-in account
+
+On the next login:
+- call `Purchases.logIn(newUser.id)`
+- reload `is_founding`
+- reload customer info
+- make the navigation decision again

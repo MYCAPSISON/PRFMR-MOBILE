@@ -1,0 +1,220 @@
+PRFMR — Repository File Tree
+Generated: 2026-04-14
+(node_modules, .git, dist, .cache, attached_assets excluded)
+================================================================================
+
+.
+├── client/
+│   ├── index.html
+│   ├── requirements.md
+│   ├── public/
+│   │   ├── apple-touch-icon.png
+│   │   ├── favicon-96x96.png
+│   │   ├── favicon.ico
+│   │   ├── favicon.svg
+│   │   ├── site.webmanifest
+│   │   ├── sw.js
+│   │   ├── web-app-manifest-192x192.png
+│   │   └── web-app-manifest-512x512.png
+│   └── src/
+│       ├── App.tsx
+│       ├── index.css
+│       ├── main.tsx
+│       ├── components/
+│       │   ├── AILogDialog.tsx
+│       │   ├── AMQSCard.tsx
+│       │   ├── CelebrationBurst.tsx
+│       │   ├── email-verification-banner.tsx
+│       │   ├── feedback-modal.tsx
+│       │   ├── FuelAvailability.tsx
+│       │   ├── layout.tsx
+│       │   ├── MorningCheckIn.tsx
+│       │   ├── MorningCheckInGate.tsx
+│       │   ├── ObjectUploader.tsx
+│       │   ├── protected-route.tsx
+│       │   ├── ProvisionalCheckIn.tsx
+│       │   ├── ReadinessSummaryCard.tsx
+│       │   ├── SessionReadiness.tsx
+│       │   ├── TrainingBlockModal.tsx
+│       │   ├── TrainingLoadWarningModal.tsx
+│       │   ├── WeightCutHero.tsx
+│       │   ├── WeightCutPlanner.tsx
+│       │   ├── weight-update-dialog.tsx
+│       │   └── ui/
+│       │       ├── accordion.tsx
+│       │       ├── alert.tsx
+│       │       ├── alert-dialog.tsx
+│       │       ├── aspect-ratio.tsx
+│       │       ├── avatar.tsx
+│       │       ├── badge.tsx
+│       │       ├── breadcrumb.tsx
+│       │       ├── button.tsx
+│       │       ├── calendar.tsx
+│       │       ├── card.tsx
+│       │       ├── carousel.tsx
+│       │       ├── chart.tsx
+│       │       ├── checkbox.tsx
+│       │       ├── collapsible.tsx
+│       │       ├── command.tsx
+│       │       ├── context-menu.tsx
+│       │       ├── dialog.tsx
+│       │       ├── drawer.tsx
+│       │       ├── dropdown-menu.tsx
+│       │       ├── form.tsx
+│       │       ├── hover-card.tsx
+│       │       ├── input.tsx
+│       │       ├── input-otp.tsx
+│       │       ├── label.tsx
+│       │       ├── menubar.tsx
+│       │       ├── navigation-menu.tsx
+│       │       ├── pagination.tsx
+│       │       ├── popover.tsx
+│       │       ├── progress.tsx
+│       │       ├── radio-group.tsx
+│       │       ├── resizable.tsx
+│       │       ├── scroll-area.tsx
+│       │       ├── select.tsx
+│       │       ├── separator.tsx
+│       │       ├── sheet.tsx
+│       │       ├── sidebar.tsx
+│       │       ├── skeleton.tsx
+│       │       ├── slider.tsx
+│       │       ├── stat-card.tsx
+│       │       ├── switch.tsx
+│       │       ├── table.tsx
+│       │       ├── tabs.tsx
+│       │       ├── textarea.tsx
+│       │       ├── toast.tsx
+│       │       ├── toaster.tsx
+│       │       ├── toggle.tsx
+│       │       ├── toggle-group.tsx
+│       │       └── tooltip.tsx
+│       ├── hooks/
+│       │   ├── use-auth.ts
+│       │   ├── useFightCampOverride.ts
+│       │   ├── use-logs.ts
+│       │   ├── use-mobile.tsx
+│       │   ├── useMorningCheckInGate.ts
+│       │   ├── use-push-notifications.ts
+│       │   ├── use-reminder-engine.ts
+│       │   ├── use-toast.ts
+│       │   ├── use-upload.ts
+│       │   ├── use-username-validation.ts
+│       │   └── use-user.ts
+│       ├── lib/
+│       │   ├── aiLogParser.ts
+│       │   ├── amqs.ts
+│       │   ├── celebration.ts
+│       │   ├── coreFoodUnits.ts
+│       │   ├── queryClient.ts
+│       │   └── utils.ts
+│       └── pages/
+│           ├── dashboard.tsx
+│           ├── feedback.tsx
+│           ├── forgot-password.tsx
+│           ├── load-trend.tsx
+│           ├── login.tsx
+│           ├── micronutrients.tsx
+│           ├── not-found.tsx
+│           ├── onboarding.tsx
+│           ├── playbook.tsx
+│           ├── profile.tsx
+│           ├── readiness.tsx
+│           ├── register.tsx
+│           ├── reset-password.tsx
+│           ├── signup.tsx
+│           ├── stacks.tsx
+│           ├── start.tsx
+│           ├── supplements.tsx
+│           ├── training.tsx
+│           └── verify-email.tsx
+│
+├── server/
+│   ├── auth.ts
+│   ├── auth-routes.ts
+│   ├── database-storage.ts
+│   ├── db.ts
+│   ├── feedback-routes.ts
+│   ├── index.ts
+│   ├── invite-routes.ts
+│   ├── routes.ts
+│   ├── seed-catalogs.ts
+│   ├── static.ts
+│   ├── storage.ts
+│   ├── vite.ts
+│   ├── lib/
+│   │   ├── amqs.ts
+│   │   ├── beta-cap.ts
+│   │   ├── email.ts
+│   │   ├── energy.ts
+│   │   ├── fuel-availability.ts
+│   │   ├── micros.ts
+│   │   ├── offMatch.ts
+│   │   ├── password-reset-tokens.ts
+│   │   ├── provisional-readiness.ts
+│   │   ├── push-notifications.ts
+│   │   ├── readiness.ts
+│   │   ├── searchRanking.ts
+│   │   ├── training-load.ts
+│   │   ├── verification-tokens.ts
+│   │   ├── version.ts
+│   │   └── weight-cut.ts
+│   └── replit_integrations/
+│       └── object_storage/
+│           ├── index.ts
+│           ├── objectAcl.ts
+│           ├── objectStorage.ts
+│           └── routes.ts
+│
+├── shared/
+│   ├── routes.ts
+│   ├── schema.ts
+│   ├── username-validation.ts
+│   └── utils.ts
+│
+├── data/
+│   └── ingredients.json          (307 food entries — AMQS micronutrient data)
+│
+├── docs/
+│   ├── ai_assisted_logging.md
+│   ├── amqs_athlete_refinement.md
+│   ├── core_food_units.md
+│   ├── fight_camp_calories.md
+│   ├── fight_camp_tdee_override.md
+│   ├── full_data_readiness_and_fuel.md
+│   ├── performance_features.md
+│   ├── provisional_readiness_and_fuel.md
+│   ├── training_load_and_day_classification.md
+│   └── weight_cut_planner.md
+│
+├── script/
+│   ├── build.ts
+│   └── migrate-supplement-catalog-jsonb.sql
+│
+├── scripts/
+│   ├── analyze-activity-catalog.mjs
+│   └── seed-supplement-catalog.ts
+│
+├── components.json               (shadcn/ui config)
+├── drizzle.config.ts
+├── DEVELOPER_GUIDE.md
+├── NUTRIENT_SCORING.md
+├── package.json
+├── postcss.config.js
+├── replit.md
+├── tailwind.config.ts
+├── tsconfig.json
+└── vite.config.ts
+
+================================================================================
+KEY FILES FOR MOBILE API INTEGRATION:
+
+shared/schema.ts          — all DB types, Zod schemas, insert/select types
+shared/routes.ts          — API route constants
+server/routes.ts          — all REST endpoints (~4200 lines)
+server/lib/training-load.ts  — ACWR / load classification logic
+server/lib/amqs.ts        — micronutrient scoring engine
+server/lib/energy.ts      — calorie / TDEE calculations
+server/lib/weight-cut.ts  — fight camp / weight cut planner logic
+server/lib/readiness.ts   — session readiness score
+server/lib/fuel-availability.ts — glycogen / fuel status

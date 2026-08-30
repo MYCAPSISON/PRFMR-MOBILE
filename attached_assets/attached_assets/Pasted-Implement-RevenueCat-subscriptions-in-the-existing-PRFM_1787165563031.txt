@@ -1,0 +1,573 @@
+Implement RevenueCat subscriptions in the existing PRFMR Expo/React Native mobile app.
+
+Before making changes, audit the current authentication, database, navigation, subscription/paywall, environment-variable, and app-startup architecture. Reuse the existing architecture wherever possible and avoid unrelated refactors.
+
+==================================================
+CONFIRMED REVENUECAT / STORE IDENTIFIERS
+==================================================
+
+RevenueCat entitlement identifier:
+PRFMR Pro
+
+RevenueCat default Offering identifier:
+default
+
+Current valid iOS products:
+
+Monthly:
+prfmr_pro_monthly
+
+Annual:
+prfmr_pro_annual
+
+App Store subscription group:
+PRFMR Pro
+
+IMPORTANT:
+Do NOT use these obsolete iOS product identifiers:
+
+prfmr_monthly
+prfmr_yearly
+
+Those RevenueCat products currently show as "Not found" and are stale.
+
+Do not hard-code obsolete Android product identifiers either. Google Play subscription setup is still incomplete and the final Android product/base-plan identifiers must be confirmed from Google Play before production use.
+
+==================================================
+1. REVENUECAT SDK
+==================================================
+
+Install/configure:
+
+react-native-purchases
+react-native-purchases-ui
+
+Use versions compatible with the current Expo/React Native version.
+
+Configure RevenueCat exactly once during native app initialization.
+
+Use platform-specific PUBLIC RevenueCat SDK keys:
+
+EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
+EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY
+
+The Android key may be absent temporarily while Google Play subscription configuration is incomplete.
+
+Never expose any RevenueCat secret key, Apple private key, App Store Connect API private key, or Google service-account credentials in the mobile app.
+
+Enable RevenueCat DEBUG logging only in development/test builds.
+
+==================================================
+2. REVENUECAT CUSTOMER IDENTITY
+==================================================
+
+PRFMR already has authenticated users.
+
+After authentication, call RevenueCat using the existing stable internal PRFMR user/database ID:
+
+Purchases.logIn(<stable PRFMR user ID>)
+
+Do not use:
+- email
+- display name
+- Apple relay email
+- Google email
+
+as the RevenueCat App User ID.
+
+Handle correctly:
+- first login
+- persisted session
+- app restart
+- logout
+- switching accounts
+
+On logout, use RevenueCat's supported logout/reset flow and clear account-specific subscription state before identifying the next user.
+
+==================================================
+3. ENTITLEMENT
+==================================================
+
+Use this exact RevenueCat entitlement identifier:
+
+PRFMR Pro
+
+Premium access must depend only on whether this entitlement is active.
+
+Conceptually:
+
+const customerInfo = await Purchases.getCustomerInfo();
+
+const isPro =
+  customerInfo.entitlements.active['PRFMR Pro'] !== undefined;
+
+Do not determine premium access based on:
+- product ID
+- monthly vs annual
+- trial state
+- founding state
+- locally stored booleans
+
+RevenueCat entitlement state is the premium-access source of truth.
+
+==================================================
+4. DEFAULT OFFERING
+==================================================
+
+Use this exact RevenueCat Offering identifier:
+
+default
+
+The current default Offering contains 2 packages.
+
+The iOS products attached to the normal offering must correspond to:
+
+Monthly:
+prfmr_pro_monthly
+
+Annual:
+prfmr_pro_annual
+
+Do not attach or reference:
+
+prfmr_monthly
+prfmr_yearly
+
+Those are obsolete/stale products.
+
+Use the remotely configured RevenueCat Paywall Builder paywall for the default Offering.
+
+Do not recreate the standard paywall UI locally.
+
+==================================================
+5. APPLE SUBSCRIPTIONS
+==================================================
+
+The active App Store subscription group is:
+
+PRFMR Pro
+
+Current iOS products:
+
+PRFMR Monthly
+Product ID:
+prfmr_pro_monthly
+Duration:
+1 month
+
+PRFMR Annual
+Product ID:
+prfmr_pro_annual
+Duration:
+1 year
+
+Both are currently in App Store Connect as:
+
+Prepare for Submission
+
+Do not assume App Store approval is required for sandbox/TestFlight integration.
+
+The app should rely on StoreKit/RevenueCat for price, eligibility, trial, and purchase state.
+
+Do not hard-code Apple prices.
+
+==================================================
+6. FOUNDING USERS
+==================================================
+
+PRFMR has existing founding users.
+
+The authoritative source is:
+
+users_auth.is_founding
+
+If:
+
+users_auth.is_founding === true
+
+the user is a founding user.
+
+Do not infer founding status from:
+- signup date
+- email
+- local storage
+- install date
+- RevenueCat anonymous ID
+- client-provided values
+
+Do not permit client code to write or modify is_founding.
+
+==================================================
+7. FOUNDING CUSTOMER ATTRIBUTE
+==================================================
+
+After RevenueCat has been identified with the authenticated PRFMR user ID, synchronize founding eligibility to RevenueCat.
+
+For founding users:
+
+founding_user = "true"
+
+For non-founding users, ensure stale founding state does not persist incorrectly.
+
+The database remains authoritative.
+
+The RevenueCat attribute is for targeting/presentation only.
+
+Do not use a client-controlled attribute as the sole security mechanism.
+
+==================================================
+8. FOUNDING OFFERING
+==================================================
+
+Support a separate RevenueCat Offering for founding users.
+
+Conceptually:
+
+default
+founding
+
+If a founding Offering does not already exist, do not invent store products or discounted prices in code.
+
+Instead, structure the app so that the founding Offering can be configured remotely in RevenueCat after the corresponding Apple/Google store offers are created.
+
+Founding commercial terms:
+
+YEARLY:
+30% off for the first year
+
+MONTHLY:
+25% off for the first year
+
+After the promotional period, the subscription renews at the standard applicable subscription price.
+
+Do not calculate discounted prices in JavaScript.
+
+Do not hard-code GBP/USD amounts.
+
+Do not process subscription payments through the backend.
+
+Apple App Store / Google Play must define the actual promotional billing terms.
+
+RevenueCat should present the appropriate store-defined offer.
+
+==================================================
+9. OFFERING SELECTION
+==================================================
+
+Prefer RevenueCat Targeting.
+
+Desired logic:
+
+founding_user == "true"
+    -> founding Offering
+
+otherwise
+    -> default Offering
+
+If RevenueCat Targeting is not yet configured or unavailable in the current setup, implement one centralized offering-selection layer rather than duplicating checks throughout screens.
+
+Do not scatter:
+
+if (is_founding)
+
+logic throughout the UI.
+
+==================================================
+10. FOUNDING PAYWALL UX
+==================================================
+
+The founding paywall should clearly communicate:
+
+FOUNDING MEMBER OFFER
+
+Thanks for helping build PRFMR.
+
+YEARLY
+30% off your first year
+
+MONTHLY
+25% off for your first year
+
+The actual localized store prices must come from RevenueCat / StoreKit / Google Play.
+
+The paywall must accurately disclose what happens after the promotional period.
+
+Do not state:
+- 30% off forever
+- 25% off forever
+- lifetime founding price
+
+unless the underlying store configuration actually provides that.
+
+==================================================
+11. STANDARD 7-DAY INTRODUCTORY TRIAL
+==================================================
+
+Normal subscriptions may use store-configured 7-day introductory free trials.
+
+Do not implement trial timing manually.
+
+Do not create a local 7-day entitlement timer.
+
+Do not assume founding promotional offers stack with introductory trials.
+
+Display only the trial/offer for which the store reports the user is eligible.
+
+==================================================
+12. PAYWALL PRESENTATION
+==================================================
+
+Use:
+
+react-native-purchases-ui
+
+Use the RevenueCat Paywall Builder paywall.
+
+For normal users, use the default Offering.
+
+For founding users, use the founding Offering once it exists/configures successfully.
+
+Do not present a paywall if the `PRFMR Pro` entitlement is active.
+
+Wait until:
+- authentication is resolved
+- RevenueCat is initialized
+- the RevenueCat customer has been identified
+- CustomerInfo has been fetched
+
+before deciding whether to show the paywall.
+
+Avoid startup paywall loops.
+
+==================================================
+13. PURCHASE COMPLETION
+==================================================
+
+After successful purchase:
+
+1. Refresh CustomerInfo.
+2. Confirm `PRFMR Pro` is active.
+3. Update application subscription state.
+4. Dismiss/leave the paywall.
+5. Unlock premium functionality.
+
+Do not rely solely on a purchase-success callback boolean.
+
+Entitlement state is authoritative.
+
+==================================================
+14. RESTORE PURCHASES
+==================================================
+
+Provide an accessible Restore Purchases action.
+
+After restore:
+
+- refresh CustomerInfo
+- update premium state
+- dismiss paywall if entitlement is active
+- handle no-purchase/error states gracefully
+
+==================================================
+15. CENTRALIZED SUBSCRIPTION STATE
+==================================================
+
+Create one centralized subscription service/provider/hook.
+
+Expose at minimum:
+
+- isInitialized
+- isLoading
+- isPro
+- customerInfo
+- refreshCustomerInfo()
+- showPaywall()
+- restorePurchases()
+
+Optionally expose:
+
+- isFounding
+- currentOffering
+
+Avoid RevenueCat calls duplicated across many screens.
+
+==================================================
+16. CUSTOMERINFO UPDATES
+==================================================
+
+Register RevenueCat CustomerInfo update listeners.
+
+Clean them up correctly.
+
+Refresh at sensible lifecycle points:
+
+- authentication success
+- restored persisted session
+- app startup
+- purchase completion
+- restore completion
+- app foreground where appropriate
+
+Do not create excessive requests.
+
+==================================================
+17. ACCOUNT SWITCHING SECURITY
+==================================================
+
+When User A logs out and User B logs in:
+
+User B must never temporarily inherit:
+
+- User A's Pro status
+- User A's founding status
+- User A's Offering
+- User A's CustomerInfo
+
+Clear account-specific local subscription state during the transition.
+
+Identify the new RevenueCat user and fetch fresh CustomerInfo before unlocking premium features or presenting an account-specific paywall.
+
+==================================================
+18. ERROR HANDLING
+==================================================
+
+Handle gracefully:
+
+- RevenueCat initialization failure
+- offering unavailable
+- products unavailable
+- store unavailable
+- network unavailable
+- purchase cancelled
+- purchase pending
+- purchase failed
+- restore failed
+- CustomerInfo fetch failed
+
+Purchase cancellation is not an application error.
+
+Do not unlock Pro when subscription status is unknown.
+
+==================================================
+19. ANDROID
+==================================================
+
+Do not block the iOS implementation because Google Play subscriptions are not yet finalized.
+
+The Android RevenueCat app exists, but the current Android products in RevenueCat must not be assumed to be production-correct.
+
+Do not hard-code the currently displayed old Android identifiers without verifying them against Google Play Console.
+
+Once Google Play subscription/base-plan products are created, they must be:
+
+- imported/verified in RevenueCat
+- attached to the same `PRFMR Pro` entitlement
+- attached to the correct Offering packages
+- tested in the Google Play closed-testing environment
+
+Do not create a separate Android entitlement.
+
+==================================================
+20. OBSOLETE REVENUECAT PRODUCTS
+==================================================
+
+The following iOS RevenueCat products are obsolete and currently show "Not found":
+
+prfmr_yearly
+prfmr_monthly
+
+Do not reference them in app code or Offering configuration.
+
+Before changing RevenueCat Offering/package references, verify that the active products are:
+
+prfmr_pro_monthly
+prfmr_pro_annual
+
+Do not delete stale RevenueCat products automatically as part of this code task. Report them as cleanup candidates instead.
+
+==================================================
+21. SECURITY
+==================================================
+
+Never expose:
+
+- RevenueCat secret API keys
+- Apple .p8 private keys
+- App Store Connect private keys
+- Apple In-App Purchase private keys
+- Google Play service-account credentials
+
+inside the app bundle.
+
+Only platform-specific PUBLIC RevenueCat SDK keys belong in the mobile client.
+
+Do not trust client-supplied founding eligibility.
+
+==================================================
+22. DO NOT BREAK EXISTING FUNCTIONALITY
+==================================================
+
+Preserve:
+
+- Apple Sign In
+- Google Sign In
+- email/password authentication
+- persisted sessions
+- onboarding
+- account deletion
+- nutrition features
+- weight-cut features
+- training/recovery features
+- navigation
+- current database schema unless genuinely required
+
+Do not modify unrelated functionality.
+
+==================================================
+23. BEFORE IMPLEMENTATION
+==================================================
+
+Before editing code, report:
+
+1. Current Expo version
+2. Current React Native version
+3. Existing authentication architecture
+4. Exact stable PRFMR user ID field used for RevenueCat
+5. How users_auth is accessed
+6. Where is_founding is currently loaded
+7. Existing subscription/paywall code
+8. Existing RevenueCat packages/config
+9. Existing environment variable strategy
+10. Confirm that `PRFMR Pro` is the entitlement identifier
+11. Confirm that `default` is the standard Offering identifier
+12. Confirm current iOS products:
+    - prfmr_pro_monthly
+    - prfmr_pro_annual
+13. Identify any references to obsolete products:
+    - prfmr_monthly
+    - prfmr_yearly
+14. Where RevenueCat initialization should live
+15. Where centralized subscription state should live
+16. Any conflicts/migrations required
+
+Then implement the smallest clean change set.
+
+==================================================
+24. AFTER IMPLEMENTATION
+==================================================
+
+Report:
+
+1. Every file changed
+2. Every package added/changed
+3. Every environment variable required
+4. RevenueCat dashboard configuration still required
+5. App Store Connect configuration still required
+6. Google Play configuration still required
+7. Founding Offering configuration still required
+8. Exact sandbox/TestFlight testing procedure
+9. Any assumptions made
+10. Any stale RevenueCat product references found
+11. Any remaining blockers
+
+Do not claim the system works until an actual sandbox/TestFlight purchase flow has been tested.

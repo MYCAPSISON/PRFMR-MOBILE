@@ -1,0 +1,46 @@
+Ingredient name updates — ingredients.json audit applied
+
+29 meat entries in data/ingredients.json have been renamed. The mobile app caches or displays ingredient names in several places — make sure none of them hardcode the old strings.
+
+What changed (by category):
+
+10 raw entries — "Raw" was appended to entries that were missing it:
+
+Chicken Thigh (Bone-in, Skin-on) → Chicken Thigh (Bone-in, Skin-on, Raw)
+Chicken Thigh (Boneless, Skinless) → Chicken Thigh (Boneless, Skinless, Raw)
+Chicken Drumstick (Bone-in, Skin-on) → Chicken Drumstick (Bone-in, Skin-on, Raw)
+Chicken Drumstick (Bone-in, Skinless) → Chicken Drumstick (Bone-in, Skinless, Raw)
+Pork Ribs (Back, Bone-in) → Pork Ribs (Back, Bone-in, Raw)
+Beef Short Ribs (Bone-in) → Beef Short Ribs (Bone-in, Raw)
+T-Bone Steak (Bone-in) → T-Bone Steak (Bone-in, Raw)
+Rack of Lamb (Bone-in) → Rack of Lamb (Bone-in, Raw)
+Lamb Shoulder (Bone-in) → Lamb Shoulder (Bone-in, Raw)
+Pork Chops (Bone-in) → Pork Chops (Bone-in, Raw)
+10 cooked entries — cut/skin/bone descriptor added to match the raw counterpart:
+
+Chicken Breast (Grilled) → Chicken Breast (Boneless, Skinless, Grilled)
+Chicken Thigh (Grilled, Boneless) → Chicken Thigh (Boneless, Skinless, Grilled)
+Chicken Drumstick (Roasted) → Chicken Drumstick (Boneless, Skinless, Roasted)
+Chicken Wings (Roasted) → Chicken Wings (Meat & Skin, Roasted)
+Turkey Breast (Roasted) → Turkey Breast (Skinless, Roasted)
+Pork Chops (Broiled) → Pork Chops (Boneless, Broiled)
+T-Bone Steak (Broiled) → T-Bone Steak (Bone-in, Broiled)
+Rack of Lamb (Roasted) → Rack of Lamb (Bone-in, Roasted)
+Lamb Shoulder (Roasted) → Lamb Shoulder (Bone-in, Roasted)
+Pork Ribs (Roasted) → Pork Ribs (Back, Bone-in, Roasted)
+4 "Lean" qualifiers added to cooked beef/lamb entries that map to USDA "separable lean only":
+
+Beef Steak (Sirloin, Broiled) → Beef Steak, Sirloin (Lean, Broiled)
+Beef Steak (Fillet, Broiled) → Beef Steak, Fillet (Lean, Broiled)
+Lamb Leg (Roasted) → Lamb Leg (Lean, Roasted)
+Lamb Chops (Grilled) → Lamb Chops (Loin, Lean, Grilled)
+5 format fixes — qualifier moved outside the parentheses to match the naming convention Species/Cut, Qualifier (State):
+
+Beef Mince (5% fat, Cooked) → Beef Mince, 5% Fat (Cooked)
+Beef Mince (15% fat, Cooked) → Beef Mince, 15% Fat (Cooked)
+Beef Steak (Ribeye, Grilled) → Beef Steak, Ribeye (Grilled)
+Bacon (Pan-Fried) → Bacon, Streaky (Pan-Fried)
+Sausages (Pork, Pan-Fried) → Sausages, Pork (Pan-Fried)
+No nutritional values changed. No entries added or removed. Array indices are unchanged.
+
+Action required: If you have any hardcoded ingredient name strings (e.g. in search filters, saved meal templates, display maps, or snapshot tests), update them to the new names. Names are served live from GET /api/ingredients so the food picker will show the new names automatically on next fetch — no client cache busting needed unless you persist the ingredient list locally.

@@ -1,0 +1,485 @@
+# Mobile agent prompt — AMQS feature + OFF ingredient mapping
+
+## Context
+PRFMR has an **Advanced Micronutrient Quality Score (AMQS)** feature. The web app has a full working implementation. Your job is to replicate it faithfully in the React Native app. This prompt covers:
+- What the server calculates and returns (you consume it — do not recompute it)
+- What the mobile client must calculate or derive locally
+- How food logging must store micronutrient metadata for AMQS to work
+- Known inconsistencies between the web codebase and the server, and how to handle them
+
+---
+
+## 1. Architecture: server-side vs client-side
+
+### Calculated entirely server-side (never recompute on mobile)
+All of the following are computed by the server and returned in API responses. Consume them directly, do not re-derive them in the app:
+
+- Daily micronutrient totals for all 17 nutrients
+- Per-nutrient % of target (`pctOfTarget`)
+- Per-nutrient status: `"low"` / `"ok"` / `"high"`
+- Per-nutrient targets (sex- and profile-aware)
+- Layer 1 score (0–100) and tier
+- Layer 2 score and tier (optimisation targets)
+- `topGaps` (the 3 nutrients furthest below target, with food suggestions)
+- `allMet` flag
+- Supplement micronutrient contribution
+- Coverage stats and `confidence` label
+- Trend data (current week avg, prev week avg, delta, trend direction)
+- Composite food decomposition (e.g. mixed dishes split into components)
+
+### Calculated or derived client-side on mobile
+- Displaying `pctOfTarget` as a progress bar or ring — the value is from the server, the visual is yours
+- Deciding which tab/view to show (daily, trend, gaps)
+- Formatting nutrient display names and units (use the table in section 3 — hardcode these; the server does not return display metadata per nutrient)
+- Sorting `topGaps` — they arrive pre-sorted (lowest % first), up to 3 items
+- Computing `layer2Coverage[key].pctOfTarget - coverage[key].pctOfTarget` if you want to show the "headroom to optimal" gap
+- `overallCoverage` is returned as a float 0–1; multiply by 100 to display as a percentage
+
+---
+
+## 2. API endpoints
+
+### Daily score
+```
+GET /api/me/amqs/score/:date
+```
+Date format: `YYYY-MM-DD`
+
+**Full response shape:**
+```json
+{
+  "date": "2024-01-15",
+  "score": 72,
+  "tier": "Good",
+  "confidence": "High",
+  "coverageStats": {
+    "totalFoodEntries": 8,
+    "foodEntriesWithMicros": 6,
+    "totalTakenSupplements": 2,
+    "takenSupplementsWithMicros": 1,
+    "overallCoverage": 0.8
+  },
+  "totals": {
+    "iron_mg": 9.2,
+    "calcium_mg": 650.0,
+    "vitamin_d_ug": 4.1,
+    "magnesium_mg": 210.0,
+    "zinc_mg": 7.3,
+    "iodine_ug": 88.0,
+    "selenium_ug": 55.0,
+    "folate_ug": 180.0,
+    "vitamin_b12_ug": 2.1,
+    "vitamin_c_mg": 38.0,
+    "vitamin_a_ug": 480.0,
+    "potassium_mg": 2900.0,
+    "vitamin_b1_mg": 0.9,
+    "vitamin_b2_mg": 1.1,
+    "vitamin_b3_mg": 11.0,
+    "vitamin_b6_mg": 1.0,
+    "omega3_g": 1.2
+  },
+  "targets": {
+    "iron_mg": 8.7,
+    "calcium_mg": 700.0,
+    "vitamin_d_ug": 10.0
+    /* ... all 17 keys ... */
+  },
+  "coverage": {
+    "iron_mg": { "pctOfTarget": 100, "status": "ok" },
+    "calcium_mg": { "pctOfTarget": 93, "status": "ok" },
+    "vitamin_d_ug": { "pctOfTarget": 41, "status": "low" }
+    /* ... all 17 keys always present ... */
+  },
+  "topGaps": [
+    { "microKey": "vitamin_d_ug", "label": "Vitamin D", "pctOfTarget": 41, "suggestion": "Salmon" },
+    { "microKey": "iodine_ug",    "label": "Iodine",    "pctOfTarget": 63, "suggestion": "Milk (Semi-Skimmed)" },
+    { "microKey": "selenium_ug",  "label": "Selenium",  "pctOfTarget": 73, "suggestion": "Brazil Nuts" }
+  ],
+  "allMet": false,
+  "breakdown": {
+    "food":        { "iron_mg": 8.0, "calcium_mg": 600.0 /* sparse — only nutrients with contribution */ },
+    "supplements": { "vitamin_d_ug": 1.5, "vitamin_b12_ug": 2.0 /* sparse */ }
+  },
+  "layer2Score": 55,
+  "layer2Tier": "Fair",
+  "layer2Targets": { "iron_mg": 8.7 /* ... all 17, generally higher than L1 */ },
+  "layer2Coverage": {
+    "iron_mg": { "pctOfTarget": 100, "status": "ok" }
+    /* ... all 17 keys always present ... */
+  },
+  "layer2TopGaps": [
+    { "microKey": "vitamin_d_ug", "label": "Vitamin D", "pctOfTarget": 16, "suggestion": "Salmon" }
+  ]
+}
+```
+
+**Important:** `totals` and `breakdown.food/supplements` are **sparse** — nutrients with zero contribution may be absent from these maps. Always default to 0 when reading a key: `totals["vitamin_b1_mg"] ?? 0`. The `coverage`, `targets`, `layer2Coverage`, and `layer2Targets` maps always contain all 17 keys.
+
+---
+
+### Score range (weekly/custom)
+```
+GET /api/me/amqs/score-range/:startDate/:endDate
+```
+```json
+{
+  "startDate": "2024-01-08",
+  "endDate": "2024-01-14",
+  "averageScore": 68,
+  "tier": "Good",
+  "dailyScores": [
+    { "date": "2024-01-08", "score": 65, "tier": "Fair" },
+    { "date": "2024-01-09", "score": 71, "tier": "Good" }
+  ]
+}
+```
+
+---
+
+### Trend
+```
+GET /api/me/amqs/trend/:date
+```
+Computes the 14 days ending at `:date`, split into previous 7 and current 7.
+```json
+{
+  "layer1": {
+    "currentWeekAvg": 72.4,
+    "prevWeekAvg": 65.1,
+    "delta": 7.3,
+    "trend": "improving",
+    "dailyScores": [{ "date": "2024-01-15", "score": 72 }]
+  },
+  "layer2": {
+    "currentWeekAvg": 55.0,
+    "prevWeekAvg": 51.3,
+    "delta": 3.7,
+    "trend": "slightly_down",
+    "dailyScores": [{ "date": "2024-01-15", "score": 55 }]
+  }
+}
+```
+`trend` values: `"improving"` | `"steady"` | `"slightly_down"`
+
+---
+
+## 3. Nutrient display reference
+Hardcode this table in the mobile app. The server does **not** return display names or units.
+
+| Key | Display Name | Unit | Layer |
+|---|---|---|---|
+| `iron_mg` | Iron | mg | Core |
+| `calcium_mg` | Calcium | mg | Core |
+| `vitamin_d_ug` | Vitamin D | µg | Core |
+| `magnesium_mg` | Magnesium | mg | Core |
+| `zinc_mg` | Zinc | mg | Core |
+| `iodine_ug` | Iodine | µg | Standard |
+| `selenium_ug` | Selenium | µg | Standard |
+| `folate_ug` | Folate | µg | Standard |
+| `vitamin_b12_ug` | Vitamin B12 | µg | Standard |
+| `vitamin_c_mg` | Vitamin C | mg | Standard |
+| `vitamin_a_ug` | Vitamin A | µg | Standard |
+| `potassium_mg` | Potassium | mg | Standard |
+| `vitamin_b1_mg` | Vitamin B1 (Thiamine) | mg | Extended |
+| `vitamin_b2_mg` | Vitamin B2 (Riboflavin) | mg | Extended |
+| `vitamin_b3_mg` | Vitamin B3 (Niacin) | mg | Extended |
+| `vitamin_b6_mg` | Vitamin B6 | mg | Extended |
+| `omega3_g` | Omega-3 | g | Extended |
+
+**Core** nutrients (iron, calcium, vitamin D, magnesium, zinc) are special: a user can only reach `Elite` tier if all five are at ≥70% of their Layer 1 target — even if the overall score qualifies for Elite. The server enforces this; you don't need to recompute it.
+
+---
+
+## 4. Score tiers
+Both Layer 1 and Layer 2 use the same thresholds:
+
+| Score | Tier |
+|---|---|
+| < 50 | Basic |
+| 50–69 | Fair |
+| 70–84 | Good |
+| 85–94 | Optimal |
+| ≥ 95 | Elite (blocked to Optimal if any of the 5 core nutrients < 70%) |
+
+Confidence levels (based on data coverage):
+
+| `overallCoverage` | `confidence` |
+|---|---|
+| No food entries and no supplements | Low |
+| < 0.40 | Low |
+| 0.40–0.74 | Medium |
+| ≥ 0.75 | High |
+
+---
+
+## 5. Coverage — how the server decides if a food entry "has micros"
+
+This is critical for the mobile logging flow. The server's AMQS coverage calculation marks a food entry as having micronutrient data only under specific conditions:
+
+**Composite/core foods** (e.g. mixed dishes defined in the server's internal COMPOSITE_FOODS list) — automatically counted as covered.
+
+**Non-OFF food entries** (logged from internal ingredient database, i.e. `sourceType !== 'off'`) — covered if:
+- The ingredient name matches an entry in `ingredients.json` (case-insensitive)
+- AND at least one of the 17 tracked nutrients has a value > 0 for that ingredient
+
+**OFF food entries** (logged from Open Food Facts, i.e. `sourceType === 'off'`) — covered if ALL of:
+- `microSource === "ingredient"` (exactly this string — see section 6)
+- `ingredientIndex` is a valid non-null number
+- The ingredient at that index has at least one tracked nutrient > 0
+
+**Supplements** — covered if the supplement catalog entry has a non-empty `microsPerUnit` object.
+
+If an OFF food entry has `microSource !== "ingredient"` or `ingredientIndex` is null, it contributes **zero** to micronutrient totals and is not counted as covered. This is the most common cause of low confidence scores for users who primarily use the barcode scanner.
+
+---
+
+## 6. Food logging — critical micronutrient fields
+
+When logging a food entry, three fields on the food_entries payload control AMQS participation:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `sourceType` | `"off" \| "ingredient" \| "mixed"` | Where macros came from |
+| `microSource` | `"ingredient" \| "none"` | Whether AMQS can compute micros |
+| `ingredientIndex` | `number \| null` | Index into `ingredients.json` |
+
+### Logging scenarios and what to send
+
+**Scenario A: Internal ingredient logged (user browsed ingredient list)**
+```json
+{
+  "sourceType": "ingredient",
+  "microSource": "ingredient",
+  "ingredientIndex": 42
+}
+```
+
+**Scenario B: OFF barcode or search result, with an internal ingredient mapping**
+The user scanned a barcode or searched OFF. The server matched it to an ingredient.
+```json
+{
+  "sourceType": "off",
+  "microSource": "ingredient",
+  "ingredientIndex": 107
+}
+```
+The `ingredientIndex` comes from the barcode API response (see section 7).
+
+**Scenario C: OFF barcode or search result, no internal mapping found**
+```json
+{
+  "sourceType": "off",
+  "microSource": "none",
+  "ingredientIndex": null
+}
+```
+This entry will NOT contribute to AMQS. This is correct behaviour — don't fabricate an index.
+
+**Scenario D: Manual entry (user typed macros themselves)**
+```json
+{
+  "sourceType": "ingredient",
+  "microSource": "none",
+  "ingredientIndex": null
+}
+```
+
+### ⚠️ Critical inconsistency to be aware of
+The barcode lookup endpoint (`GET /api/foods/barcode/:barcode`) returns a field `computedDefaults.microSource: "internal"` in its response. This is **wrong** — it is a stale string that exists in the API response only. The actual value you must write when creating a food log entry is `"ingredient"`, not `"internal"`. The server's AMQS and micros calculation code strictly checks for `"ingredient"`. Sending `"internal"` will cause the entry to score zero micros. Always translate `"internal"` → `"ingredient"` when building the food log payload.
+
+---
+
+## 7. Barcode scanner flow — full ingredient mapping logic
+
+When the user scans a barcode:
+
+### API call
+```
+GET /api/foods/barcode/:barcode
+```
+
+### Response structure (relevant parts)
+```json
+{
+  "off": {
+    "name": "Product Name",
+    "calories": 250,
+    "protein": 10,
+    "carbs": 30,
+    "fat": 8,
+    "fibre": 3,
+    "barcode": "1234567890"
+  },
+  "mapping": {
+    "ingredientIndex": 107,
+    "ingredientName": "Cheddar Cheese",
+    "matchConfidence": 0.92,
+    "verifiedByUser": true
+  },
+  "suggestions": {
+    "best": { "ingredientIndex": 107, "ingredientName": "Cheddar Cheese", "score": 0.92 },
+    "top": [
+      { "ingredientIndex": 107, "ingredientName": "Cheddar Cheese", "score": 0.92 },
+      { "ingredientIndex": 108, "ingredientName": "Cheddar Cheese (Reduced Fat)", "score": 0.76 }
+    ]
+  },
+  "computedDefaults": {
+    "macroSource": "off",
+    "microSource": "internal"  // ← stale string — translate to "ingredient" in your log payload
+  }
+}
+```
+
+### Mapping decision tree for building the log payload
+
+```
+mapping present (not null)?
+├── YES → use mapping.ingredientIndex
+│         set microSource: "ingredient"  (NOT "internal")
+│         set ingredientIndex: mapping.ingredientIndex
+└── NO  → suggestions.best present?
+          ├── YES → offer user the suggestion to confirm
+          │         if user confirms → set microSource: "ingredient", ingredientIndex: suggestions.best.ingredientIndex
+          │         if user declines → set microSource: "none", ingredientIndex: null
+          └── NO  → set microSource: "none", ingredientIndex: null
+```
+
+When `mapping` is null but `suggestions` are present, the UI should offer the user a prompt like "We think this matches [ingredient name] — does that look right?" If confirmed, write it as mapped. If dismissed, log as unmapped (microSource: "none").
+
+---
+
+## 8. OFF search flow — ingredient mapping
+
+When the user searches Open Food Facts (not barcode):
+
+```
+GET /api/foods/search?q=:query
+```
+
+Search results do not carry `ingredientIndex` values — they are raw OFF products. The mapping happens when the user selects a result. After selection, the mobile app should:
+
+1. Check whether the selected product has a known mapping by calling:
+   ```
+   GET /api/foods/barcode/:barcode
+   ```
+   if a barcode is available on the search result.
+
+2. If a barcode lookup returns a `mapping`, use the `ingredientIndex` from it.
+
+3. If no barcode or no mapping, log with `microSource: "none"`, `ingredientIndex: null`.
+
+The web app triggers the barcode lookup after a search-result selection to get the mapping. Do the same.
+
+---
+
+## 9. Ingredient-based logging — basis and normalisation
+
+When logging from the internal ingredient list, the user may enter an amount in a different basis than the ingredient's canonical basis (e.g. entering "cooked" grams for a raw ingredient).
+
+The fields involved:
+- `enteredBasis`: `"raw"` | `"cooked"` — what the user typed
+- `normalizedGrams`: the canonical (raw) grams used for macro/micro calculation
+- `yieldFactorUsed`: the conversion factor applied
+
+**How normalisation works:**
+- Ingredient has a `cookedYieldFactor` (e.g. 0.7 means 100g raw → 70g cooked)
+- If user enters **cooked** grams for a **raw** canonical ingredient: `normalizedGrams = enteredGrams / cookedYieldFactor`
+- If user enters **raw** grams for a **cooked** canonical ingredient: `normalizedGrams = enteredGrams * cookedYieldFactor`
+- If basis matches canonical basis: `normalizedGrams = enteredGrams`, `yieldFactorUsed = null`
+
+The server micros calculation uses `normalizedGrams` when present, falling back to `grams`. Always populate `normalizedGrams` correctly when an ingredient basis conversion occurs.
+
+OFF food entries do **not** have yield factor logic — logged grams are used directly.
+
+---
+
+## 10. Supplement contribution
+
+Supplements contribute to AMQS totals when:
+- They have an associated catalog entry
+- The catalog entry has a `microsPerUnit` object with at least one key
+- The user has a `takenAt` record for that supplement on the relevant date
+
+The server handles all of this. On the mobile side:
+- Supplement intakes are fetched via `GET /api/me/supplement-intakes/:date`
+- The AMQS daily score already incorporates supplements — you do not need to add them separately
+- The `breakdown.supplements` map in the daily score response shows supplement-only contributions per nutrient (sparse — only nutrients with non-zero supplement contribution)
+
+---
+
+## 11. What to build on mobile
+
+### Screens / components
+
+**AMQS Dashboard card (home screen)**
+- Display `score`, `tier`, `confidence` for today
+- Show `overallCoverage` as a percentage
+- Tap → navigate to full AMQS screen
+
+**Full AMQS screen (daily view)**
+- Date picker (defaults to today)
+- Score ring / gauge with `score` and `tier`
+- Confidence indicator with `confidence` label and `coverageStats`
+- 17-nutrient breakdown list: for each nutrient in the display table (section 3), show:
+  - Display name and unit
+  - `totals[key]` (default 0 if absent)
+  - `coverage[key].pctOfTarget` as a progress bar (capped at 100% visually)
+  - `coverage[key].status` to colour-code (low = red/amber, ok = green, high = purple/warning)
+  - `targets[key]` displayed as the reference value
+- Top Gaps section: render `topGaps` items (up to 3), each showing label, pctOfTarget, suggestion food
+- Layer 2 toggle / section: `layer2Score`, `layer2Tier`, `layer2Coverage` breakdown, `layer2TopGaps`
+
+**Trend view**
+- Call `GET /api/me/amqs/trend/:date` for today's date
+- Show current vs previous week average for Layer 1 and Layer 2
+- Mini chart using `dailyScores` from the trend response
+- `trend` string maps to: `"improving"` → up arrow green, `"steady"` → dash grey, `"slightly_down"` → down arrow amber
+
+**Weekly summary** (optional)
+- Call `GET /api/me/amqs/score-range/:startDate/:endDate`
+- Display `averageScore`, `tier`, and a small bar chart of `dailyScores`
+
+---
+
+## 12. Things to verify are working correctly
+
+Run through these checks after implementation:
+
+### Scoring correctness
+- [ ] A day with no food entries → score 0, tier "Basic", confidence "Low"
+- [ ] A day with only OFF entries (no ingredient mapping) → `foodEntriesWithMicros` = 0, confidence "Low", score 0 or near-0
+- [ ] A day with ingredient-mapped OFF entries → nutrients reflected in `totals`, `foodEntriesWithMicros` > 0
+- [ ] Supplements with micro data → appear in `breakdown.supplements`, not just `breakdown.food`
+- [ ] User is a male with iron intake exactly at 8.7mg → `coverage.iron_mg.pctOfTarget` = 100, `status` = "ok"
+- [ ] Log an entry with `microSource: "internal"` → verify server returns that entry as NOT covered in `coverageStats` (this proves the inconsistency is real and you're handling it correctly by sending `"ingredient"`)
+
+### Ingredient mapping
+- [ ] Scan a barcode for a product with a known mapping → barcode API returns `mapping.ingredientIndex` non-null
+- [ ] Log that product with `sourceType: "off"`, `microSource: "ingredient"`, `ingredientIndex` from mapping → entry appears in `foodEntriesWithMicros`
+- [ ] Scan a barcode with no mapping → `mapping` is null, `suggestions.best` may or may not be present → log with `microSource: "none"` → entry is in `totalFoodEntries` but NOT `foodEntriesWithMicros`
+- [ ] Confirm ingredient with B1/B2/B3/B6/omega3 values (e.g. a fish or nut entry) → those nutrients appear non-zero in `totals` — this verifies the 17-nutrient path is wired up, not just the 12 typed in shared/utils.ts
+
+### Normalisation
+- [ ] Log chicken breast at 200g cooked where ingredient canonical is raw → verify `normalizedGrams` is sent as `200 / cookedYieldFactor`, and `totals` reflects the raw-weight nutrient calculation
+- [ ] Log same ingredient at 200g raw → `normalizedGrams` = 200 (or null), grams = 200, micros match expectations
+
+### Layer 2
+- [ ] Verify `layer2Score` ≤ `score` is NOT always true (L2 uses higher targets, so L2 score will typically be lower — but check edge cases where same)
+- [ ] Verify `layer2Tier` and `tier` can differ independently
+- [ ] `layer2TopGaps` is a separate list from `topGaps` — both should render independently
+
+### Confidence
+- [ ] 2 food entries, 0 with micros, 0 supplements → coverage = 0/2 = 0.0 → confidence "Low"
+- [ ] 5 food entries, 4 with micros, 0 supplements → coverage = 4/5 = 0.80 → confidence "High"
+- [ ] 5 food entries, 2 with micros, 1 supplement with micros → coverage = 3/6 = 0.50 → confidence "Medium"
+
+---
+
+## 13. Known inconsistencies summary
+
+| Issue | Location | Correct behaviour |
+|---|---|---|
+| Barcode API returns `computedDefaults.microSource: "internal"` | `GET /api/foods/barcode/:barcode` response | Translate to `"ingredient"` when building the food log payload. Never send `"internal"` to the food log endpoint. |
+| `shared/utils.ts` Ingredient type only declares 12 micronutrient fields | Type definition only | B1, B2, B3, B6, omega-3 ARE in `ingredients.json` and ARE scored by AMQS. Use `as any` access or extend the type — do not assume they are absent. |
+| Legacy count helpers check `microSource === "internal"` | Stale server code | Not relevant to mobile — AMQS scoring strictly uses `"ingredient"`. |
+| Nutrient weight for B12 has a vegan-only path that doubles to 2 | `server/lib/amqs.ts` | Currently unreachable — profile hardcodes omnivore diet. B12 weight is always 1. No action needed on mobile. |

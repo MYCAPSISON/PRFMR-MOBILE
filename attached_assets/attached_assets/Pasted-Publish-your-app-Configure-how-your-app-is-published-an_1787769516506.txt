@@ -1,0 +1,118 @@
+Publish your app
+Configure how your app is published and who can access it.
+Current status
+Unpublished
+mihdenisgeorge
+Denis
+Connected domain(s)
+Available
+prfmr-mobile
+.replit.app
+Sharing
+
+Public
+Anyone on the internet with the URL
+Preview
+PRFMR Mobile
+PRFMR Mobile
+https://prfmr-mobile.replit.app/
+
+App icon
+PRFMR
+
+Suggested add-ons
+Security, monitoring, and feedback tools for your published app
+Deep security scan
+Security Agent combines LLMs with leading static analysis tools to deliver a pen-test-grade security scan of your project.
+Enable app monitoring
+Be the first to know when your app is down. We'll continuously check if your app is online and notify you via email if things go wrong.
+
+Block publishing of critical vulnerabilities
+Controls whether publishing is blocked when critical vulnerabilities are found in the security scan.
+
+
+Advanced settings
+Manually configure settings, secrets, ports, and more
+Deployment type
+Technology used to publish your app. Learn more
+
+Autoscale
+Automatically scales from zero to any level of demand.
+Resource usage
+The power of the servers running your app
+2 vCPUs / 4 GiB RAM / 3 max
+Per machine:
+$0.001/hour
+At max traffic:
+$0.002/hour
+Deployment secrets
+Private keys your apps use to access APIs and services. Manage your development secrets
+
+SESSION_SECRET
+
+••••••••
+
+
+
+EXPO_PUBLIC_API_URL
+
+••••••••
+
+
+
+AI_INTEGRATIONS_OPENAI_BASE_URL
+
+••••••••
+
+
+
+AI_INTEGRATIONS_OPENAI_API_KEY
+
+••••••••
+
+
+
+DEFAULT_OBJECT_STORAGE_BUCKET_ID
+
+••••••••
+
+
+
+PUBLIC_OBJECT_SEARCH_PATHS
+
+••••••••
+
+
+
+PRIVATE_OBJECT_DIR
+
+••••••••
+
+
+
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+
+••••••••
+
+
+
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+
+••••••••
+
+
+
+EXPO_TOKEN
+
+••••••••
+
+
+Database settings
+
+Create production database
+A production database will only be created if you have data in your development database.
+
+Set up your production database with your current development data
+This will initialize your production database with the data and schemas from your development database.
+Deployment geography
+Geography is locked to match your Object Storage bucket region. To deploy in a different region, remix this app. Learn more
