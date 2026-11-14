@@ -19,6 +19,8 @@ import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { OnboardingFoodDemo } from "@/components/OnboardingFoodDemo";
+import { useQueryClient } from "@tanstack/react-query";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 const BG = "#0a0a0a";
@@ -281,6 +283,7 @@ const loadSt = StyleSheet.create({
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { user: authUser, refetchUser } = useAuth();
+  const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ recalculate?: string }>();
   const isRecalculate = params.recalculate === "1";
 
@@ -291,6 +294,7 @@ export default function OnboardingScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempDropdownOpen, setTempDropdownOpen] = useState(false);
+  const [competitionLevelIsCustom, setCompetitionLevelIsCustom] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   // Pre-seed form from existing user profile + fight camp plan when recalculating
@@ -368,7 +372,7 @@ export default function OnboardingScreen() {
       if (step === 9)  next = 22;
       if (step === 22) next = 28;
       if (step === 30 || step === 31 || step === 32 || step === 33) {
-        router.replace("/(tabs)/");
+        router.replace("/(tabs)");
         return;
       }
     }
@@ -457,13 +461,24 @@ export default function OnboardingScreen() {
 
       setSubmitted(true);
       await refetchUser();
+      // The server has recalculated the goal and targets. Remove the old
+      // server responses so mounted screens cannot keep rendering them from
+      // the two-minute query cache.
+      queryClient.removeQueries({ queryKey: ["targets"] });
+      queryClient.removeQueries({ queryKey: ["user-me"] });
+      queryClient.removeQueries({ queryKey: ["weight-cut"] });
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["targets"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["user-me"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["weight-cut"], type: "active" }),
+      ]);
       setStep(30);
     } catch (e: unknown) {
       setSubmitError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
-  }, [d, submitted, submitting, mainSport]);
+  }, [d, submitted, submitting, mainSport, queryClient, refetchUser]);
 
   useEffect(() => {
     if (step === 29 && !submitted && !submitting) doSubmit();
@@ -594,7 +609,11 @@ export default function OnboardingScreen() {
                   testID={`button-sport-${sp.value.toLowerCase().replace(/ /g, "-")}`}
                   onPress={() => toggleSport(sp.value)}
                   style={[spc.card, { width: full ? "100%" : "48%" }, sel ? spc.sel : spc.unsel]}>
-                  <Image source={sp.local ? require("@/assets/wrestling-photo.jpg") : { uri: sp.uri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                  <Image
+                    source={sp.local ? require("@/attached_assets/assets/wrestling-card.jpg") : { uri: sp.uri }}
+                    style={sp.local ? spc.wrestlingImage : StyleSheet.absoluteFillObject}
+                    resizeMode="cover"
+                  />
                   <View style={[spc.overlay, sel && spc.overlaySelected]} />
                   {sel && <View style={spc.checkBadge}><Feather name="check" size={10} color="#fff" /></View>}
                   <Text style={spc.label}>{sp.label}</Text>
@@ -627,7 +646,7 @@ export default function OnboardingScreen() {
           <Text style={{ color: "#a1a1aa", fontSize: 12, fontWeight: "600", letterSpacing: 0.8, marginBottom: 10, fontFamily: "Inter_600SemiBold" }}>COMPETITION LEVEL</Text>
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
             {["Amateur", "Pro"].map(l => (
-              <TouchableOpacity key={l} onPress={() => set("competitionLevel", l)}
+              <TouchableOpacity key={l} onPress={() => { setCompetitionLevelIsCustom(false); set("competitionLevel", l); }}
                 style={[s5.pill, { flex: 1 }, d.competitionLevel === l && s5.pillSel]}>
                 <Text style={[s5.pillTxt, d.competitionLevel === l && { color: PRIMARY }]}>{l}</Text>
               </TouchableOpacity>
@@ -635,8 +654,8 @@ export default function OnboardingScreen() {
           </View>
           <StyledInput
             placeholder="Or type your own… (e.g. Semi-pro, White collar)"
-            value={(d.competitionLevel === "Amateur" || d.competitionLevel === "Pro") ? "" : d.competitionLevel}
-            onChange={v => set("competitionLevel", v)}
+            value={competitionLevelIsCustom ? d.competitionLevel : ""}
+            onChange={v => { setCompetitionLevelIsCustom(true); set("competitionLevel", v); }}
             testID="input-competition-level"
           />
           {d.competitionLevel && mainSport && (
@@ -1116,24 +1135,19 @@ export default function OnboardingScreen() {
         {step === 25 && <>
           <Heading text="Log your meals." />
           <Sub text="4 ways to add food — whatever works for you." />
-          {[{ icon: "search" as const, title: "Search", desc: "Search our database of 900k+ foods" }, { icon: "package" as const, title: "Whole Foods", desc: "Ingredient-level micro tracking" }, { icon: "camera" as const, title: "Barcode", desc: "Scan any product in seconds" }, { icon: "edit-2" as const, title: "Custom", desc: "Add your own meal or recipe" }].map(t => (
-            <View key={t.title} style={s25.row}>
-              <View style={s25.icon}><Feather name={t.icon} size={18} color={PRIMARY} /></View>
-              <View style={{ flex: 1 }}>
-                <Text style={s25.title}>{t.title}</Text>
-                <Text style={s25.desc}>{t.desc}</Text>
-              </View>
-            </View>
-          ))}
+          <OnboardingFoodDemo />
         </>}
 
         {/* ── Step 26: First win ── */}
         {step === 26 && <>
           <Heading text="You're already winning." />
           <Sub text="Most fighters never even get this far." />
-          <View style={{ borderRadius: 16, overflow: "hidden", height: 220, marginBottom: 16 }}>
-            <Image source={require("@/assets/fight_action_1.jpg")} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
-            <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" }} />
+          <View style={s26.streakCard}>
+            <View style={s26.fireTrail}>
+              <Text style={[s26.fire, { opacity: 0.18, transform: [{ scale: 0.65 }] }]}>🔥</Text>
+              <Text style={[s26.fire, { opacity: 0.42, transform: [{ scale: 0.82 }] }]}>🔥</Text>
+              <Text style={s26.fire}>🔥</Text>
+            </View>
             <View style={{ flex: 1, justifyContent: "flex-end", padding: 20 }}>
               <Text style={{ color: PRIMARY, fontSize: 11, fontWeight: "700", letterSpacing: 1.5, fontFamily: "Inter_700Bold", marginBottom: 4 }}>DAY 1</Text>
               <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700", fontFamily: "Inter_700Bold" }}>Let's go.</Text>
@@ -1289,12 +1303,13 @@ const nav = StyleSheet.create({
   wrap:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1 },
   back:    { paddingHorizontal: 16, paddingVertical: 10 },
   backTxt: { color: "#71717a", fontSize: 15, fontFamily: "Inter_400Regular" },
-  next:    { flexDirection: "row", alignItems: "center", backgroundColor: PRIMARY, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 14 },
+  next:    { flexDirection: "row", alignItems: "center", backgroundColor: PRIMARY, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderColor: "#fff" },
   nextOff: { backgroundColor: "#27272a" },
   nextTxt: { color: "#fff", fontSize: 15, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
 });
 const spc = StyleSheet.create({
   card:          { height: 96, borderRadius: 12, overflow: "hidden", justifyContent: "center", alignItems: "center", borderWidth: 1.5 },
+  wrestlingImage:{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" },
   unsel:         { borderColor: "transparent" },
   sel:           { borderColor: PRIMARY },
   overlay:       { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.65)" },
@@ -1360,11 +1375,10 @@ const s24 = StyleSheet.create({
   scoreStatus:{ fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
   scoreNum:  { fontSize: 40, fontWeight: "700", fontFamily: "Inter_700Bold" },
 });
-const s25 = StyleSheet.create({
-  row:  { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 12, borderWidth: 1, borderColor: "#27272a", backgroundColor: "rgba(39,39,42,0.4)", padding: 14, marginBottom: 10 },
-  icon: { width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(249,115,22,0.1)", alignItems: "center", justifyContent: "center" },
-  title:{ color: "#fff", fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
-  desc: { color: "#71717a", fontSize: 12, marginTop: 2, fontFamily: "Inter_400Regular" },
+const s26 = StyleSheet.create({
+  streakCard: { height: 220, borderRadius: 16, borderWidth: 1, borderColor: "rgba(249,115,22,0.35)", backgroundColor: "#160b03", overflow: "hidden", marginBottom: 16 },
+  fireTrail: { position: "absolute", top: 18, right: 20, flexDirection: "row", alignItems: "center", gap: 2, transform: [{ rotate: "-12deg" }] },
+  fire: { fontSize: 76 },
 });
 const s30 = StyleSheet.create({
   row:      { flexDirection: "row", justifyContent: "space-between", paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },

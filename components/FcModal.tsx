@@ -32,6 +32,10 @@ export interface FcModalData {
   weightHistoryWindowStart?: string;
   /** ISO datetime when this fight camp plan was created — the authoritative camp-age signal. */
   planCreatedAt?: string;
+  /** Weigh-in timing from the fight camp plan. */
+  weighInTiming?: "same_day" | "day_before";
+  /** Manual temporary weight-reduction override in kilograms. */
+  manualTempReductionKg?: number | null;
 }
 
 interface Props {

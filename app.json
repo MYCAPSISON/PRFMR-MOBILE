@@ -4,22 +4,39 @@
     "slug": "prfmr-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./attached_assets/assets/images/app-icon.png",
     "scheme": "prfmr-mobile",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "jsEngine": "hermes",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c0dd9973-ac0f-4999-8adf-7b516aadf4e6",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "splash": {
-      "image": "./assets/images/icon.png",
+      "image": "./assets/logo-main.png",
       "resizeMode": "contain",
       "backgroundColor": "#0f1117"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "link.prfmr.app"
+      "bundleIdentifier": "link.prfmr.app",
+      "icon": "./attached_assets/assets/images/app-icon.png",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "backgroundColor": "#0f1117",
-      "package": "link.prfmr.app"
+      "package": "link.prfmr.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -33,6 +50,13 @@
       ],
       "expo-font",
       "expo-web-browser",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.694913561597-jkg13fd54924pkbgq62tq5t4ei8a85s0"
+        }
+      ],
       [
         "expo-camera",
         {
@@ -44,6 +68,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c0dd9973-ac0f-4999-8adf-7b516aadf4e6"
+      }
+    },
+    "owner": "mycapsison"
   }
 }

@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { apiFetch, clearSession, loadSession, loginWithXhr, setAuthErrorCallback } from "@/lib/api";
+import { queryClient } from "@/lib/queryClient";
+import { resetRevenueCatForLogout } from "@/lib/revenuecat";
 
 export interface User {
   id: number;
@@ -24,6 +26,8 @@ export interface User {
   targetCarbs?: number;
   targetFat?: number;
   createdAt?: string;
+  isFounding?: boolean;
+  is_founding?: boolean;
 }
 
 // The server never returns an `onboardingComplete` field on the User object.
@@ -55,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchUser = useCallback(async () => {
     try {
       const data = await apiFetch<User>("/user/me");
-      setUser(data);
+      setUser({ ...data, isFounding: data.isFounding ?? data.is_founding ?? false });
     } catch {
       setUser(null);
     }
@@ -63,16 +67,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // On app start: restore saved cookies from secure storage, then check auth
   useEffect(() => {
-    (async () => {
-      await loadSession();
-      await fetchUser();
-      setIsLoading(false);
-    })();
+    let active = true;
+
+    const restoreSession = async () => {
+      try {
+        await loadSession();
+        await fetchUser();
+      } catch {
+        if (active) setUser(null);
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+
+    void restoreSession();
+    return () => {
+      active = false;
+    };
   }, [fetchUser]);
 
   // Register a 401 callback so apiFetch can clear stale sessions automatically
   useEffect(() => {
     setAuthErrorCallback(() => {
+      void resetRevenueCatForLogout();
       clearSession();
       setUser(null);
     });
@@ -101,13 +118,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchUser]);
 
   const logout = useCallback(async () => {
+    // Fail closed immediately so the router leaves every protected/paywall
+    // route before the RevenueCat and server logout requests can emit an
+    // intermediate "not entitled" state for the old account.
+    setUser(null);
+    queryClient.clear();
     try {
-      await apiFetch("/auth/logout", { method: "POST" });
+      await Promise.all([
+        resetRevenueCatForLogout(),
+        apiFetch("/auth/logout", { method: "POST" }).catch(() => undefined),
+      ]);
     } catch {
-      // ignore server errors on logout
+      // Local logout must still finish when a remote service is unavailable.
     }
     await clearSession();
-    setUser(null);
   }, []);
 
   return (

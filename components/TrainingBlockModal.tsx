@@ -448,7 +448,7 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
                     onPress={() => setWeekCount(w)}
                     style={[st.weekBtn, {
                       backgroundColor: weekCount === w ? c.primary : c.secondary,
-                      borderColor: weekCount === w ? c.primary : c.border,
+                      borderColor: weekCount === w ? "#fff" : c.border,
                     }]}
                   >
                     <Text style={{
@@ -567,7 +567,7 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
                               onPress={() => setFormBodyRegion(r)}
                               style={[st.toggleBtn, {
                                 backgroundColor: formBodyRegion === r ? c.primary : c.secondary,
-                                borderColor: formBodyRegion === r ? c.primary : c.border,
+                                borderColor: formBodyRegion === r ? "#fff" : c.border,
                               }]}
                             >
                               <Text style={{ color: formBodyRegion === r ? "#fff" : c.mutedForeground, fontSize: 12 }}>
@@ -594,7 +594,7 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
                           onPress={() => setFormSlot(s.key)}
                           style={[st.toggleBtn, {
                             backgroundColor: formSlot === s.key ? c.primary : c.secondary,
-                            borderColor: formSlot === s.key ? c.primary : c.border,
+                            borderColor: formSlot === s.key ? "#fff" : c.border,
                           }]}
                         >
                           <Text style={{ color: formSlot === s.key ? "#fff" : c.mutedForeground, fontSize: 12 }}>
@@ -631,7 +631,7 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
 
                     <View style={{ flexDirection: "row", gap: 8 }}>
                       <TouchableOpacity
-                        style={[st.actionBtn, { backgroundColor: c.primary }]}
+                        style={[st.actionBtn, { backgroundColor: c.primary, borderWidth: 1.5, borderColor: "#fff" }]}
                         onPress={saveActivity}
                       >
                         <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Add</Text>
@@ -843,6 +843,8 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
             <TouchableOpacity
               style={[st.primaryBtn, {
                 backgroundColor: c.primary,
+                borderWidth: 1.5,
+                borderColor: "#fff",
                 opacity: !blockName.trim() || !startDate ? 0.5 : 1,
               }]}
               onPress={() => setStep(2)}

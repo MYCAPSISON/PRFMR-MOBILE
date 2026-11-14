@@ -35,11 +35,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
   };
 
   const formatErrorDetails = (): string => {
-    let details = `Error: ${error.message}\n\n`;
-    if (error.stack) {
-      details += `Stack Trace:\n${error.stack}`;
-    }
-    return details;
+    // Avoid materializing Error.stack while rendering the last-resort UI.
+    // Native startup exceptions can make stack generation fail recursively.
+    return `Error: ${error.message}`;
   };
 
   const monoFont = Platform.select({
@@ -83,6 +81,8 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
             styles.button,
             {
               backgroundColor: colors.primary,
+              borderWidth: 1.5,
+              borderColor: "#fff",
               opacity: pressed ? 0.9 : 1,
               transform: [{ scale: pressed ? 0.98 : 1 }],
             },

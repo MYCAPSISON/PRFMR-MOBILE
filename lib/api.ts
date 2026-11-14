@@ -1,7 +1,12 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-const API_BASE = (process.env.EXPO_PUBLIC_API_URL ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`).replace(/\/$/, "");
+const API_BASE = (
+  process.env.EXPO_PUBLIC_API_URL
+  ?? (process.env.EXPO_PUBLIC_DOMAIN
+    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
+    : "https://app.prfmr.link/api")
+).replace(/\/$/, "");
 
 if (__DEV__) {
   console.log("[api] Base URL:", API_BASE);
@@ -91,10 +96,6 @@ function xhrPost(url: string, body: object): Promise<{ data: any; rawHeaders: st
     xhr.withCredentials = true;
     xhr.onload = () => {
       const rawHeaders = xhr.getAllResponseHeaders();
-      if (__DEV__) {
-        console.log("[xhr] login status:", xhr.status);
-        console.log("[xhr] all headers:\n", rawHeaders);
-      }
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve({ data: JSON.parse(xhr.responseText), rawHeaders });
@@ -103,11 +104,19 @@ function xhrPost(url: string, body: object): Promise<{ data: any; rawHeaders: st
         }
       } else {
         let msg = `HTTP ${xhr.status}`;
-        try { const e = JSON.parse(xhr.responseText); msg = e.message ?? e.error ?? msg; } catch { /* ignore */ }
-        reject(new Error(msg));
+        let code: string | undefined;
+        let fields: AuthValidationField[] | undefined;
+        try {
+          const body = JSON.parse(xhr.responseText);
+          const detail = typeof body.error === "object" && body.error ? body.error : body;
+          msg = detail.message ?? (typeof body.error === "string" ? body.error : msg);
+          code = detail.code ?? body.code;
+          fields = detail.fields ?? body.fields;
+        } catch { /* ignore */ }
+        reject(new AuthApiError(msg, xhr.status, code, fields));
       }
     };
-    xhr.onerror = () => reject(new Error("Network error during login"));
+    xhr.onerror = () => reject(new AuthApiError("Network error during login", 0));
     xhr.send(JSON.stringify(body));
   });
 }
@@ -140,13 +149,92 @@ export async function loginWithXhr(identifier: string, password: string): Promis
   return data;
 }
 
+export type AuthValidationField = {
+  field: string;
+  code: string;
+  message: string;
+};
+
+export class AuthApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly fields?: AuthValidationField[],
+  ) {
+    super(message);
+    this.name = "AuthApiError";
+  }
+}
+
+export type MobileRegistrationResponse = {
+  ok: true;
+  state: "VERIFICATION_REQUIRED";
+  email: string;
+  verification: { expiresInSeconds: number; resendCooldownSeconds: number };
+  session: { authenticated: false };
+};
+
+export async function registerMobileEmail(input: {
+  email: string;
+  username: string;
+  password: string;
+  source: string;
+}): Promise<MobileRegistrationResponse> {
+  const { data } = await xhrPost(`${API_BASE}/auth/register/mobile`, input);
+  return data as MobileRegistrationResponse;
+}
+
+export type MobileVerificationResponse = {
+  ok: true;
+  state: "VERIFIED";
+  user: { id: number; email: string; username: string; emailVerified: true; isFounding?: boolean };
+  session: { authenticated: true; maxAgeSeconds: number };
+};
+
+export async function verifyMobileEmail(token: string): Promise<MobileVerificationResponse> {
+  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/email/verify/mobile`, { token });
+  await captureCookiesFromXhr(rawHeaders);
+  return data as MobileVerificationResponse;
+}
+
+export type MobileResendResponse = {
+  ok: true;
+  message: string;
+  resendCooldownSeconds: number;
+};
+
+export async function resendMobileVerification(email: string): Promise<MobileResendResponse> {
+  const { data } = await xhrPost(`${API_BASE}/auth/email/resend-verification/mobile`, { email });
+  return data as MobileResendResponse;
+}
+
 /**
  * Exchange a Google ID token (obtained via expo-auth-session/providers/google)
  * for a PRFMR session.  Requires the server to expose POST /api/auth/google/mobile
  * per §29.12.2 of the replication guide.
  */
-export async function loginWithGoogleToken(idToken: string): Promise<any> {
-  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/google/mobile`, { idToken });
+export async function loginWithGoogleToken(idToken: string, source?: string): Promise<any> {
+  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/google/mobile`, {
+    idToken,
+    ...(source ? { source } : {}),
+  });
+  await captureCookiesFromXhr(rawHeaders);
+  return data;
+}
+
+export type AppleMobileCredential = {
+  identityToken: string;
+  authorizationCode?: string;
+  fullName?: { givenName?: string; familyName?: string };
+  email?: string;
+};
+
+export async function loginWithAppleCredential(credential: AppleMobileCredential, source?: string): Promise<any> {
+  const { data, rawHeaders } = await xhrPost(`${API_BASE}/auth/apple/mobile`, {
+    ...credential,
+    ...(source ? { source } : {}),
+  });
   await captureCookiesFromXhr(rawHeaders);
   return data;
 }

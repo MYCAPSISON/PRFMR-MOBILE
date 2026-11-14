@@ -549,7 +549,7 @@ export default function SupplementsScreen() {
         <Text style={[s.pageTitle, { color: colors.foreground, fontFamily: colors.fonts.display }]}>My Supplements</Text>
         <Text style={[s.pageSubtitle, { color: colors.mutedForeground, marginTop: 3 }]}>Track your personal supplement inventory</Text>
         <TouchableOpacity
-          style={[s.addBtn, { backgroundColor: colors.primary, marginTop: 10, alignSelf: "flex-start" }]}
+          style={[s.addBtn, { backgroundColor: colors.primary, borderColor: "#fff", marginTop: 10, alignSelf: "flex-start" }]}
           testID="button-add-supplement"
           onPress={() => setAddOpen(true)}>
           <Feather name="plus" size={14} color="#fff" />
@@ -654,7 +654,7 @@ const s = StyleSheet.create({
                 padding: 14, marginTop: 12, gap: 10 },
   suppIcon:   { width: 36, height: 36, borderRadius: 8, borderWidth: 1,
                 alignItems: "center", justifyContent: "center", marginTop: 1 },
-  fullBtn:    { borderRadius: 9, padding: 14, alignItems: "center" },
+  fullBtn:    { borderRadius: 9, borderWidth: 1.5, borderColor: "#fff", padding: 14, alignItems: "center" },
   chip:       { borderRadius: 7, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
   footerDisclaimer: { fontSize: 12, lineHeight: 18, fontStyle: "italic", textAlign: "center", paddingBottom: 12 },
 });

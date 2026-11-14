@@ -150,7 +150,7 @@ export default function WeightCutScreen() {
             <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700", textAlign: "center" }}>No Fight Camp Set</Text>
             <Text style={{ color: colors.mutedForeground, fontSize: 14, textAlign: "center" }}>Set your target weight and fight date to start your weight cut plan.</Text>
             <TouchableOpacity onPress={openSetup}
-              style={{ backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 }}>
+              style={{ backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: "#fff" }}>
               <Text style={{ color: "#fff", fontWeight: "700" }}>Set Up Fight Camp</Text>
             </TouchableOpacity>
           </View>
@@ -254,7 +254,7 @@ export default function WeightCutScreen() {
           <TouchableOpacity
             onPress={() => { const w = parseFloat(weightInput); if (!w) { Alert.alert("Invalid", "Please enter a valid weight"); return; } logWeightMutation.mutate(w); }}
             disabled={logWeightMutation.isPending}
-            style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+            style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, borderWidth: 1.5, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
             {logWeightMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Log Weight</Text>}
           </TouchableOpacity>
         </View>
@@ -317,7 +317,8 @@ export default function WeightCutScreen() {
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {(["same_day", "day_before"] as const).map(t => (
                   <TouchableOpacity key={t} onPress={() => setWeighInTiming(t)}
-                    style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: weighInTiming === t ? colors.primary : colors.secondary }}>
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: weighInTiming === t ? colors.primary : colors.secondary,
+                      borderWidth: weighInTiming === t ? 1.5 : 0, borderColor: "#fff" }}>
                     <Text style={{ color: weighInTiming === t ? "#fff" : colors.mutedForeground, fontWeight: "600" }}>
                       {t === "same_day" ? "Same Day" : "Day Before"}
                     </Text>
@@ -326,7 +327,7 @@ export default function WeightCutScreen() {
               </View>
             </View>
             <TouchableOpacity onPress={submitSetup} disabled={setupMutation.isPending}
-              style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 8 }}>
+              style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, borderWidth: 1.5, borderColor: "#fff", alignItems: "center", justifyContent: "center", marginTop: 8 }}>
               {setupMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Save Plan</Text>}
             </TouchableOpacity>
           </ScrollView>

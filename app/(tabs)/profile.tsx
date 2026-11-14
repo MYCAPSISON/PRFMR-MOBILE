@@ -19,7 +19,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_API_BASE = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
-  : (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  : (process.env.EXPO_PUBLIC_API_URL ?? "https://app.prfmr.link/api").replace(/\/$/, "");
 
 // ─────────────────────────────────────────
 // Types
@@ -276,7 +276,7 @@ function BodyFatEditor({ current, onSave }: { current: number | null; onSave: (v
         onChangeText={setVal}
         autoFocus
       />
-      <TouchableOpacity style={[s.btnTiny, { backgroundColor: colors.primary, marginLeft: 6 }]}
+      <TouchableOpacity style={[s.btnTiny, { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff", marginLeft: 6 }]}
         onPress={() => {
           const n = parseFloat(val);
           if (isNaN(n) || n < 3 || n > 55) {
@@ -506,7 +506,7 @@ export default function ProfileScreen() {
                   onSubmitEditing={() => { if (newDisplayNameInput.trim()) nameMut.mutate(newDisplayNameInput.trim()); }}
                 />
                 <TouchableOpacity
-                  style={{ backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}
+                  style={{ backgroundColor: colors.primary, borderRadius: 8, borderWidth: 1.5, borderColor: "#fff", paddingHorizontal: 10, paddingVertical: 5 }}
                   onPress={() => { if (newDisplayNameInput.trim()) nameMut.mutate(newDisplayNameInput.trim()); }}
                   disabled={!newDisplayNameInput.trim() || nameMut.isPending}
                 >
@@ -679,7 +679,7 @@ export default function ProfileScreen() {
                   disabled={sportMut.isPending || !sportPick || !levelPick}
                   style={[
                     s.primaryAction,
-                    { backgroundColor: colors.primary, opacity: sportMut.isPending || !sportPick || !levelPick ? 0.45 : 1 },
+                    { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff", opacity: sportMut.isPending || !sportPick || !levelPick ? 0.45 : 1 },
                   ]}
                   onPress={saveSport}
                 >
@@ -719,7 +719,7 @@ export default function ProfileScreen() {
             <Text style={[s.cardTitle, { color: colors.foreground }]}>Nutrition Targets</Text>
             <Text style={[s.cardDescription, { color: colors.mutedForeground }]}>Calculated daily goals</Text>
             <View style={s.targetGrid}>
-              <TargetCell label="Calories" value={Math.round(targets.adjustedCalories || targets.targetCalories)} />
+              <TargetCell label="Calories" value={Math.round(targets.targetCalories)} />
               <TargetCell label="Protein" value={`${Math.round(targets.targetProtein)}g`} />
               <TargetCell label="Carbs" value={`${Math.round(targets.targetCarbs)}g`} />
               <TargetCell label="Fat" value={`${Math.round(targets.targetFat)}g`} />

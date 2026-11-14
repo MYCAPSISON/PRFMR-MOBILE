@@ -126,7 +126,7 @@ export default function ForgotPasswordScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, borderWidth: 1.5, borderColor: "#e5e7eb", opacity: (loading || sent) ? 0.65 : 1 }]}
+              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, borderWidth: 1.5, borderColor: "#fff", opacity: (loading || sent) ? 0.65 : 1 }]}
               onPress={handleSubmit}
               disabled={loading || sent}
             >

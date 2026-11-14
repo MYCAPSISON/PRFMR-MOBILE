@@ -176,6 +176,6 @@ const s = StyleSheet.create({
   catGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   catCard: { width: "47.5%", borderRadius: 9, borderWidth: 1, padding: 12, alignItems: "center" },
   textarea: { borderRadius: 9, borderWidth: 1, padding: 12, fontSize: 14, minHeight: 120, lineHeight: 20 },
-  fullBtn: { borderRadius: 9, padding: 14, alignItems: "center" },
+  fullBtn: { borderRadius: 9, borderWidth: 1.5, borderColor: "#fff", padding: 14, alignItems: "center" },
   successIcon: { width: 72, height: 72, borderRadius: 36, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
 });

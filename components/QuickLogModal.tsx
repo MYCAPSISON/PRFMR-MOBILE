@@ -29,7 +29,7 @@ import {
   TimeOfDay,
 } from "../lib/quickLogParser";
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { useColors } from "../hooks/useColors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -611,6 +611,8 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: colors.primary,
+                  borderWidth: 1.5,
+                  borderColor: "#fff",
                   borderRadius: 12,
                   padding: 14,
                   marginTop: 12,
@@ -780,6 +782,8 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: "#ff7a00",
+                      borderWidth: 1.5,
+                      borderColor: "#fff",
                       borderRadius: 10,
                       padding: 14,
                       marginTop: 4,
@@ -841,6 +845,8 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: "#ff7a00",
+                      borderWidth: 1.5,
+                      borderColor: "#fff",
                       borderRadius: 10,
                       padding: 14,
                       opacity: weightVal && !isSaving ? 1 : 0.4,
@@ -965,6 +971,8 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: "#ff7a00",
+                      borderWidth: 1.5,
+                      borderColor: "#fff",
                       borderRadius: 10,
                       padding: 14,
                       opacity: activityName.trim() && !isSaving ? 1 : 0.4,
@@ -1034,6 +1042,8 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: "#ff7a00",
+                      borderWidth: 1.5,
+                      borderColor: "#fff",
                       borderRadius: 10,
                       padding: 14,
                       marginTop: 4,

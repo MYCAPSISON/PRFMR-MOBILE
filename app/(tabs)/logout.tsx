@@ -7,7 +7,7 @@ import { useRouter } from "expo-router";
 export default function LogoutScreen() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/(tabs)/");
+    router.replace("/(tabs)");
   }, []);
   return null;
 }

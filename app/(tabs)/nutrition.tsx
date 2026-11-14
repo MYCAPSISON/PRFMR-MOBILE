@@ -147,7 +147,11 @@ export default function NutritionScreen() {
       qc.invalidateQueries({ queryKey: ["food", selectedDate] });
       qc.invalidateQueries({ queryKey: ["targets", selectedDate] });
       qc.invalidateQueries({ queryKey: ["amqs-score", selectedDate] });
-      closeModal();
+      // Leave the modal, meal and search results open for adding more foods.
+      setSelectedFood(null); setGrams("100");
+      setBarcodeCode(""); setBarcodeError("");
+      setCustomName(""); setCustomGrams("100"); setCustomCal("");
+      setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
     },
     onError: (err: any) => {
       console.error("[nutrition] POST /food error:", err?.message ?? err);
@@ -252,7 +256,7 @@ export default function NutritionScreen() {
   const totalProt = food.reduce((s: number, e: any) => s + (e.protein || 0), 0);
   const totalCarbs = food.reduce((s: number, e: any) => s + (e.carbs || 0), 0);
   const totalFat = food.reduce((s: number, e: any) => s + (e.fat || 0), 0);
-  const targetCal = targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+  const targetCal = targets?.targetCalories ?? 2000;
   const targetProt = targets?.targetProtein ?? 150;
   const targetCarbs2 = targets?.targetCarbs ?? 200;
   const targetFat = targets?.targetFat ?? 70;
@@ -373,7 +377,8 @@ export default function NutritionScreen() {
             {MEALS.map(m => (
               <TouchableOpacity key={m.key} onPress={() => setSelectedMeal(m.key)}
                 style={{ flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
-                  backgroundColor: selectedMeal === m.key ? colors.primary : colors.secondary }}>
+                  backgroundColor: selectedMeal === m.key ? colors.primary : colors.secondary,
+                  borderWidth: selectedMeal === m.key ? 1.5 : 0, borderColor: "#fff" }}>
                 <Text style={{ color: selectedMeal === m.key ? "#fff" : colors.mutedForeground, fontSize: 10, fontWeight: "700" }}>{m.label}</Text>
               </TouchableOpacity>
             ))}
@@ -471,7 +476,7 @@ function ConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPending,
       </View>
 
       <TouchableOpacity onPress={onConfirm} disabled={isPending}
-        style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center" }}>
+        style={{ backgroundColor: colors.primary, height: 54, borderRadius: 12, borderWidth: 1.5, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
         {isPending ? <ActivityIndicator color="#fff" /> : (
           <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>
         )}
@@ -598,7 +603,8 @@ function BarcodeTab({ code, onCodeChange, onLookup, loading, error, colors }: {
         />
         <TouchableOpacity onPress={onLookup} disabled={loading || !code.trim()}
           style={{ height: 52, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
-            justifyContent: "center", backgroundColor: code.trim() ? colors.primary : colors.secondary }}>
+            justifyContent: "center", backgroundColor: code.trim() ? colors.primary : colors.secondary,
+            borderWidth: code.trim() ? 1.5 : 0, borderColor: "#fff" }}>
           {loading
             ? <ActivityIndicator color="#fff" size="small" />
             : <Text style={{ color: code.trim() ? "#fff" : colors.mutedForeground, fontWeight: "700" }}>Lookup</Text>}
@@ -670,7 +676,8 @@ function CustomTab({ name, setName, grams, setGrams, cal, setCal, protein, setPr
       ))}
       <TouchableOpacity onPress={onAdd} disabled={!canAdd || isPending}
         style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 4,
-          backgroundColor: canAdd ? colors.primary : colors.secondary }}>
+          backgroundColor: canAdd ? colors.primary : colors.secondary,
+          borderWidth: canAdd ? 1.5 : 0, borderColor: "#fff" }}>
         {isPending
           ? <ActivityIndicator color="#fff" />
           : <Text style={{ color: canAdd ? "#fff" : colors.mutedForeground, fontWeight: "700", fontSize: 16 }}>Add Food</Text>}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -13,17 +13,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Link, router, useLocalSearchParams } from "expo-router";
+import { Link, router, useLocalSearchParams, type Href } from "expo-router";
 import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Google from "expo-auth-session/providers/google";
-import * as WebBrowser from "expo-web-browser";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { loginWithGoogleToken } from "@/lib/api";
-
-// Required: completes any pending auth session redirect on app launch.
-WebBrowser.maybeCompleteAuthSession();
+import { AuthApiError, loginWithAppleCredential, loginWithGoogleToken } from "@/lib/api";
+import { getGoogleSignInModule } from "@/lib/googleSignIn";
 
 // Google OAuth client IDs — set these in your .env / Replit Secrets:
 //   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID      (iOS OAuth 2.0 client from Google Cloud Console)
@@ -33,7 +31,23 @@ WebBrowser.maybeCompleteAuthSession();
 const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-const GOOGLE_CONFIGURED = !!(IOS_CLIENT_ID || ANDROID_CLIENT_ID);
+const GOOGLE_CONFIGURED = Platform.OS === "ios"
+  ? !!(IOS_CLIENT_ID && WEB_CLIENT_ID)
+  : !!WEB_CLIENT_ID;
+const GOOGLE_SIGN_IN_MODULE = getGoogleSignInModule();
+
+function socialErrorMessage(provider: "Google" | "Apple", reason: unknown): string {
+  if (reason instanceof AuthApiError) {
+    if (reason.status === 0) return "Cannot reach the server. Check your connection and try again.";
+    if (reason.status === 400) return `${provider} sent an invalid sign-in request. Please try again.`;
+    if (reason.status === 401) return `${provider} could not authenticate this account. Please try again.`;
+    if (reason.status === 409 && provider === "Apple") {
+      return reason.message || "This email is already associated with another sign-in method. Please use that method.";
+    }
+    if (reason.status === 429) return "Too many sign-in attempts. Please wait and try again later.";
+  }
+  return `${provider} sign-in failed. Please try again.`;
+}
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -45,58 +59,24 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const googleAuthFailed = params.error === "google_auth_failed";
-  const loginDisabled = loading || googleLoading || !identifier.trim() || !password.trim();
-
-  // Native Google Sign-In — uses ASAuthorizationController on iOS (no browser opened).
-  // expo-auth-session handles the full OAuth flow and returns an authentication object.
-  // The hook requires a non-undefined clientId at call time (throws on undefined),
-  // so we fall back to a placeholder; the GOOGLE_CONFIGURED gate in handleGoogleLogin
-  // ensures promptAsync() is never called when real IDs aren't configured.
-  const [_request, response, promptAsync] = Google.useAuthRequest({
-    // expoClientId: when running in Expo Go, expo-auth-session routes the OAuth
-    // flow through https://auth.expo.io (the Expo proxy) rather than the native
-    // iOS flow. Add https://auth.expo.io to your Web OAuth client's Authorised
-    // Redirect URIs in Google Cloud Console for this to work.
-    expoClientId: WEB_CLIENT_ID ?? "not-configured",
-    iosClientId: IOS_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
-    androidClientId: ANDROID_CLIENT_ID ?? WEB_CLIENT_ID ?? "not-configured",
-    webClientId: WEB_CLIENT_ID ?? "not-configured",
-  });
-
-  const handleGoogleToken = useCallback(async (idToken: string) => {
-    try {
-      // POST idToken to the server; server verifies with Google, creates session,
-      // returns Set-Cookie. We capture the cookie via XHR (same path as email login).
-      await loginWithGoogleToken(idToken);
-      await refetchUser();
-      // Root layout watches isAuthenticated and routes to tabs automatically.
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Google sign-in failed. Please try again.");
-    } finally {
-      setGoogleLoading(false);
-    }
-  }, [refetchUser]);
+  const loginDisabled = loading || socialLoading !== null || !identifier.trim() || !password.trim();
 
   useEffect(() => {
-    if (!response) return;
-    if (response.type === "success") {
-      const token = response.authentication?.idToken ?? "";
-      if (token) {
-        handleGoogleToken(token);
-      } else {
-        setError("Google sign-in returned no token. Please try again.");
-        setGoogleLoading(false);
-      }
-    } else if (response.type === "error") {
-      setError(response.error?.message ?? "Google sign-in failed. Please try again.");
-      setGoogleLoading(false);
-    } else if (response.type === "cancel" || response.type === "dismiss") {
-      setGoogleLoading(false);
+    if (GOOGLE_CONFIGURED && GOOGLE_SIGN_IN_MODULE) {
+      GOOGLE_SIGN_IN_MODULE.GoogleSignin.configure({
+        iosClientId: IOS_CLIENT_ID,
+        webClientId: WEB_CLIENT_ID,
+        offlineAccess: false,
+      });
     }
-  }, [response, handleGoogleToken]);
+    if (Platform.OS === "ios") {
+      void AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => setAppleAvailable(false));
+    }
+  }, []);
 
   async function handleLogin() {
     if (!identifier.trim() || !password.trim()) {
@@ -109,6 +89,13 @@ export default function LoginScreen() {
       await login(identifier.trim(), password);
       router.replace("/(tabs)");
     } catch (e: unknown) {
+      if (e instanceof AuthApiError && e.code === "EMAIL_VERIFICATION_REQUIRED") {
+        router.push({
+          pathname: "/(auth)/check-email",
+          params: { email: identifier.trim().toLowerCase(), cooldown: "0" },
+        } as unknown as Href);
+        return;
+      }
       setError(e instanceof Error ? e.message : "Login failed");
     } finally {
       setLoading(false);
@@ -120,11 +107,63 @@ export default function LoginScreen() {
       setError("Google sign-in requires setup — please contact the app administrator.");
       return;
     }
+    if (!GOOGLE_SIGN_IN_MODULE) {
+      setError("Google sign-in is unavailable in Expo Go. Use a PRFMR development or preview build to test it.");
+      return;
+    }
     setError(null);
-    setGoogleLoading(true);
-    // promptAsync() opens the native Google sign-in sheet (iOS) or account picker (Android).
-    // The result arrives asynchronously via the `response` state, handled by the useEffect above.
-    await promptAsync();
+    setSocialLoading("google");
+    try {
+      if (Platform.OS === "android") {
+        await GOOGLE_SIGN_IN_MODULE.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      }
+      const response = await GOOGLE_SIGN_IN_MODULE.GoogleSignin.signIn();
+      if (GOOGLE_SIGN_IN_MODULE.isCancelledResponse(response)) return;
+      const idToken = response.data.idToken;
+      if (!idToken) throw new Error("Google returned no identity token.");
+      await loginWithGoogleToken(idToken);
+      await refetchUser();
+    } catch (reason) {
+      setError(socialErrorMessage("Google", reason));
+    } finally {
+      setSocialLoading(null);
+    }
+  }
+
+  async function handleAppleLogin() {
+    if (socialLoading !== null || !appleAvailable) return;
+    setError(null);
+    setSocialLoading("apple");
+    try {
+      const state = Crypto.randomUUID();
+      const nonce = Crypto.randomUUID();
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        state,
+        nonce,
+      });
+      if (credential.state !== state) throw new Error("Apple sign-in state did not match.");
+      if (!credential.identityToken) throw new Error("Apple returned no identity token.");
+
+      await loginWithAppleCredential({
+        identityToken: credential.identityToken,
+        authorizationCode: credential.authorizationCode ?? undefined,
+        fullName: credential.fullName ? {
+          givenName: credential.fullName.givenName ?? undefined,
+          familyName: credential.fullName.familyName ?? undefined,
+        } : undefined,
+        email: credential.email ?? undefined,
+      });
+      await refetchUser();
+    } catch (reason) {
+      if (reason && typeof reason === "object" && "code" in reason && reason.code === "ERR_REQUEST_CANCELED") return;
+      setError(socialErrorMessage("Apple", reason));
+    } finally {
+      setSocialLoading(null);
+    }
   }
 
   function handleForgotPassword() {
@@ -189,20 +228,42 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               testID="button-google-login"
-              style={[styles.googleBtn, { borderColor: "#e5e7eb", borderRadius: colors.radius, opacity: googleLoading ? 0.65 : 1 }]}
+              style={[styles.googleBtn, { borderColor: "#e5e7eb", borderRadius: colors.radius, opacity: socialLoading ? 0.65 : 1 }]}
               onPress={handleGoogleLogin}
-              disabled={googleLoading || loading}
+              disabled={socialLoading !== null || loading}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Google"
+              accessibilityState={{ disabled: socialLoading !== null || loading, busy: socialLoading === "google" }}
             >
-              {googleLoading ? (
+              {socialLoading === "google" ? (
                 <ActivityIndicator size="small" color={colors.foreground} />
               ) : (
-                <FontAwesome5 name="google" size={16} color={colors.foreground} />
+                <FontAwesome5 name="google" size={17} color="#4285F4" />
               )}
               <Text style={[styles.googleBtnText, { color: colors.foreground, fontFamily: colors.fonts.sansBd }]}>
-                {googleLoading ? "Opening…" : "Continue with Google"}
+                {socialLoading === "google" ? "Signing in…" : "Continue with Google"}
               </Text>
             </TouchableOpacity>
+
+            {appleAvailable ? (
+              <View style={[styles.appleButtonWrap, { opacity: socialLoading ? 0.65 : 1 }]}>
+                <AppleAuthentication.AppleAuthenticationButton
+                  testID="button-apple-login"
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                  cornerRadius={colors.radius}
+                  style={styles.appleButton}
+                  onPress={handleAppleLogin}
+                  accessibilityLabel="Continue with Apple"
+                  accessibilityState={{ disabled: socialLoading !== null || loading, busy: socialLoading === "apple" }}
+                  pointerEvents={socialLoading !== null || loading ? "none" : "auto"}
+                />
+                {socialLoading === "apple" ? (
+                  <View pointerEvents="none" style={styles.appleLoading}><ActivityIndicator color="#000" /></View>
+                ) : null}
+              </View>
+            ) : null}
 
             <View style={styles.divider}>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
@@ -256,7 +317,7 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               testID="button-login"
-              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, borderWidth: 1.5, borderColor: "#e5e7eb", opacity: loginDisabled ? 0.65 : 1 }]}
+              style={[styles.btn, { backgroundColor: colors.primary, borderRadius: colors.radius, borderWidth: 1.5, borderColor: "#fff", opacity: loginDisabled ? 0.65 : 1 }]}
               onPress={handleLogin}
               disabled={loginDisabled}
             >
@@ -272,18 +333,15 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            <View style={styles.signupRow}>
-              <Text style={[styles.signupText, { color: colors.mutedForeground, fontFamily: colors.fonts.sans }]}>
-                Have an invite code?{" "}
-              </Text>
-              <Link href="/(auth)/signup" asChild>
-                <Pressable testID="link-register">
-                  <Text style={[styles.signupLink, { color: colors.primary, fontFamily: colors.fonts.sansBd }]}>
-                    Create account
-                  </Text>
-                </Pressable>
-              </Link>
-            </View>
+            <Link href="/(auth)/signup" asChild>
+              <Pressable
+                testID="link-register"
+                style={[styles.createAccountButton, { borderColor: colors.primary }]}
+              >
+                <Text style={[styles.createAccountText, { color: colors.primary, fontFamily: colors.fonts.sansBd }]}>Create Account</Text>
+                <Feather name="user-plus" size={19} color={colors.primary} />
+              </Pressable>
+            </Link>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -397,6 +455,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  appleButtonWrap: {
+    height: 48,
+    marginBottom: 18,
+    position: "relative",
+  },
+  appleButton: {
+    width: "100%",
+    height: 48,
+  },
+  appleLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 8,
+  },
   divider: {
     flexDirection: "row",
     alignItems: "center",
@@ -415,12 +489,19 @@ const styles = StyleSheet.create({
     marginTop: -4,
     marginBottom: 14,
   },
-  signupRow: {
+  createAccountButton: {
+    width: "100%",
+    minHeight: 52,
+    borderWidth: 1.5,
+    borderRadius: 10,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "center",
+    gap: 9,
   },
-  signupText: {
-    fontSize: 14,
+  createAccountText: {
+    fontSize: 18,
+    fontWeight: "800",
   },
   signupLink: {
     fontSize: 14,

@@ -374,7 +374,7 @@ function TrainingLoadWarningModal({
             onPress={handleContinue}
             disabled={saving}
             style={{ height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center",
-              backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#e5e7eb" }}>
+              backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff" }}>
             {saving
               ? <ActivityIndicator color="#fff" size="small" />
               : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>}
@@ -651,7 +651,7 @@ function AddActivityModal({
             </Text>
           )}
 
-          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSubmit ? 1 : 0.4, borderWidth: 1.5, borderColor: "#e5e7eb" }]}
+          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSubmit ? 1 : 0.4, borderWidth: 1.5, borderColor: "#fff" }]}
             disabled={!canSubmit} onPress={() => addMut.mutate()}>
             {addMut.isPending
               ? <ActivityIndicator color="#fff" size="small" />
@@ -793,7 +793,7 @@ function EditActivityModal({
             </Text>
           )}
 
-          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, borderWidth: 1.5, borderColor: "#e5e7eb" }]}
+          <TouchableOpacity style={[s.fullBtn, { backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, borderWidth: 1.5, borderColor: "#fff" }]}
             disabled={!canSave} onPress={() => patchMut.mutate()}>
             {patchMut.isPending
               ? <ActivityIndicator color="#fff" size="small" />
@@ -1261,7 +1261,22 @@ export default function TrainingScreen() {
           name: activeBlock.name,
           startDate: activeBlock.startDate,
           weekCount: activeBlock.weekCount,
-          days: activeBlock.days ?? [],
+          days: (activeBlock.days ?? []).map(day => ({
+            ...day,
+            activities: day.activities?.map(activity => ({
+              activityType: activity.activityType === "lifting" ? "lifting" as const : "cardio" as const,
+              name: activity.name,
+              rpe: activity.rpe ?? undefined,
+              durationMinutes: activity.durationMinutes ?? undefined,
+              metValue: activity.metValue ?? undefined,
+              intensity: activity.intensity,
+              bodyRegion: activity.bodyRegion,
+              activityCatalogId: activity.activityCatalogId,
+              slot: activity.slot === "morning" || activity.slot === "afternoon"
+                ? activity.slot
+                : "evening" as const,
+            })),
+          })),
         } : null}
       />
     </SafeAreaView>

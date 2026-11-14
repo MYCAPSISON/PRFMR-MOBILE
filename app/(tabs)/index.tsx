@@ -16,7 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ApiError, apiFetch } from "@/lib/api";
 import { calculateWeightCutPlan } from "@/lib/weightCutPlan";
 import { useRouter } from "expo-router";
-import Svg, { Path as SvgPath, Polyline, Polygon as SvgPolygon, Circle as SvgCircle, Line as SvgLine, Text as SvgText, Rect as SvgRect } from "react-native-svg";
+import Svg, { Path as SvgPath, Polyline, Circle as SvgCircle, Line as SvgLine, Text as SvgText, Rect as SvgRect } from "react-native-svg";
 import { INGREDIENTS_DATA } from "../../lib/ingredients-data";
 import { useFightCampOverride, type FCOverrideState } from "../../hooks/useFightCampOverride";
 import { getCoreFoodUnit, computeUnitGrams, type UnitSize } from "../../lib/coreFoodUnits";
@@ -136,6 +136,8 @@ interface Targets {
   adjustedCalories: number;
   trainingCaloriesEarned: number;
   mode?: string;
+  modeLabel?: string;
+  modeNote?: string;
   ffmKg?: number;
   eaValue?: number;
   isLowEA?: boolean;
@@ -582,6 +584,10 @@ function FightCampHero({ date }: { date: string }) {
     },
     onSuccess: (_, newWeight) => {
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
+      // Effective targets are calculated by the API from the current plan and
+      // body metrics. Refresh them after a weight change instead of trying to
+      // reproduce that calculation in the client.
+      qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["morning-status", date] });
       qc.invalidateQueries({ queryKey: ["weights-range"] });
       qc.invalidateQueries({ queryKey: ["weights-range-7d"] });
@@ -631,8 +637,14 @@ function FightCampHero({ date }: { date: string }) {
 
   const createMut = useMutation({
     mutationFn: (body: object) => apiFetch("/me/weight-cut", { method: "POST", body }),
-    onSuccess: (_, variables: any) => {
-      qc.invalidateQueries({ queryKey: ["weight-cut"] });
+    onSuccess: async (_, variables: any) => {
+      // The plan and effective targets are separate API resources. A plan
+      // change can switch the server-selected goal mode and calorie targets,
+      // so both caches must be refreshed before presenting the updated state.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["weight-cut"], refetchType: "active" }),
+        qc.invalidateQueries({ queryKey: ["targets"], refetchType: "active" }),
+      ]);
       const wasCreate = dialogMode === "create";
       setDialogMode(null);
       if (wasCreate) {
@@ -664,8 +676,11 @@ function FightCampHero({ date }: { date: string }) {
 
   const deleteMut = useMutation({
     mutationFn: () => apiFetch("/me/weight-cut", { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["weight-cut"] });
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["weight-cut"], refetchType: "active" }),
+        qc.invalidateQueries({ queryKey: ["targets"], refetchType: "active" }),
+      ]);
       showToast({ title: "Weight cut plan removed" });
     },
   });
@@ -920,7 +935,7 @@ function FightCampHero({ date }: { date: string }) {
             <TouchableOpacity
               onPress={handleSubmit}
               disabled={createMut.isPending || !formCW || !formTW || !formDate}
-              style={{ backgroundColor: colors.primary, borderRadius: 12, padding: 14, alignItems: "center",
+              style={{ backgroundColor: colors.primary, borderRadius: 12, borderWidth: 1.5, borderColor: "#fff", padding: 14, alignItems: "center",
                 opacity: (createMut.isPending || !formCW || !formTW || !formDate) ? 0.5 : 1 }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
                 {createMut.isPending ? "Saving…" : dialogMode === "edit" ? "Update Plan" : "Start Camp Plan"}
@@ -1028,7 +1043,7 @@ function FightCampHero({ date }: { date: string }) {
               Set a fight date to start your camp plan — track your cut and stay on pace.
             </Text>
             <TouchableOpacity onPress={openCreate}
-              style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+              style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: "#fff" }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Set a fight date</Text>
             </TouchableOpacity>
           </View>
@@ -1113,7 +1128,7 @@ function FightCampHero({ date }: { date: string }) {
                 onChangeText={setWeightVal}
                 autoFocus
               />
-              <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, marginLeft: 8 }]}
+              <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff", marginLeft: 8 }]}
                 onPress={() => { const w = parseFloat(weightVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}
                 disabled={weightMut.isPending}>
                 <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
@@ -1397,7 +1412,7 @@ function MorningCheckInGate({ date }: { date: string }) {
                     <TouchableOpacity
                       onPress={() => { const h = parseFloat(gateSlH); if (!isNaN(h) && h > 0) sleepMut.mutate({ hoursSlept: h, sleepQuality: gateSlQ }); }}
                       disabled={sleepMut.isPending || !gateSlH}
-                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, padding: 10, alignItems: "center",
+                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, borderWidth: 1.5, borderColor: "#fff", padding: 10, alignItems: "center",
                         opacity: (!gateSlH || sleepMut.isPending) ? 0.5 : 1 }}>
                       <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
                         {sleepMut.isPending ? "Saving…" : "Save"}
@@ -1451,7 +1466,7 @@ function MorningCheckInGate({ date }: { date: string }) {
                     <TouchableOpacity
                       onPress={() => { const w = parseFloat(gateWtVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}
                       disabled={weightMut.isPending || !gateWtVal}
-                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, padding: 10, alignItems: "center",
+                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, borderWidth: 1.5, borderColor: "#fff", padding: 10, alignItems: "center",
                         opacity: (!gateWtVal || weightMut.isPending) ? 0.5 : 1 }}>
                       <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
                         {weightMut.isPending ? "Saving…" : "Save"}
@@ -1509,8 +1524,7 @@ function MorningCheckInGate({ date }: { date: string }) {
         {/* Continue button */}
         <TouchableOpacity
           onPress={markSeen}
-          style={{ backgroundColor: colors.primary, borderRadius: 8, padding: 13, alignItems: "center", marginTop: 16,
-            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+          style={{ backgroundColor: colors.primary, borderRadius: 8, borderWidth: 1.5, borderColor: "#fff", padding: 13, alignItems: "center", marginTop: 16 }}>
           <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Continue</Text>
         </TouchableOpacity>
       </View>
@@ -1637,7 +1651,7 @@ function MorningCheckIn({ date }: { date: string }) {
             ))}
           </View>
           <View style={[styles.row, { marginTop: 10 }]}>
-            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, flex: 1, justifyContent: "center", marginRight: 6 }]}
+            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff", flex: 1, justifyContent: "center", marginRight: 6 }]}
               onPress={() => { const h = parseFloat(sleepH); if (!isNaN(h) && h > 0) sleepMut.mutate({ hoursSlept: h, sleepQuality: sleepQ }); }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
             </TouchableOpacity>
@@ -1674,7 +1688,7 @@ function MorningCheckIn({ date }: { date: string }) {
             autoFocus
           />
           <View style={[styles.row, { marginTop: 8 }]}>
-            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, flex: 1, justifyContent: "center", marginRight: 6 }]}
+            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff", flex: 1, justifyContent: "center", marginRight: 6 }]}
               onPress={() => { const w = parseFloat(weightVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}>
               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
             </TouchableOpacity>
@@ -1697,7 +1711,7 @@ function MorningCheckIn({ date }: { date: string }) {
             <Text style={[styles.xs, { color: colors.mutedForeground }]}>Log a session or mark rest</Text>
           </View>
           <View style={{ flexDirection: "row", gap: 6 }}>
-            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary }]}
+            <TouchableOpacity style={[styles.btnSm, { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff" }]}
               onPress={() => router.push("/(tabs)/training" as any)}>
               <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>Log</Text>
             </TouchableOpacity>
@@ -1936,6 +1950,8 @@ function ProvisionalCheckIn({ date }: { date: string }) {
       <TouchableOpacity
         style={[styles.fullBtn, {
           backgroundColor: colors.primary,
+          borderWidth: 1.5,
+          borderColor: "#fff",
           opacity: (feel && fuel && intensity) ? 1 : 0.4,
           marginTop: 16,
         }]}
@@ -1983,7 +1999,7 @@ function DailyIntakeCard({
   if (!t) return null;
 
   const isFightCamp = t.mode === "fight_camp";
-  const cal = adjCalProp ?? Math.round(t.adjustedCalories || t.targetCalories);
+  const cal = adjCalProp ?? Math.round(t.targetCalories);
   const carbs = adjCarbsProp ?? Math.round(t.targetCarbs);
 
   const eaDecision = fcOverride?.eaDecision;
@@ -1993,7 +2009,7 @@ function DailyIntakeCard({
 
   // Re-compute effective EA after override (spec §9.14.3)
   const ffmKg = t.ffmKg;
-  const serverCals = t.adjustedCalories || t.targetCalories;
+  const serverCals = t.targetCalories;
   const exerciseKcal = ffmKg && t.eaValue != null ? serverCals - t.eaValue * ffmKg : 0;
   const effectiveEA = ffmKg && ffmKg > 0 ? Math.round((cal - exerciseKcal) / ffmKg) : t.eaValue;
 
@@ -2024,21 +2040,39 @@ function DailyIntakeCard({
         </TouchableOpacity>
       </View>
       {showInfo && (
-        <View style={styles.intakeInfoPopover}>
-          <Text style={styles.intakeInfoTitle} allowFontScaling={false}>Goal Mode: Fight Camp Fat Loss</Text>
-          <Text style={styles.intakeInfoOrange} allowFontScaling={false}>
-            {isRestDay ? "Rest day — target is based on NEAT only." : "Training day — target includes logged activity."}
-          </Text>
-          <Text style={styles.intakeInfoBody} allowFontScaling={false}>
-            Training is baked into the calorie target. An EA floor of 30 kcal/kg FFM prevents under-fuelling. Macros adapt to your training load each day.
-          </Text>
-          <Text style={styles.intakeInfoMuted} allowFontScaling={false}>
-            Daily deficit: {dailyDeficit} kcal · TDEE: {tdee} kcal
-          </Text>
-          <Text style={styles.intakeInfoMuted} allowFontScaling={false}>
-            These are estimates only. Adjust based on trends and performance. Not medical advice.
-          </Text>
-        </View>
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowInfo(false)}
+          statusBarTranslucent
+        >
+          <Pressable
+            style={styles.intakeInfoBackdrop}
+            onPress={() => setShowInfo(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss goal mode information"
+          >
+            <Pressable style={styles.intakeInfoModal} onPress={(event) => event.stopPropagation()}>
+              <Text style={styles.intakeInfoTitle} allowFontScaling={false}>
+                Goal Mode: {t.modeLabel ?? t.mode?.replace(/_/g, " ") ?? "—"}
+              </Text>
+              {!!t.modeNote && (
+                <Text style={isFightCamp ? styles.intakeInfoOrange : styles.intakeInfoBody} allowFontScaling={false}>
+                  {t.modeNote}
+                </Text>
+              )}
+              {isFightCamp && (
+                <Text style={styles.intakeInfoMuted} allowFontScaling={false}>
+                  Daily deficit: {dailyDeficit} kcal · TDEE: {tdee} kcal
+                </Text>
+              )}
+              <Text style={styles.intakeInfoMuted} allowFontScaling={false}>
+                These are estimates only. Adjust based on trends and performance. Not medical advice.
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Modal>
       )}
       {isFightCamp && (
         <View style={styles.intakeBadge}>
@@ -2189,7 +2223,7 @@ function SupplementsToday({ date }: { date: string }) {
               title: `AMQS +${delta}`,
               description: "Supplement boosted your micronutrient score.",
               actionLabel: "See updated gaps",
-              onAction: () => router.replace("/(tabs)" as any),
+              onAction: () => router.push("/amqs" as any),
             });
             return;
           }
@@ -2590,7 +2624,10 @@ function AmqsSparkline({ scores, color }: { scores: { date: string; score: numbe
 // ─────────────────────────────────────────
 function WeightTrend({ date }: { date: string }) {
   const colors = useColors();
-  const start = format(subWeeks(new Date(date + "T12:00:00"), 4), "yyyy-MM-dd");
+  // This card shows the last seven recorded entries, even when those entries
+  // are sparse. Use the existing range API for full history, then select the
+  // seven most recent records below.
+  const start = "1970-01-01";
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   const { data: weights = [] } = useQuery<WeightEntry[]>({
@@ -2616,14 +2653,24 @@ function WeightTrend({ date }: { date: string }) {
   }
 
   const chartPoints = last7.map((e, i) => ({ x: xOf(i), y: yOf(e.weight) }));
-  const pts = chartPoints.map(p => `${p.x},${p.y}`).join(" ");
-  const smoothPath = chartPoints.reduce((path, point, index, points) => {
+  // Catmull-Rom-to-Bezier conversion gives a smooth spline which still passes
+  // through every recorded weight point.
+  const splinePath = chartPoints.reduce((path, point, index, points) => {
     if (index === 0) return `M ${point.x} ${point.y}`;
-    const prev = points[index - 1];
-    const midX = (prev.x + point.x) / 2;
-    return `${path} Q ${prev.x} ${prev.y} ${midX} ${(prev.y + point.y) / 2} T ${point.x} ${point.y}`;
+    const p0 = points[index - 2] ?? points[index - 1];
+    const p1 = points[index - 1];
+    const p2 = point;
+    const p3 = points[index + 1] ?? p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    return `${path} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
   }, "");
-  const areaPts = `${PAD.l},${PAD.t + cH} ${pts} ${xOf(last7.length - 1)},${PAD.t + cH}`;
+  const baselineY = PAD.t + cH;
+  const areaPath = chartPoints.length
+    ? `${splinePath} L ${chartPoints[chartPoints.length - 1].x} ${baselineY} L ${chartPoints[0].x} ${baselineY} Z`
+    : "";
   const activeIndex = selectedIndex;
   const active = activeIndex != null ? last7[activeIndex] : null;
   const activeX = activeIndex != null ? xOf(activeIndex) : 0;
@@ -2634,11 +2681,9 @@ function WeightTrend({ date }: { date: string }) {
   const tooltipY = Math.max(PAD.t + 8, activeY - tooltipH / 2);
 
   useEffect(() => {
-    if (last7.length >= 2) {
-      setSelectedIndex(current => (current != null && current < last7.length ? current : last7.length - 1));
-    } else {
-      setSelectedIndex(null);
-    }
+    // A tooltip should only be visible after the user selects a point.
+    // Changing the date/data also clears any previous selection.
+    setSelectedIndex(null);
   }, [date, last7.length]);
 
   return (
@@ -2660,6 +2705,14 @@ function WeightTrend({ date }: { date: string }) {
         <>
         <View style={{ marginTop: 8, height: SVG_H }}>
           <Svg width="100%" height={SVG_H} viewBox={`0 0 ${SVG_W} ${SVG_H}`}>
+            <SvgRect
+              x={0}
+              y={0}
+              width={SVG_W}
+              height={SVG_H}
+              fill="transparent"
+              onPress={() => setSelectedIndex(null)}
+            />
             {[0, 0.5, 1].map(pct => {
               const y = PAD.t + pct * cH;
               const val = (maxW - pct * rng).toFixed(1);
@@ -2678,8 +2731,8 @@ function WeightTrend({ date }: { date: string }) {
                 </SvgText>
               ) : null
             ))}
-            <SvgPolygon points={areaPts} fill="rgba(255,122,0,0.12)" />
-            <SvgPath d={smoothPath} fill="none" stroke="#ff7a00" strokeWidth={2.5}
+            <SvgPath d={areaPath} fill="rgba(255,122,0,0.12)" stroke="none" />
+            <SvgPath d={splinePath} fill="none" stroke="#ff7a00" strokeWidth={2.5}
               strokeLinejoin="round" strokeLinecap="round" />
             {last7.map((e, i) => (
               <React.Fragment key={e.date}>
@@ -2988,7 +3041,7 @@ function MealConfirmView({ food, grams, onGramsChange, onConfirm, onBack, isPend
 
       <TouchableOpacity onPress={() => onConfirm(mapIngredient?.index)} disabled={isPending}
         style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-          borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+          borderWidth: 1.5, borderColor: "#fff" }}>
         {isPending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
       </TouchableOpacity>
       <TouchableOpacity onPress={onBack} style={{ alignItems: "center", padding: 12 }}>
@@ -3421,7 +3474,7 @@ function EditFoodModal({ entry, date, onClose }: { entry: FoodEntry; date: strin
             <TouchableOpacity
               style={{ height: 52, borderRadius: 12, alignItems: "center", justifyContent: "center",
                 backgroundColor: "#ff7a00", opacity: canSave ? 1 : 0.4, marginTop: 4,
-                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}
+                borderWidth: 1.5, borderColor: "#fff" }}
               disabled={!canSave} onPress={() => patchMut.mutate()}>
               {patchMut.isPending
                 ? <ActivityIndicator color="#fff" size="small" />
@@ -3502,12 +3555,14 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
   const [copyEntry, setCopyEntry] = useState<FoodEntry | null>(null);
   const [copyDate, setCopyDate] = useState(new Date());
+  const [copyDatePickerOpen, setCopyDatePickerOpen] = useState(false);
   const [copyMeal, setCopyMeal] = useState("breakfast");
   const [copyMealDropdownOpen, setCopyMealDropdownOpen] = useState(false);
   const [copyPending, setCopyPending] = useState(false);
   // Meal-level copy
   const [mealCopyGroup, setMealCopyGroup] = useState<{ key: string; type: string; label: string } | null>(null);
   const [mealCopyDate, setMealCopyDate] = useState(new Date());
+  const [mealCopyDatePickerOpen, setMealCopyDatePickerOpen] = useState(false);
   const [mealCopyMeal, setMealCopyMeal] = useState("breakfast");
   const [mealCopyMealOpen, setMealCopyMealOpen] = useState(false);
   const [mealCopyPending, setMealCopyPending] = useState(false);
@@ -3527,6 +3582,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
     setCopyDate(new Date());
     setCopyMeal(e.meal ?? "breakfast");
     setCopyEntry(e);
+    setCopyDatePickerOpen(false);
     setCopyMealDropdownOpen(false);
   }
 
@@ -3693,6 +3749,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
         carbsPer100g: ing.carbs_g_per_100g ?? 0,
         fatPer100g: ing.fat_g_per_100g ?? 0,
         fibrePer100g: ing.fibre_g_per_100g ?? ing.fiber_g_per_100g ?? 0,
+        sourceType: "ingredient",
         defaultGrams: 100,
       }))
     : INGREDIENTS_DATA;
@@ -3728,7 +3785,15 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
       }
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
-      closeModal();
+      // Keep the sheet, meal and search results available for the next item.
+      setSelectedFood(null); setGrams("100");
+      setWfSelectedFood(null); setWfCount(1); setWfGrams("100");
+      setCustomName(""); setCustomGrams("100"); setCustomCal("");
+      setCustomProtein(""); setCustomCarbs(""); setCustomFat(""); setCustomFibre("0");
+      setBarcodeCode(""); setBarcodeError(""); setCameraScanned(false);
+      setBarcodeResult(null); setBarcodeRaw(null); setBarcodeLastCode("");
+      setBarcodeMapState(null); setBarcodeMapIngredient(null); setBarcodeMapSearch("");
+      setBarcodeGrams("100"); setShowBarcodeCamera(false);
 
       const name = String((variables as any).name ?? "Food");
       const now = Date.now();
@@ -4057,7 +4122,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                   <TouchableOpacity onPress={() => { setMealSaveGroup(g); setMealSaveName(""); }} hitSlop={8}>
                     <Feather name="bookmark" size={20} color={colors.mutedForeground} />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setMealCopyGroup(g); setMealCopyDate(new Date()); setMealCopyMeal(g.type); setMealCopyMealOpen(false); }} hitSlop={8}>
+                  <TouchableOpacity onPress={() => { setMealCopyGroup(g); setMealCopyDate(new Date()); setMealCopyDatePickerOpen(false); setMealCopyMeal(g.type); setMealCopyMealOpen(false); }} hitSlop={8}>
                     <Feather name="copy" size={20} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 </View>
@@ -4116,18 +4181,45 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4,
             paddingHorizontal: 24, marginTop: 20, marginBottom: 6 }}>DATE</Text>
 
-          {/* DateTimePicker OUTSIDE ScrollView to avoid iOS touch conflict */}
-          <DateTimePicker
-            value={copyDate}
-            mode="date"
-            display="inline"
-            onChange={(_, d) => { if (d) setCopyDate(d); }}
-            minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
-            maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
-            themeVariant="dark"
-            accentColor="#ff7a00"
-            style={{ marginHorizontal: 8 }}
-          />
+          {/* The large inline iOS calendar glitches when embedded in a page-sheet.
+              Compact uses the native popover without forcing the sheet to relayout. */}
+          <View style={{ paddingHorizontal: 24, minHeight: 52, justifyContent: "center", alignItems: "flex-start" }}>
+            {Platform.OS === "ios" ? (
+              <DateTimePicker
+                value={copyDate}
+                mode="date"
+                display="compact"
+                onChange={(_, d) => { if (d) setCopyDate(d); }}
+                minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+                maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+                themeVariant="dark"
+                accentColor="#ff7a00"
+              />
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={() => setCopyDatePickerOpen(true)}
+                  style={{ minHeight: 48, minWidth: 190, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: "#343946", backgroundColor: "#181c26", flexDirection: "row", alignItems: "center", gap: 10 }}
+                >
+                  <Feather name="calendar" size={18} color="#ff7a00" />
+                  <Text style={{ color: "#eceef2", fontSize: 15, fontWeight: "600" }}>{format(copyDate, "EEE, d MMM yyyy")}</Text>
+                </TouchableOpacity>
+                {copyDatePickerOpen && (
+                  <DateTimePicker
+                    value={copyDate}
+                    mode="date"
+                    display="calendar"
+                    onChange={(event, d) => {
+                      setCopyDatePickerOpen(false);
+                      if (event.type === "set" && d) setCopyDate(d);
+                    }}
+                    minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+                    maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+                  />
+                )}
+              </>
+            )}
+          </View>
 
           {/* Meal selector + button (not inside ScrollView) */}
           <View style={{ paddingHorizontal: 24, paddingTop: 16, gap: 12 }}>
@@ -4150,7 +4242,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             <TouchableOpacity onPress={handleCopyItem} disabled={copyPending}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
                 backgroundColor: "#ff7a00", marginTop: 4, opacity: copyPending ? 0.7 : 1,
-                borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+                borderWidth: 1.5, borderColor: "#fff" }}>
               {copyPending
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Copy item</Text>}
@@ -4175,17 +4267,43 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
           </Text>
           <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4,
             paddingHorizontal: 24, marginTop: 20, marginBottom: 6 }}>DATE</Text>
-          <DateTimePicker
-            value={mealCopyDate}
-            mode="date"
-            display="inline"
-            onChange={(_, d) => { if (d) setMealCopyDate(d); }}
-            minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
-            maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
-            themeVariant="dark"
-            accentColor="#ff7a00"
-            style={{ marginHorizontal: 8 }}
-          />
+          <View style={{ paddingHorizontal: 24, minHeight: 52, justifyContent: "center", alignItems: "flex-start" }}>
+            {Platform.OS === "ios" ? (
+              <DateTimePicker
+                value={mealCopyDate}
+                mode="date"
+                display="compact"
+                onChange={(_, d) => { if (d) setMealCopyDate(d); }}
+                minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+                maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+                themeVariant="dark"
+                accentColor="#ff7a00"
+              />
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={() => setMealCopyDatePickerOpen(true)}
+                  style={{ minHeight: 48, minWidth: 190, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: "#343946", backgroundColor: "#181c26", flexDirection: "row", alignItems: "center", gap: 10 }}
+                >
+                  <Feather name="calendar" size={18} color="#ff7a00" />
+                  <Text style={{ color: "#eceef2", fontSize: 15, fontWeight: "600" }}>{format(mealCopyDate, "EEE, d MMM yyyy")}</Text>
+                </TouchableOpacity>
+                {mealCopyDatePickerOpen && (
+                  <DateTimePicker
+                    value={mealCopyDate}
+                    mode="date"
+                    display="calendar"
+                    onChange={(event, d) => {
+                      setMealCopyDatePickerOpen(false);
+                      if (event.type === "set" && d) setMealCopyDate(d);
+                    }}
+                    minimumDate={new Date(Date.now() - 60 * 24 * 3600 * 1000)}
+                    maximumDate={new Date(Date.now() + 60 * 24 * 3600 * 1000)}
+                  />
+                )}
+              </>
+            )}
+          </View>
           <View style={{ paddingHorizontal: 24, paddingTop: 16, gap: 12 }}>
             <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "600", letterSpacing: 0.4 }}>MEAL</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
@@ -4203,7 +4321,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
             </View>
             <TouchableOpacity onPress={handleCopyMeal} disabled={mealCopyPending}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#e5e7eb",
+                backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#fff",
                 marginTop: 4, opacity: mealCopyPending ? 0.7 : 1 }}>
               {mealCopyPending
                 ? <ActivityIndicator color="#fff" />
@@ -4244,7 +4362,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
               onPress={handleSaveMealTemplate}
               disabled={mealSavePending || !mealSaveName.trim()}
               style={{ height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#e5e7eb",
+                backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#fff",
                 opacity: (mealSavePending || !mealSaveName.trim()) ? 0.4 : 1 }}>
               {mealSavePending
                 ? <ActivityIndicator color="#fff" />
@@ -4313,7 +4431,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                 </TouchableOpacity>
                 <TouchableOpacity onPress={handleLogTemplate} disabled={savedMealsLogPending}
                   style={{ flex: 2, height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                    backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#e5e7eb",
+                    backgroundColor: "#ff7a00", borderWidth: 1.5, borderColor: "#fff",
                     opacity: savedMealsLogPending ? 0.7 : 1 }}>
                   {savedMealsLogPending
                     ? <ActivityIndicator color="#fff" />
@@ -4651,7 +4769,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           onPress={() => addMut.mutate(buildPayload(wfSelectedFood!, wfGrams))}
                           disabled={addMut.isPending}
                           style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+                            borderWidth: 1.5, borderColor: "#fff" }}>
                           {addMut.isPending
                             ? <ActivityIndicator color="#fff" />
                             : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add Food</Text>}
@@ -4965,7 +5083,7 @@ function MealsSection({ date, openAddFood, onAddFoodOpened }: { date: string; op
                           disabled={addMut.isPending}
                           style={{ backgroundColor: "#ff7a00", height: 54, borderRadius: 12,
                             alignItems: "center", justifyContent: "center",
-                            borderWidth: 1.5, borderColor: "rgba(255,255,255,0.7)" }}>
+                            borderWidth: 1.5, borderColor: "#fff" }}>
                           {addMut.isPending
                             ? <ActivityIndicator color="#fff" />
                             : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Add to Log</Text>}
@@ -5097,7 +5215,7 @@ export default function DashboardScreen() {
     isLowCarb: effectiveIsLowCarb,
     eaRecommendedCalories: targets?.eaRecommendedCalories,
     carbRecommendedG: targets?.carbRecommendedG,
-    serverCalories: targets?.adjustedCalories ?? targets?.targetCalories ?? 2000,
+    serverCalories: targets?.targetCalories ?? 2000,
     serverProtein: targets?.targetProtein ?? 150,
     serverFat: targets?.targetFat ?? 70,
     isFightCamp,
@@ -5116,27 +5234,13 @@ export default function DashboardScreen() {
     return () => clearTimeout(timer);
   }, [isFightCamp, selectedDate, targets?.isBelowPerformanceCarb, targets?.performanceCarbWarning, fcOverride.shouldShowPerfToast, showToast]);
 
-  // Compute adjusted targets (spec §9.14.3 fight-camp, §9.15.5 standard)
+  // The effective-targets API is authoritative. Only explicit fight-camp
+  // consent overrides may alter the returned values on-device.
   const adjustedCalories = (() => {
     if (isFightCamp) {
-      // Fight camp: server bakes training in; apply consent override on top
-      return fcOverride.overrideCalories ?? targets?.adjustedCalories ?? targets?.targetCalories ?? 2000;
+      return fcOverride.overrideCalories ?? targets?.targetCalories ?? 2000;
     }
-    // Standard: client adds training credit on top of server base (§9.15.5)
-    // trainingCaloriesEarned is already provided by targets/effective
-    const baseCalories = targets?.targetCalories ?? 2000;
-    const goal = user?.goal ?? "maintenance";
-    const creditPct: Record<string, number> = { fat_loss: 0.5, maintenance: 0.75, weight_gain: 1.0 };
-    const pct = creditPct[goal] ?? 0.75;
-    const trainingKcal = targets?.trainingCaloriesEarned ?? 0;
-    let cal = baseCalories + Math.round(trainingKcal * pct);
-    // Fat-loss cap: deficit ≤ 1% BW/week (§9.15.5)
-    if (goal === "fat_loss" && user?.currentWeight) {
-      const maxDailyDeficit = Math.round((0.01 * user.currentWeight * 7700) / 7);
-      const tdee = (targets as any)?.tdee ?? baseCalories + 500;
-      if (tdee - cal > maxDailyDeficit) cal = tdee - maxDailyDeficit;
-    }
-    return cal;
+    return targets?.targetCalories ?? 2000;
   })();
   const adjustedCarbs = (() => {
     if (isFightCamp) {
@@ -5148,10 +5252,7 @@ export default function DashboardScreen() {
       }
       return targets?.targetCarbs ?? 200;
     }
-    // Standard: extra calories from training credit go to carbs
-    const baseCalories = targets?.targetCalories ?? 2000;
-    const baseCarbs = targets?.targetCarbs ?? 200;
-    return baseCarbs + Math.round(Math.max(0, adjustedCalories - baseCalories) / 4);
+    return targets?.targetCarbs ?? 200;
   })();
 
   const weightMut = useMutation({
@@ -5249,7 +5350,7 @@ export default function DashboardScreen() {
             <MaterialCommunityIcons name="scale-balance" size={16} color={colors.foreground} />
             <Text style={[styles.actionBtnText, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>Update Weight</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary, borderColor: "#e5e7eb" }]}
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary, borderColor: "#fff" }]}
             onPress={() => setAddFoodOpen(true)}>
             <MaterialCommunityIcons name="silverware-fork-knife" size={16} color="#fff" />
             <Text style={[styles.actionBtnText, { color: "#fff" }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>Add Food</Text>
@@ -5402,7 +5503,7 @@ export default function DashboardScreen() {
           <TextInput style={[styles.input, { borderColor: colors.input, color: colors.foreground, backgroundColor: colors.input, marginBottom: 12 }]}
             placeholder="Weight in kg (e.g. 72.5)" placeholderTextColor={colors.mutedForeground}
             keyboardType="decimal-pad" value={weightVal} onChangeText={setWeightVal} autoFocus />
-          <TouchableOpacity style={[styles.fullBtn, { backgroundColor: colors.primary, opacity: weightVal ? 1 : 0.4 }]}
+          <TouchableOpacity style={[styles.fullBtn, { backgroundColor: colors.primary, borderWidth: 1.5, borderColor: "#fff", opacity: weightVal ? 1 : 0.4 }]}
             disabled={!weightVal || weightMut.isPending}
             onPress={() => { const w = parseFloat(weightVal); if (!isNaN(w) && w > 0) weightMut.mutate(w); }}>
             {weightMut.isPending ? <ActivityIndicator color={colors.foreground} size="small" /> : <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Save</Text>}
@@ -5443,7 +5544,7 @@ export default function DashboardScreen() {
                         {targets.eaValue} kcal/kg FFM
                       </Text>
                       <Text style={styles.lowEaSubvalue} allowFontScaling={false}>
-                        {targets.adjustedCalories || targets.targetCalories} kcal/day
+                        {targets.targetCalories} kcal/day
                       </Text>
                     </View>
                   </View>
@@ -5608,7 +5709,8 @@ const styles = StyleSheet.create({
   estimateToggle: { flexDirection: "row", alignItems: "center", marginTop: 12 },
   estimateToggleText: { color: "#8791a3", fontSize: 13, lineHeight: 18, marginLeft: 8, fontFamily: "Inter_600SemiBold" },
   estimateDetailsText: { color: "#8791a3", fontSize: 12, lineHeight: 18, fontStyle: "italic", fontFamily: "Inter_400Regular", marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(135,145,163,0.13)" },
-  intakeInfoPopover: { position: "absolute", top: 48, left: 24, right: 72, zIndex: 30, elevation: 30, borderWidth: 1.2, borderColor: "#e5e7eb", borderRadius: 7, backgroundColor: "#151922", padding: 14 },
+  intakeInfoBackdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 28, backgroundColor: "rgba(0,0,0,0.12)" },
+  intakeInfoModal: { width: "100%", maxWidth: 420, alignSelf: "center", borderWidth: 1.2, borderColor: "#e5e7eb", borderRadius: 7, backgroundColor: "#151922", padding: 14 },
   intakeInfoTitle: { color: "#f6f8fb", fontSize: 13, lineHeight: 18, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 8 },
   intakeInfoOrange: { color: "#ff7a00", fontSize: 13, lineHeight: 18, fontFamily: "Inter_500Medium", marginBottom: 8 },
   intakeInfoBody: { color: "#f6f8fb", fontSize: 13, lineHeight: 18, fontFamily: "Inter_400Regular", marginBottom: 8 },
@@ -5653,7 +5755,7 @@ const styles = StyleSheet.create({
   lowEaPrimaryText: { color: "#fff", fontWeight: "700", fontSize: 15, lineHeight: 20, textAlign: "center", fontFamily: "Inter_700Bold" },
   lowEaOutlineBtn: { borderRadius: 7, borderWidth: 1.2, borderColor: "#e5e7eb", paddingVertical: 11, paddingHorizontal: 16, alignItems: "center" },
   lowEaOutlineText: { color: "#f6f8fb", fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", fontFamily: "Inter_600SemiBold" },
-  primaryBtn: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, alignItems: "center", backgroundColor: "#ff7a00" },
+  primaryBtn: { borderRadius: 12, borderWidth: 1.5, borderColor: "#fff", paddingVertical: 14, paddingHorizontal: 24, alignItems: "center", backgroundColor: "#ff7a00" },
   outlineBtn: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, alignItems: "center", borderWidth: 1, borderColor: "#181d28" },
   macroGrid: { gap: 9 },
   macroCard: { width: "100%", minHeight: 109, paddingHorizontal: 19, paddingVertical: 17, borderRadius: 12, borderWidth: 1, borderLeftWidth: 5, borderColor: "#181d28" },
