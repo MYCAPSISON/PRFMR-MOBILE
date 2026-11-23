@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { apiFetch, clearSession, loadSession, loginWithXhr, setAuthErrorCallback } from "@/lib/api";
+import { posthog } from "@/lib/posthog";
 import { queryClient } from "@/lib/queryClient";
 import { resetRevenueCatForLogout } from "@/lib/revenuecat";
 
@@ -55,6 +56,26 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const identifiedUserId = useRef<number | null>(null);
+
+  // The same full profile is loaded after email, Google, Apple, and registration
+  // auth flows, so identifying from this boundary covers every successful flow
+  // without duplicating identity calls in each screen.
+  useEffect(() => {
+    if (!user) {
+      identifiedUserId.current = null;
+      return;
+    }
+
+    if (identifiedUserId.current === user.id) return;
+
+    posthog?.identify(String(user.id), {
+      email: user.email,
+      username: user.username,
+      ...(user.displayName ? { name: user.displayName } : {}),
+    });
+    identifiedUserId.current = user.id;
+  }, [user]);
 
   const fetchUser = useCallback(async () => {
     try {
@@ -89,6 +110,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Register a 401 callback so apiFetch can clear stale sessions automatically
   useEffect(() => {
     setAuthErrorCallback(() => {
+      posthog?.reset();
+      identifiedUserId.current = null;
       void resetRevenueCatForLogout();
       clearSession();
       setUser(null);
@@ -121,6 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Fail closed immediately so the router leaves every protected/paywall
     // route before the RevenueCat and server logout requests can emit an
     // intermediate "not entitled" state for the old account.
+    posthog?.reset();
+    identifiedUserId.current = null;
     setUser(null);
     queryClient.clear();
     try {

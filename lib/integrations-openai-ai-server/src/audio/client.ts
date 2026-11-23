@@ -5,6 +5,7 @@ import { writeFile, unlink, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
+import { beginAiGeneration, captureAiGeneration } from "../posthog";
 
 if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
   throw new Error(
@@ -116,6 +117,7 @@ export async function voiceChat(
   outputFormat: "wav" | "mp3" = "mp3"
 ): Promise<{ transcript: string; audioResponse: Buffer }> {
   const audioBase64 = audioBuffer.toString("base64");
+  const generation = beginAiGeneration("gpt-audio", [{ type: "input_audio", format: inputFormat }]);
   const response = await openai.chat.completions.create({
     model: "gpt-audio",
     modalities: ["text", "audio"],
@@ -130,6 +132,10 @@ export async function voiceChat(
   const message = response.choices[0]?.message as any;
   const transcript = message?.audio?.transcript || message?.content || "";
   const audioData = message?.audio?.data ?? "";
+  captureAiGeneration(generation, [{ transcript, audio_format: outputFormat }], {
+    inputTokens: response.usage?.prompt_tokens,
+    outputTokens: response.usage?.completion_tokens,
+  });
   return {
     transcript,
     audioResponse: Buffer.from(audioData, "base64"),
@@ -143,6 +149,7 @@ export async function voiceChatStream(
   inputFormat: "wav" | "mp3" = "wav"
 ): Promise<AsyncIterable<{ type: "transcript" | "audio"; data: string }>> {
   const audioBase64 = audioBuffer.toString("base64");
+  const generation = beginAiGeneration("gpt-audio", [{ type: "input_audio", format: inputFormat }]);
   const stream = await openai.chat.completions.create({
     model: "gpt-audio",
     modalities: ["text", "audio"],
@@ -157,15 +164,23 @@ export async function voiceChatStream(
   });
 
   return (async function* () {
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta as any;
-      if (!delta) continue;
-      if (delta?.audio?.transcript) {
-        yield { type: "transcript", data: delta.audio.transcript };
+    let transcript = "";
+    let audioChunkCount = 0;
+    try {
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta as any;
+        if (!delta) continue;
+        if (delta?.audio?.transcript) {
+          transcript += delta.audio.transcript;
+          yield { type: "transcript", data: delta.audio.transcript };
+        }
+        if (delta?.audio?.data) {
+          audioChunkCount += 1;
+          yield { type: "audio", data: delta.audio.data };
+        }
       }
-      if (delta?.audio?.data) {
-        yield { type: "audio", data: delta.audio.data };
-      }
+    } finally {
+      captureAiGeneration(generation, [{ transcript, audio_format: "pcm16", audio_chunk_count: audioChunkCount }]);
     }
   })();
 }
@@ -176,16 +191,22 @@ export async function textToSpeech(
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
   format: "wav" | "mp3" | "flac" | "opus" | "pcm16" = "wav"
 ): Promise<Buffer> {
+  const messages = [
+    { role: "system" as const, content: "You are an assistant that performs text-to-speech." },
+    { role: "user" as const, content: `Repeat the following text verbatim: ${text}` },
+  ];
+  const generation = beginAiGeneration("gpt-audio", messages);
   const response = await openai.chat.completions.create({
     model: "gpt-audio",
     modalities: ["text", "audio"],
     audio: { voice, format },
-    messages: [
-      { role: "system", content: "You are an assistant that performs text-to-speech." },
-      { role: "user", content: `Repeat the following text verbatim: ${text}` },
-    ],
+    messages,
   });
   const audioData = (response.choices[0]?.message as any)?.audio?.data ?? "";
+  captureAiGeneration(generation, [{ audio_format: format }], {
+    inputTokens: response.usage?.prompt_tokens,
+    outputTokens: response.usage?.completion_tokens,
+  });
   return Buffer.from(audioData, "base64");
 }
 
@@ -194,24 +215,32 @@ export async function textToSpeechStream(
   text: string,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy"
 ): Promise<AsyncIterable<string>> {
+  const messages = [
+    { role: "system" as const, content: "You are an assistant that performs text-to-speech." },
+    { role: "user" as const, content: `Repeat the following text verbatim: ${text}` },
+  ];
+  const generation = beginAiGeneration("gpt-audio", messages);
   const stream = await openai.chat.completions.create({
     model: "gpt-audio",
     modalities: ["text", "audio"],
     audio: { voice, format: "pcm16" },
-    messages: [
-      { role: "system", content: "You are an assistant that performs text-to-speech." },
-      { role: "user", content: `Repeat the following text verbatim: ${text}` },
-    ],
+    messages,
     stream: true,
   });
 
   return (async function* () {
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta as any;
-      if (!delta) continue;
-      if (delta?.audio?.data) {
-        yield delta.audio.data;
+    let audioChunkCount = 0;
+    try {
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta as any;
+        if (!delta) continue;
+        if (delta?.audio?.data) {
+          audioChunkCount += 1;
+          yield delta.audio.data;
+        }
       }
+    } finally {
+      captureAiGeneration(generation, [{ audio_format: "pcm16", audio_chunk_count: audioChunkCount }]);
     }
   })();
 }
@@ -222,9 +251,14 @@ export async function speechToText(
   format: "wav" | "mp3" | "webm" | "m4a" | "mp4" | "ogg" | "flac" = "wav"
 ): Promise<string> {
   const file = await toFile(audioBuffer, `audio.${format}`);
+  const generation = beginAiGeneration("gpt-4o-mini-transcribe", [{ type: "input_audio", format }]);
   const response = await openai.audio.transcriptions.create({
     file,
     model: "gpt-4o-mini-transcribe",
+  });
+  captureAiGeneration(generation, [response.text], {
+    inputTokens: response.usage?.input_tokens,
+    outputTokens: response.usage?.output_tokens,
   });
   return response.text;
 }
@@ -235,6 +269,7 @@ export async function speechToTextStream(
   format: "wav" | "mp3" | "webm" | "m4a" | "mp4" | "ogg" | "flac" = "wav"
 ): Promise<AsyncIterable<string>> {
   const file = await toFile(audioBuffer, `audio.${format}`);
+  const generation = beginAiGeneration("gpt-4o-mini-transcribe", [{ type: "input_audio", format }]);
   const stream = await openai.audio.transcriptions.create({
     file,
     model: "gpt-4o-mini-transcribe",
@@ -242,10 +277,16 @@ export async function speechToTextStream(
   });
 
   return (async function* () {
-    for await (const event of stream) {
-      if (event.type === "transcript.text.delta") {
-        yield event.delta;
+    let transcript = "";
+    try {
+      for await (const event of stream) {
+        if (event.type === "transcript.text.delta") {
+          transcript += event.delta;
+          yield event.delta;
+        }
       }
+    } finally {
+      captureAiGeneration(generation, [transcript]);
     }
   })();
 }

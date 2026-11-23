@@ -21,6 +21,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { OnboardingFoodDemo } from "@/components/OnboardingFoodDemo";
 import { useQueryClient } from "@tanstack/react-query";
+import { posthog, posthogLog } from "@/lib/posthog";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 const BG = "#0a0a0a";
@@ -472,6 +473,16 @@ export default function OnboardingScreen() {
         } catch { /* non-critical */ }
       }
 
+      const goal = derivedGoal(d);
+      const hasFightCamp = !d.nonFightPrepMode && Boolean(d.demoFightDate && d.demoTargetWeight);
+      posthog?.capture("onboarding_completed", {
+        goal,
+        has_fight_camp: hasFightCamp,
+      });
+      posthogLog.info("onboarding completed", {
+        goal,
+        has_fight_camp: hasFightCamp,
+      });
       setSubmitted(true);
       await refetchUser();
       // The server has recalculated the goal and targets. Remove the old

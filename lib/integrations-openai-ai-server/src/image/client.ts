@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import OpenAI, { toFile } from "openai";
 import { Buffer } from "node:buffer";
+import { beginAiGeneration, captureAiGeneration } from "../posthog";
 
 if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
   throw new Error(
@@ -23,12 +24,17 @@ export async function generateImageBuffer(
   prompt: string,
   size: "1024x1024" | "512x512" | "256x256" = "1024x1024"
 ): Promise<Buffer> {
+  const generation = beginAiGeneration("gpt-image-1", [{ prompt, size }]);
   const response = await openai.images.generate({
     model: "gpt-image-1",
     prompt,
     size,
   });
   const base64 = response.data[0]?.b64_json ?? "";
+  captureAiGeneration(generation, [{ image_count: response.data.length, size }], {
+    inputTokens: response.usage?.input_tokens,
+    outputTokens: response.usage?.output_tokens,
+  });
   return Buffer.from(base64, "base64");
 }
 
@@ -45,6 +51,7 @@ export async function editImages(
     )
   );
 
+  const generation = beginAiGeneration("gpt-image-1", [{ prompt, image_count: images.length }]);
   const response = await openai.images.edit({
     model: "gpt-image-1",
     image: images,
@@ -52,6 +59,10 @@ export async function editImages(
   });
 
   const imageBase64 = response.data[0]?.b64_json ?? "";
+  captureAiGeneration(generation, [{ image_count: response.data.length }], {
+    inputTokens: response.usage?.input_tokens,
+    outputTokens: response.usage?.output_tokens,
+  });
   const imageBytes = Buffer.from(imageBase64, "base64");
 
   if (outputPath) {

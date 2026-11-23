@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
+import { posthog, posthogLog } from "@/lib/posthog";
 
 const RevenueCatPaywall = React.lazy(async () => {
   const module = await import("react-native-purchases-ui");
@@ -25,8 +26,16 @@ export default function PaywallScreen() {
         <RevenueCatPaywall
           options={{ offering: currentOffering, displayCloseButton: true }}
           onDismiss={() => router.back()}
-          onPurchaseCompleted={() => void refresh()}
-          onRestoreCompleted={() => void refresh()}
+          onPurchaseCompleted={() => {
+            posthog?.capture("subscription_purchased");
+            posthogLog.info("subscription purchase completed", { outcome: "purchased" });
+            void refresh();
+          }}
+          onRestoreCompleted={() => {
+            posthog?.capture("subscription_restored");
+            posthogLog.info("subscription restore completed", { outcome: "restored" });
+            void refresh();
+          }}
           onPurchaseError={({ error: purchaseError }) => setActionError(purchaseError.message)}
           onRestoreError={({ error: restoreError }) => setActionError(restoreError.message)}
         />

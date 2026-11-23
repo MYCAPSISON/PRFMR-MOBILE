@@ -31,6 +31,7 @@ import {
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useColors } from "../hooks/useColors";
+import { posthog } from "../lib/posthog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -402,6 +403,10 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
       qc.invalidateQueries({ queryKey: ["food", date] });
       qc.invalidateQueries({ queryKey: ["amqs-score", date] });
       qc.invalidateQueries({ queryKey: ["amqs-micros", date] });
+      posthog?.capture("quick_log_food_confirmed", {
+        item_count: confirmed.length,
+        meal,
+      });
       setDialogState("done");
     } catch (e: any) {
       setDialogState("review");
@@ -419,6 +424,7 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
       qc.invalidateQueries({ queryKey: ["weight-cut"] });
       qc.invalidateQueries({ queryKey: ["weights-range"] });
       qc.invalidateQueries({ queryKey: ["targets", date] });
+      posthog?.capture("quick_log_weight_confirmed");
       setDialogState("done");
       onWeightLogged?.(w);
     } catch (e: any) {
@@ -460,6 +466,10 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
       });
       qc.invalidateQueries({ queryKey: ["sessions", date] });
       qc.invalidateQueries({ queryKey: ["targets", date] });
+      posthog?.capture("quick_log_training_confirmed", {
+        duration_minutes: duration,
+        time_of_day: timeOfDay,
+      });
       setDialogState("done");
     } catch (e: any) {
       setDialogState("review");
@@ -479,6 +489,9 @@ export function QuickLogModal({ visible, onClose, date, onWeightLogged }: Props)
         });
       }
       qc.invalidateQueries({ queryKey: ["supplement-intakes", date] });
+      posthog?.capture("quick_log_supplements_confirmed", {
+        item_count: toLog.length,
+      });
       setDialogState("done");
     } catch (e: any) {
       setDialogState("review");

@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { apiFetch } from "@/lib/api";
 import { AppLogoHeader } from "@/components/AppLogoHeader";
+import { posthog } from "@/lib/posthog";
 
 const CATEGORIES = [
   { value: "bug", label: "Bug Report", emoji: "🐛", desc: "Something isn't working right" },
@@ -39,7 +40,10 @@ export default function FeedbackScreen() {
       method: "POST",
       body: { category, message, includeDiagnostics: true },
     }),
-    onSuccess: () => setSubmitted(true),
+    onSuccess: () => {
+      posthog?.capture("feedback_submitted", { category });
+      setSubmitted(true);
+    },
   });
 
   if (submitted) {
