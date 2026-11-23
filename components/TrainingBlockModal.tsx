@@ -10,6 +10,7 @@ import { format, addDays } from "date-fns";
 import { apiFetch } from "@/lib/api";
 import { useColors } from "@/hooks/useColors";
 import { useToast } from "@/components/AppToast";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -310,6 +311,11 @@ export function TrainingBlockModal({ visible, onClose, activeBlockId, initialBlo
       });
     },
     onSuccess: () => {
+      posthog?.capture("training_block_saved", {
+        week_count: weekCount,
+        activity_count: Object.values(dayActivities).flat().length,
+        replaced_existing_block: Boolean(activeBlockId),
+      });
       qc.invalidateQueries({ queryKey: ["training-block-active"] });
       qc.invalidateQueries({ queryKey: ["sessions"] });
       showToast({

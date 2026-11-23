@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { useToast } from "@/components/AppToast";
 import { AppLogoHeader } from "@/components/AppLogoHeader";
 import { TrainingBlockModal } from "@/components/TrainingBlockModal";
+import { posthog } from "@/lib/posthog";
 
 // ─────────────────────────────────────────
 // Types
@@ -507,6 +508,11 @@ function AddActivityModal({
       });
     },
     onSuccess: () => {
+      posthog?.capture("training_activity_added", {
+        activity_type: isLifting ? "lifting" : "cardio",
+        duration_minutes: Math.round(parseFloat(duration)),
+        has_catalog_activity: selectedActivity !== null,
+      });
       qc.invalidateQueries({ queryKey: ["sessions", date] });
       qc.invalidateQueries({ queryKey: ["targets"] });
       qc.invalidateQueries({ queryKey: ["training-summary", date] });

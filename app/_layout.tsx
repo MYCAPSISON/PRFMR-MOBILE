@@ -12,6 +12,7 @@ import {
 } from "@expo-google-fonts/jetbrains-mono";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router, useSegments } from "expo-router";
+import { PostHogProvider } from "posthog-react-native";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -21,6 +22,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/AppToast";
 import { AuthProvider, isOnboardingComplete, useAuth } from "@/context/AuthContext";
+import { posthog } from "@/lib/posthog";
 import { queryClient } from "@/lib/queryClient";
 import { SubscriptionProvider, useSubscription } from "@/lib/revenuecat";
 
@@ -115,9 +117,17 @@ export default function RootLayout() {
           <AuthProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
-                <ToastProvider>
-                  <AppWithSubscription />
-                </ToastProvider>
+                {posthog ? (
+                  <PostHogProvider client={posthog}>
+                    <ToastProvider>
+                      <AppWithSubscription />
+                    </ToastProvider>
+                  </PostHogProvider>
+                ) : (
+                  <ToastProvider>
+                    <AppWithSubscription />
+                  </ToastProvider>
+                )}
               </KeyboardProvider>
             </GestureHandlerRootView>
           </AuthProvider>
