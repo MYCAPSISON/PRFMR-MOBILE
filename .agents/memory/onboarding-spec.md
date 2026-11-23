@@ -4,12 +4,16 @@ description: Key facts about the PRFMR onboarding wizard implementation (steps, 
 ---
 
 ## Step map (TOTAL = 34, internal steps 0–33)
+- **Removed from the active mobile flow:** 1, 2, 12, 13, 14, 15, 18, 19, 20, 21, 24.
+  - Internal IDs are intentionally retained; forward/back navigation skips them.
+  - The progress bar counts visible steps only.
+  - Removed survey fields are still included in `POST /user/me/onboard` with blank values: `surveyCalorieKnowledge`, `surveyUnderfueling`, `surveyTrainingLoadTracking`, `surveyMicroKnowledge`, `surveyEnergyScore`, `surveyPerformance` are `""`; `surveyMainProblems` is `[]`.
 - 0: Splash — full-screen image, transparent Pressable overlay on baked-in button
   - Overlay position (image-relative): bottom=1.8%, height=5.7%, left/right=2.3%
   - Splash image: `assets/onboarding-splash.jpeg` (863×1665 aspect ratio)
   - `resizeMode="stretch"` + explicit width/height (not "fill" — not valid in RN)
-- 1: Problem Statement ("Be honest.")
-- 2: Solution ("This is where it changes.")
+- 1: Problem Statement ("Be honest.") — **REMOVED**
+- 2: Solution ("This is where it changes.") — **REMOVED**
 - 3: First Name
 - 4: Sport selection (2-col photo grid, Pexels URLs + local wrestling-action.jpg)
 - 5: Competition level + sport badge preview
@@ -17,16 +21,17 @@ description: Key facts about the PRFMR onboarding wizard implementation (steps, 
 - 7: Gender (male/female/other/prefer_not)
 - 8: Height (min 100 cm)
 - 9: Current weight (> 30 kg)
-- 10–15: Survey questions (cut exp, cut outcome, calorie knowledge, underfueling, load tracking, micro knowledge)
+- 10–11: Survey questions (cut experience, cut outcome)
+- 12–15: Survey questions (calorie knowledge, underfueling, load tracking, micro knowledge) — **REMOVED**
 - 16: Bombshell stats (no gate, no back)
 - 17: Aspiration (CTA label = "Let's build your plan →")
-- 18: Energy score slider (1–10)
-- 19: Performance
-- 20: Problems multi-select (checkBox variant)
-- 21: Reflection (mirrors step 20 selections)
+- 18: Energy score slider (1–10) — **REMOVED**
+- 19: Performance — **REMOVED**
+- 20: Problems multi-select (checkBox variant) — **REMOVED**
+- 21: Reflection (mirrors step 20 selections) — **REMOVED**
 - 22: Fight camp planner (target weight + fight date + timing + nonFightPrepMode pills)
-- 23: Projected cut chart — SKIPPED if nonFightPrepMode set (step 22 "Next" jumps to 24)
-- 24: Morning check-in demo (sleep ticks + energy emojis + readiness score)
+- 23: Projected cut chart — SKIPPED if nonFightPrepMode set (step 22 "Next" jumps to 25 because step 24 is removed)
+- 24: Morning check-in demo (sleep ticks + energy emojis + readiness score) — **REMOVED**
 - 25: Food log demo (4 tab cards, no real API)
 - 26: First win
 - 27: Star rating (gate: > 0 stars) — CTA label "Next →"

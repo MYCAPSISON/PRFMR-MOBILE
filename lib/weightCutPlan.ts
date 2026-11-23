@@ -39,6 +39,12 @@ export function calculateWeightCutPlan(
       : targetWeight / 0.94;
   }
 
+  // A temporary cut cannot exceed the weight the athlete actually has left
+  // to lose. Without this clamp, percentage-based defaults can put the
+  // pre-final target above today's weight for a small overall cut, producing
+  // an impossible upward projection before fight night.
+  preFinal = Math.min(currentWeight, Math.max(targetWeight, preFinal));
+
   const weeksForFatLoss = Math.max(0.5, (daysUntil - acuteDays) / 7);
   const fatLossRequired = Math.max(0, Math.round((currentWeight - preFinal) * 10) / 10);
   const tempCut         = Math.max(0, Math.round((preFinal - targetWeight) * 10) / 10);

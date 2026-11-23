@@ -357,6 +357,8 @@ Using shadcn `<Badge>`. Common combinations:
 
 ### 12.3 `/onboarding` — Onboarding Wizard (22 steps)
 
+**Current mobile flow note:** The mobile implementation preserves its established internal step IDs but omits steps **1, 2, 12, 13, 14, 15, 18, 19, 20, 21, and 24**. Navigation skips those IDs in both directions and the progress bar counts visible screens only. Removed survey values are explicitly submitted blank (`""`, or `[]` for the removed problems multi-select) rather than reusing stale state. See `PRFMR_MOBILE_REPLICATION_GUIDE.md` §18.8 and `.agents/memory/onboarding-spec.md` for the authoritative mobile mapping.
+
 **Step 0 — Splash:**
 - Full-screen background image: `onboarding-splash-bg.jpeg` (fills 100vw × 100vh, `object-cover`)
 - No other UI — the image has a CTA button baked into the design

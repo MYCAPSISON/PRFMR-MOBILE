@@ -7655,33 +7655,48 @@ GET /auth/google → GET /auth/google/callback
 
 `TOTAL_FORM_STEPS = 33`. The wizard uses integer step numbers; some ranges are "demo" steps that teach the user the app's features interactively before the real submission fires.
 
+#### Current mobile step removals
+
+The active mobile wizard retains the established internal IDs but skips steps **1, 2, 12, 13, 14, 15, 18, 19, 20, 21, and 24** in both forward and backward navigation. These IDs are not renumbered, and progress is calculated from the visible-step list rather than the raw internal ID.
+
+The removed survey fields are deliberately sent blank to `POST /api/user/me/onboard` so the server receives an explicit absence rather than stale client state:
+
+| Removed internal steps | Payload fields | Blank value |
+|---|---|---|
+| 12–15 | `surveyCalorieKnowledge`, `surveyUnderfueling`, `surveyTrainingLoadTracking`, `surveyMicroKnowledge` | `""` |
+| 18 | `surveyEnergyScore` | `""` |
+| 19 | `surveyPerformance` | `""` |
+| 20 | `surveyMainProblems` | `[]` |
+
+Steps 1, 2, 21, and 24 are informational/demo screens and own no onboarding POST fields.
+
 | Internal step | What the user sees | Notes |
 |---|---|---|
 | 0 | Splash image + CTA | `isSplash = true` |
-| 1 | Welcome / "Yeah, that's me →" | |
-| 2 | First name | |
-| 3 | Gender + unit preference | `canProceed` gate |
+| 1 | Problem statement ("Be honest.") | **Removed from current mobile flow** |
+| 2 | Solution statement ("This is where it changes.") | **Removed from current mobile flow** |
+| 3 | First name | `canProceed` gate |
 | 4 | Sport selection (multi-select) | `canProceed` gate |
 | 5 | Competition level | `canProceed` gate |
-| 6 | Age | |
-| 7 | Height | |
-| 8 | Current weight | |
-| 9 | Goal (fat loss / maintenance / weight gain / fight prep) | `nonFightPrepMode` set here for non-fight-prep goals |
+| 6 | Age | `canProceed` gate |
+| 7 | Gender | `canProceed` gate |
+| 8 | Height | `canProceed` gate |
+| 9 | Current weight | `canProceed` gate |
 | 10 | Cut experience survey | `canProceed` gate |
 | 11 | Cut outcome survey | `canProceed` gate |
-| 12 | Calorie knowledge survey | `canProceed` gate |
-| 13 | Underfueling survey | `canProceed` gate |
-| 14 | Training load tracking survey | `canProceed` gate |
-| 15 | Micro knowledge survey | `canProceed` gate |
-| 16 | Energy score survey | |
-| 17 | Problems they face (multi-select text[]) | |
-| 18 | Activity level | |
-| 19 | Performance survey | `canProceed` gate |
-| 20 | Main problems multi-select | `canProceed` gate |
-| 21 | Target preview (calculated client-side, not yet persisted) | |
-| **22** | **Fight Camp Planner** — inputs + live `calculateWeightCutPlan()` preview | Skipped to step 24 if `nonFightPrepMode` |
+| 12 | Calorie knowledge survey | **Removed; submits `""`** |
+| 13 | Underfueling survey | **Removed; submits `""`** |
+| 14 | Training load tracking survey | **Removed; submits `""`** |
+| 15 | Micro knowledge survey | **Removed; submits `""`** |
+| 16 | Bombshell statistics | Informational |
+| 17 | Aspiration / benefits | Informational |
+| 18 | Energy score survey | **Removed; submits `""`** |
+| 19 | Performance survey | **Removed; submits `""`** |
+| 20 | Main problems multi-select | **Removed; submits `[]`** |
+| 21 | Reflection of selected problems | **Removed from current mobile flow** |
+| **22** | **Fight Camp Planner** — inputs + live `calculateWeightCutPlan()` preview | Skips directly to step 25 if `nonFightPrepMode` |
 | **23** | **Projected Cut Chart** — bar + polyline chart | Skipped when `nonFightPrepMode` |
-| **24** | **Morning Check-In demo** — sleep slider + energy emoji + live readiness | |
+| **24** | **Morning Check-In demo** — sleep slider + energy emoji + live readiness | **Removed from current mobile flow** |
 | **25** | **Food Log demo** — 4-tab interactive food logging | Hits real API endpoints |
 | 26 | "You're already ahead" — day 1 streak display | |
 | 27 | Star rating (optional) | `surveyStarRating` |
@@ -7721,13 +7736,13 @@ This is a fully functional, real-time weight cut planner embedded in the onboard
 - **Pre-final target row** — shows `plan.predictedWeekMinus1Weight` (day_before timing) or `plan.predictedDayMinus4Weight` (same_day timing), labelled "T−7 target" or "T−4 target"
 - The AnimatePresence wrapper animates the result in/out as inputs change
 
-**`nonFightPrepMode` branching:** If the user selected a non-fight-prep goal at step 9 (e.g. maintenance or general fat loss), `localData.nonFightPrepMode` is set to that goal string. Step 22 is still shown, but "Next" skips directly to step 24 (bypassing the projected cut chart). At submission time, if `nonFightPrepMode` is set, a `DELETE /api/me/weight-cut` call is made to clear any existing fight camp plan.
+**`nonFightPrepMode` branching:** If the user selects a non-fight-prep goal in the fight camp planner, `localData.nonFightPrepMode` is set to that goal string. Step 22 is still shown, but "Next" skips directly to step 25 (bypassing the projected cut chart and the removed step 24). At submission time, if `nonFightPrepMode` is set, a `DELETE /api/me/weight-cut` call is made to clear any existing fight camp plan.
 
 ---
 
 ### 18.10 Projected Cut Chart (step 23)
 
-**Skipped entirely** when `nonFightPrepMode` is truthy — step 22's "Next" jumps directly to step 24.
+**Skipped entirely** when `nonFightPrepMode` is truthy — step 22's "Next" jumps directly to step 25 because step 24 is removed from the active mobile flow.
 
 **Calculation:** Calls `calculateWeightCutPlan()` again with the same inputs as step 22 (using the `localData.demoFightDate`, `demoWeighInTiming`, `demoManualTempReduction`, and `formData.currentWeight`). Falls back to sensible defaults if `demoFightDate` is not set (target = `currentWeight - 2.5`, totalDays = 42).
 
@@ -7750,6 +7765,8 @@ This is a fully functional, real-time weight cut planner embedded in the onboard
 ---
 
 ### 18.11 Morning Check-In demo (step 24)
+
+> **Current mobile flow:** This step is removed and is not reachable through forward or backward navigation. The details below are retained only as historical replication reference.
 
 **Pure client-side — no API calls.** Shows the user how the morning check-in works. All state lives in `localData`.
 
@@ -11362,4 +11379,3 @@ The onboarding submit goes to `POST /api/user/:username/onboard` (not to `PATCH 
 - Dashboard greeting: inline after the username text, same row, `size="md"`.
 - Profile header: below the username line, `size="sm"`.
 - Profile sport card: in the card body, `size="md"`.
-

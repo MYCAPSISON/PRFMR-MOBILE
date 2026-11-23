@@ -26,9 +26,11 @@ type DemoFood = {
   protein: number;
   carbs: number;
   fat: number;
+  fibre: number;
 };
 
-type DemoEntry = DemoFood & { id: string; grams: number };
+type Meal = "breakfast" | "lunch" | "dinner" | "snack";
+type DemoEntry = DemoFood & { id: string; grams: number; meal: Meal };
 
 function number(value: unknown): number {
   const parsed = Number(value);
@@ -43,10 +45,12 @@ function normalizeFood(item: any): DemoFood {
     brand: item?.brand ?? item?.off?.brand ?? item?.brands ?? undefined,
     imageUrl: item?.image_url ?? item?.imageUrl ?? item?.image ?? item?.off?.image_url
       ?? item?.image_front_url ?? item?.image_front_small_url ?? item?.image_front_thumb_url ?? undefined,
-    calories: number(item?.caloriesPer100g ?? macros.kcal ?? item?.calories ?? nutriments["energy-kcal_100g"]),
-    protein: number(item?.proteinPer100g ?? macros.protein ?? item?.protein ?? nutriments.proteins_100g),
-    carbs: number(item?.carbsPer100g ?? macros.carbs ?? item?.carbs ?? nutriments.carbohydrates_100g),
-    fat: number(item?.fatPer100g ?? macros.fat ?? item?.fat ?? nutriments.fat_100g),
+    calories: number(item?.caloriesPer100g ?? item?.calories_per_100g ?? macros.kcal ?? item?.calories ?? nutriments["energy-kcal_100g"]),
+    protein: number(item?.proteinPer100g ?? item?.protein_g_per_100g ?? macros.protein ?? item?.protein ?? nutriments.proteins_100g),
+    carbs: number(item?.carbsPer100g ?? item?.carbs_g_per_100g ?? macros.carbs ?? item?.carbs ?? nutriments.carbohydrates_100g),
+    fat: number(item?.fatPer100g ?? item?.fat_g_per_100g ?? macros.fat ?? item?.fat ?? nutriments.fat_100g),
+    fibre: number(item?.fibrePer100g ?? item?.fiberPer100g ?? macros.fibre ?? macros.fiber
+      ?? item?.fibre_g_per_100g ?? item?.fiber_g_per_100g ?? nutriments.fiber_100g ?? nutriments.fibers_100g),
   };
 }
 
@@ -59,6 +63,7 @@ function MacroRow({ food, grams }: { food: DemoFood; grams: number }) {
         ["Protein", `${(food.protein * ratio).toFixed(1)}`, "g"],
         ["Carbs", `${(food.carbs * ratio).toFixed(1)}`, "g"],
         ["Fat", `${(food.fat * ratio).toFixed(1)}`, "g"],
+        ["Fibre", `${(food.fibre * ratio).toFixed(1)}`, "g"],
       ].map(([label, value, unit]) => (
         <View key={label} style={styles.macroCell}>
           <Text style={styles.macroValue}>{value}</Text>
@@ -92,6 +97,7 @@ function FoodResult({ food, onPress, showImage = true }: { food: DemoFood; onPre
 export function OnboardingFoodDemo() {
   const [tab, setTab] = useState<Tab>("search");
   const [entries, setEntries] = useState<DemoEntry[]>([]);
+  const [meal, setMeal] = useState<Meal>("lunch");
   const [selected, setSelected] = useState<DemoFood | null>(null);
   const [grams, setGrams] = useState("100");
   const [query, setQuery] = useState("");
@@ -105,7 +111,8 @@ export function OnboardingFoodDemo() {
   const [cameraVisible, setCameraVisible] = useState(false);
   const [cameraScanned, setCameraScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [custom, setCustom] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "", grams: "100" });
+  const [custom, setCustom] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "", fibre: "", grams: "100" });
+  const [serverWholeFoods, setServerWholeFoods] = useState<DemoFood[]>([]);
 
   const totalCalories = entries.reduce((sum, entry) => sum + entry.calories * entry.grams / 100, 0);
   const progress = Math.min(totalCalories / TARGET_CALORIES, 1);
@@ -132,20 +139,28 @@ export function OnboardingFoodDemo() {
   }, [query, tab]);
 
   useEffect(() => {
+    let active = true;
+    void apiFetch<any[]>("/ingredients")
+      .then(items => { if (active && Array.isArray(items)) setServerWholeFoods(items.map(normalizeFood)); })
+      .catch(() => { /* The bundled catalogue below remains available offline. */ });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     if (tab !== "barcode") setCameraVisible(false);
     setSelected(null);
   }, [tab]);
 
   const wholeFoods = useMemo(() => {
     const term = wholeQuery.trim().toLowerCase();
-    return INGREDIENTS_DATA
+    const catalogue = serverWholeFoods.length > 0 ? serverWholeFoods : INGREDIENTS_DATA.map(normalizeFood);
+    return catalogue
       .filter(food => !term || food.name.toLowerCase().includes(term))
       .slice(0, term ? 12 : 8)
-      .map(normalizeFood);
-  }, [wholeQuery]);
+  }, [wholeQuery, serverWholeFoods]);
 
   function addFood(food: DemoFood, amount = number(grams) || 100) {
-    setEntries(current => [...current, { ...food, grams: amount, id: `${Date.now()}-${current.length}` }]);
+    setEntries(current => [...current, { ...food, grams: amount, meal, id: `${Date.now()}-${current.length}` }]);
     setSelected(null);
     setGrams("100");
   }
@@ -198,8 +213,23 @@ export function OnboardingFoodDemo() {
           <TouchableOpacity key={entry.id} onPress={() => setEntries(current => current.filter(item => item.id !== entry.id))} style={styles.loggedRow}>
             <Feather name="check-circle" size={14} color="#22c55e" />
             <Text style={styles.loggedName} numberOfLines={1}>{entry.name}</Text>
+            <Text style={styles.mealBadge}>{entry.meal}</Text>
             <Text style={styles.loggedCalories}>{Math.round(entry.calories * entry.grams / 100)} kcal</Text>
             <Feather name="x" size={13} color="#71717a" />
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.guideRow}>
+        <Text style={styles.guideText}>1  Choose a meal</Text>
+        <Text style={styles.guideText}>2  Find a food</Text>
+        <Text style={styles.guideText}>3  Set serving & add</Text>
+      </View>
+
+      <View style={styles.meals}>
+        {(["breakfast", "lunch", "dinner", "snack"] as Meal[]).map(value => (
+          <TouchableOpacity key={value} onPress={() => setMeal(value)} style={[styles.meal, meal === value && styles.mealActive]}>
+            <Text style={[styles.mealText, meal === value && styles.mealTextActive]}>{value[0].toUpperCase() + value.slice(1)}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -218,7 +248,7 @@ export function OnboardingFoodDemo() {
         ))}
       </View>
 
-      {tab === "search" && <View style={styles.panel}>
+      {tab === "search" && !selected && <View style={styles.panel}>
         <Text style={styles.panelTitle}>Search Open Food Facts</Text>
         <View style={styles.searchBox}>
           <Feather name="search" size={17} color="#71717a" />
@@ -230,7 +260,7 @@ export function OnboardingFoodDemo() {
         {searchResults.slice(0, 8).map((food, index) => <FoodResult key={`${food.name}-${index}`} food={food} onPress={() => setSelected(food)} />)}
       </View>}
 
-      {tab === "whole" && <View style={styles.panel}>
+      {tab === "whole" && !selected && <View style={styles.panel}>
         <Text style={styles.panelTitle}>Whole Food catalogue</Text>
         <View style={styles.searchBox}>
           <Feather name="search" size={17} color="#71717a" />
@@ -239,7 +269,7 @@ export function OnboardingFoodDemo() {
         {wholeFoods.map((food, index) => <FoodResult key={`${food.name}-${index}`} food={food} showImage={false} onPress={() => setSelected(food)} />)}
       </View>}
 
-      {tab === "barcode" && <View style={styles.panel}>
+      {tab === "barcode" && !selected && <View style={styles.panel}>
         <Text style={styles.panelTitle}>Scan a packaged food</Text>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <TextInput value={barcode} onChangeText={setBarcode} placeholder="Barcode number" placeholderTextColor="#52525b" keyboardType="number-pad" style={[styles.searchBox, styles.barcodeInput]} onSubmitEditing={() => void lookupBarcode()} />
@@ -256,8 +286,16 @@ export function OnboardingFoodDemo() {
             style={StyleSheet.absoluteFillObject}
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128"] }}
+            onMountError={event => {
+              setCameraVisible(false);
+              setBarcodeError(event.message || "The camera could not be started on this device.");
+            }}
             onBarcodeScanned={cameraScanned ? undefined : event => {
               setCameraScanned(true);
+              // Stop the preview immediately so a single barcode cannot fire
+              // repeatedly while its server lookup is in flight. The user can
+              // reopen the camera straight away if the lookup is unsuccessful.
+              setCameraVisible(false);
               void lookupBarcode(event.data);
             }}
           />
@@ -266,13 +304,13 @@ export function OnboardingFoodDemo() {
         {!!barcodeError && <Text style={styles.error}>{barcodeError}</Text>}
       </View>}
 
-      {tab === "custom" && <View style={styles.panel}>
+      {tab === "custom" && !selected && <View style={styles.panel}>
         <Text style={styles.panelTitle}>Create a custom food</Text>
         <TextInput value={custom.name} onChangeText={name => setCustom(value => ({ ...value, name }))} placeholder="Food or meal name" placeholderTextColor="#52525b" style={styles.field} />
         <View style={styles.fieldGrid}>
           {([
             ["calories", "Calories"], ["grams", "Serving (g)"], ["protein", "Protein (g)"],
-            ["carbs", "Carbs (g)"], ["fat", "Fat (g)"],
+            ["carbs", "Carbs (g)"], ["fat", "Fat (g)"], ["fibre", "Fibre (g)"],
           ] as const).map(([key, label]) => (
             <View key={key} style={styles.fieldHalf}>
               <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
@@ -281,14 +319,18 @@ export function OnboardingFoodDemo() {
           ))}
         </View>
         <TouchableOpacity disabled={!canAddCustom} onPress={() => {
-          addFood({ name: custom.name.trim(), calories: number(custom.calories), protein: number(custom.protein), carbs: number(custom.carbs), fat: number(custom.fat) }, number(custom.grams));
-          setCustom({ name: "", calories: "", protein: "", carbs: "", fat: "", grams: "100" });
+          addFood({ name: custom.name.trim(), calories: number(custom.calories), protein: number(custom.protein), carbs: number(custom.carbs), fat: number(custom.fat), fibre: number(custom.fibre) }, number(custom.grams));
+          setCustom({ name: "", calories: "", protein: "", carbs: "", fat: "", fibre: "", grams: "100" });
         }} style={[styles.orangeButton, !canAddCustom && styles.disabled]}>
           <Text style={styles.orangeButtonText}>Add custom food</Text>
         </TouchableOpacity>
       </View>}
 
       {selected && <View style={styles.selectionCard}>
+        <TouchableOpacity onPress={() => setSelected(null)} style={styles.backToResults}>
+          <Feather name="arrow-left" size={14} color="#a1a1aa" />
+          <Text style={styles.backToResultsText}>Back to results</Text>
+        </TouchableOpacity>
         <View style={styles.selectionHeader}>
           {tab !== "whole" && selected.imageUrl && <Image source={{ uri: selected.imageUrl }} style={styles.selectedImage} />}
           <View style={{ flex: 1 }}><Text style={styles.resultName}>{selected.name}</Text>{!!selected.brand && <Text style={styles.muted}>{selected.brand}</Text>}</View>
@@ -298,7 +340,7 @@ export function OnboardingFoodDemo() {
         <TextInput value={grams} onChangeText={setGrams} keyboardType="decimal-pad" selectTextOnFocus style={[styles.field, { textAlign: "center", fontSize: 18 }]} />
         <View style={styles.quickAmounts}>{[50, 100, 150, 200].map(amount => <TouchableOpacity key={amount} onPress={() => setGrams(String(amount))} style={[styles.amount, grams === String(amount) && styles.amountActive]}><Text style={styles.amountText}>{amount}g</Text></TouchableOpacity>)}</View>
         <MacroRow food={selected} grams={number(grams) || 100} />
-        <TouchableOpacity onPress={() => addFood(selected)} style={styles.orangeButton}><Text style={styles.orangeButtonText}>Add Food</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => addFood(selected)} style={styles.orangeButton}><Text style={styles.orangeButtonText}>Add to {meal[0].toUpperCase() + meal.slice(1)}</Text></TouchableOpacity>
       </View>}
 
       <Text style={styles.demoNote}>Demo only — foods added here won’t be saved to your diary. Tap a logged item to remove it.</Text>
@@ -317,7 +359,15 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: ORANGE },
   loggedRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 10 },
   loggedName: { color: "#d4d4d8", fontSize: 12, flex: 1 },
+  mealBadge: { color: "#71717a", fontSize: 8, textTransform: "capitalize", borderRadius: 5, borderWidth: 1, borderColor: "#3f3f46", paddingHorizontal: 5, paddingVertical: 2 },
   loggedCalories: { color: "#a1a1aa", fontSize: 11 },
+  guideRow: { flexDirection: "row", gap: 5, marginBottom: 9 },
+  guideText: { flex: 1, color: "#71717a", fontSize: 8, lineHeight: 11, textAlign: "center" },
+  meals: { flexDirection: "row", gap: 5, marginBottom: 9 },
+  meal: { flex: 1, minHeight: 34, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: "#27272a", backgroundColor: "#18181b" },
+  mealActive: { backgroundColor: ORANGE, borderColor: "#fff", borderWidth: 1.2 },
+  mealText: { color: "#71717a", fontSize: 9, fontWeight: "700" },
+  mealTextActive: { color: "#fff" },
   tabs: { flexDirection: "row", borderRadius: 12, backgroundColor: "#18181b", borderWidth: 1, borderColor: "#27272a", padding: 3, marginBottom: 12 },
   tab: { flex: 1, alignItems: "center", gap: 3, paddingVertical: 9, borderRadius: 9 },
   tabActive: { backgroundColor: "rgba(249,115,22,0.12)", borderWidth: 1, borderColor: "rgba(249,115,22,0.45)" },
@@ -350,6 +400,8 @@ const styles = StyleSheet.create({
   fieldLabel: { color: "#71717a", fontSize: 9, fontWeight: "700", letterSpacing: 0.6, marginBottom: 4 },
   field: { minHeight: 46, borderRadius: 9, borderWidth: 1, borderColor: "#3f3f46", backgroundColor: "#18181b", color: "#fff", paddingHorizontal: 12, fontSize: 13 },
   selectionCard: { gap: 10, borderRadius: 12, borderWidth: 1, borderColor: "rgba(249,115,22,0.45)", backgroundColor: "#111113", padding: 13, marginTop: 12 },
+  backToResults: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", paddingVertical: 2 },
+  backToResultsText: { color: "#a1a1aa", fontSize: 10, fontWeight: "600" },
   selectionHeader: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   quickAmounts: { flexDirection: "row", gap: 6 },
   amount: { flex: 1, borderRadius: 7, borderWidth: 1, borderColor: "#3f3f46", paddingVertical: 7, alignItems: "center" },

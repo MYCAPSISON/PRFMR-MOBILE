@@ -26,6 +26,25 @@ const { width: SW, height: SH } = Dimensions.get("window");
 const BG = "#0a0a0a";
 const PRIMARY = "#F97316";
 
+// Keep the established internal step IDs stable for API/docs parity, but do
+// not render these screens in the mobile flow. Survey values owned by removed
+// steps are explicitly submitted blank in doSubmit().
+const REMOVED_ONBOARDING_STEPS = new Set([1, 2, 12, 13, 14, 15, 18, 19, 20, 21, 24]);
+const VISIBLE_ONBOARDING_STEPS = Array.from({ length: 34 }, (_, index) => index)
+  .filter(index => !REMOVED_ONBOARDING_STEPS.has(index));
+
+function nextVisibleStep(current: number) {
+  let candidate = current + 1;
+  while (candidate <= 33 && REMOVED_ONBOARDING_STEPS.has(candidate)) candidate += 1;
+  return Math.min(candidate, 33);
+}
+
+function previousVisibleStep(current: number) {
+  let candidate = current - 1;
+  while (candidate >= 0 && REMOVED_ONBOARDING_STEPS.has(candidate)) candidate -= 1;
+  return Math.max(candidate, 0);
+}
+
 // ─────────────────────────────────────────────────────────────
 // Splash geometry (image 863 × 1665, contain mode)
 // ─────────────────────────────────────────────────────────────
@@ -352,12 +371,6 @@ export default function OnboardingScreen() {
       case 9:  return parseFloat(d.currentWeight) > 30;
       case 10: return !!d.surveyCutExperience;
       case 11: return !!d.surveyCutOutcome;
-      case 12: return !!d.surveyCalorieKnowledge;
-      case 13: return !!d.surveyUnderfueling;
-      case 14: return !!d.surveyTrainingLoadTracking;
-      case 15: return !!d.surveyMicroKnowledge;
-      case 19: return !!d.surveyPerformance;
-      case 20: return d.surveyMainProblems.length > 0;
       case 22: return (!!d.demoFightDate && !!d.demoTargetWeight && parseFloat(d.demoTargetWeight) < parseFloat(d.currentWeight)) || !!d.nonFightPrepMode;
       case 27: return d.surveyStarRating > 0;
       case 31: return !!d.surveyCommitment;
@@ -366,8 +379,8 @@ export default function OnboardingScreen() {
   }
 
   function advance() {
-    let next = step + 1;
-    if (step === 22 && skipCutChart) next = 24;
+    let next = nextVisibleStep(step);
+    if (step === 22 && skipCutChart) next = 25;
     if (isRecalculate) {
       if (step === 9)  next = 22;
       if (step === 22) next = 28;
@@ -380,13 +393,13 @@ export default function OnboardingScreen() {
     setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 50);
   }
   function retreat() {
-    let prev = step - 1;
-    if (step === 24 && skipCutChart) prev = 22;
+    let prev = previousVisibleStep(step);
+    if (step === 25 && skipCutChart) prev = 22;
     if (isRecalculate) {
       if (step === 22) prev = 9;
       if (step === 28) prev = 22;
     }
-    setStep(Math.max(prev, 1));
+    setStep(Math.max(prev, 3));
     setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 50);
   }
 
@@ -413,13 +426,13 @@ export default function OnboardingScreen() {
         mainSport:        mainSport || undefined,
         surveyCutExperience:        d.surveyCutExperience || undefined,
         surveyCutOutcome:           d.surveyCutOutcome || undefined,
-        surveyCalorieKnowledge:     d.surveyCalorieKnowledge || undefined,
-        surveyUnderfueling:         d.surveyUnderfueling || undefined,
-        surveyTrainingLoadTracking: d.surveyTrainingLoadTracking || undefined,
-        surveyMicroKnowledge:       d.surveyMicroKnowledge || undefined,
-        surveyEnergyScore:          d.surveyEnergyScore,
-        surveyPerformance:          d.surveyPerformance || undefined,
-        surveyMainProblems:         d.surveyMainProblems.length > 0 ? d.surveyMainProblems : undefined,
+        surveyCalorieKnowledge:     "",
+        surveyUnderfueling:         "",
+        surveyTrainingLoadTracking: "",
+        surveyMicroKnowledge:       "",
+        surveyEnergyScore:          "",
+        surveyPerformance:          "",
+        surveyMainProblems:         [],
         surveyStarRating:           d.surveyStarRating || undefined,
         surveyCommitment:           d.surveyCommitment || undefined,
       };
@@ -495,7 +508,7 @@ export default function OnboardingScreen() {
         />
         <Pressable
           testID="button-splash-cta"
-          onPress={() => setStep(1)}
+          onPress={() => setStep(nextVisibleStep(0))}
           accessibilityLabel="Let's build your plan"
           style={{ position: "absolute", bottom: SPLASH_BTN.bottom, height: SPLASH_BTN.height, left: SPLASH_BTN.left, right: SPLASH_BTN.right }}
         />
@@ -531,7 +544,7 @@ export default function OnboardingScreen() {
   }
 
   // ── Steps 1–33: Shell ─────────────────────────────────────────
-  const hideBack = step <= 1;
+  const hideBack = step === 3;
   const isLast   = step === 33;
   const ready    = canProceed();
   const readiness      = readinessScore(d.demoSleepHours, d.demoEnergyLevel);
@@ -551,7 +564,7 @@ export default function OnboardingScreen() {
     >
       {/* Progress bar */}
       <View style={sh.progressTrack}>
-        <View style={[sh.progressFill, { width: `${(step / 33) * 100}%` as any }]} />
+        <View style={[sh.progressFill, { width: `${(Math.max(0, VISIBLE_ONBOARDING_STEPS.indexOf(step)) / (VISIBLE_ONBOARDING_STEPS.length - 1)) * 100}%` as any }]} />
       </View>
       {/* Logo strip */}
       <View style={[sh.logoStrip, { paddingTop: insets.top }]}>
@@ -752,7 +765,21 @@ export default function OnboardingScreen() {
         </>}
 
         {/* ── Step 16: Bombshell stats ── */}
-        {step === 16 && <>
+        {step === 16 && (d.surveyCutOutcome === "yes" ? <>
+          <Heading text={d.firstName ? `${d.firstName}, that's a strong foundation.` : "That's a strong foundation."} />
+          <Sub text="Your previous cuts went to plan." />
+          {[
+            { stat: "✓", desc: "You already know what a successful cut feels like" },
+            { stat: "✓", desc: "You have experience you can build on" },
+            { stat: "✓", desc: "PRFMR helps you repeat what worked with clearer targets" },
+          ].map(item => (
+            <View key={item.desc} style={s16.card}>
+              <Text style={s16.stat}>{item.stat}</Text>
+              <Text style={s16.desc}>{item.desc}</Text>
+            </View>
+          ))}
+          <Text style={s16.footer}>Now let's make that success easier to repeat.</Text>
+        </> : <>
           <Heading text={d.firstName ? `${d.firstName}, this isn't random.` : "This isn't random."} />
           <Sub text="Most fighters aren't underperforming by accident." />
           {[{ stat: "65%", desc: "of fighters have had a failed weight cut" }, { stat: "~90%", desc: "aren't fueling training properly" }, { stat: "Most", desc: "are missing key micronutrients consistently" }].map(item => (
@@ -762,12 +789,12 @@ export default function OnboardingScreen() {
             </View>
           ))}
           <Text style={s16.footer}>And training? Still managed by guesswork — not data.</Text>
-        </>}
+        </>)}
 
         {/* ── Step 17: Aspiration ── */}
         {step === 17 && <>
-          <Heading text="You don't have to fight like this." />
-          <Sub text="Imagine:" />
+          <Heading text={d.surveyCutOutcome === "yes" ? "Let's make that consistency repeatable." : "You don't have to fight like this."} />
+          <Sub text={d.surveyCutOutcome === "yes" ? "Keep building on what already works:" : "Imagine:"} />
           {["Feeling strong every session", "Never missing weight", "Performing at your peak"].map(t => (
             <View key={t} style={s17.row}>
               <Feather name="check" size={16} color={PRIMARY} />
@@ -1057,7 +1084,14 @@ export default function OnboardingScreen() {
         {step === 23 && (() => {
           const cw = parseFloat(d.currentWeight) || 80;
           const tw = parseFloat(d.demoTargetWeight) || cw - 5;
-          const plan = calculateWeightCutPlan(cw, tw, d.demoFightDate || new Date(Date.now() + 56 * 86400000).toISOString().split("T")[0], d.demoWeighInTiming);
+          const manualTempKg = d.demoManualTempReduction ? parseFloat(d.demoManualTempReduction) : undefined;
+          const plan = calculateWeightCutPlan(
+            cw,
+            tw,
+            d.demoFightDate || new Date(Date.now() + 56 * 86400000).toISOString().split("T")[0],
+            d.demoWeighInTiming,
+            manualTempKg && !isNaN(manualTempKg) ? manualTempKg : undefined,
+          );
           // Build trend: today + up to 4 evenly-sampled interior points (forward order) + fight
           const targets = plan.weeklyTargets;
           const interior: Array<{ weight: number; label: string }> = [];
@@ -1094,7 +1128,7 @@ export default function OnboardingScreen() {
               })}
             </View>
             <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
-              <View style={s23.stat}><Text style={s23.statVal}>−{plan.totalToLose.toFixed(1)} kg</Text><Text style={s23.statLbl}>Projected loss</Text></View>
+              <View style={s23.stat}><Text style={s23.statVal}>{plan.totalToLose.toFixed(1)} kg</Text><Text style={s23.statLbl}>Projected loss</Text></View>
               <View style={s23.stat}><Text style={s23.statVal}>{plan.recommendedWeeklyRate.toFixed(2)} kg</Text><Text style={s23.statLbl}>Per week (fat loss phase)</Text></View>
             </View>
           </>;
